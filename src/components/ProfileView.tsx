@@ -53,7 +53,7 @@ import bank3d from "@/src/assets/3d/3dicons-wallet-iso-premium.png";
 import update3d from "@/src/assets/3d/3dicons-tools-iso-premium.png";
 import guide3d from "@/src/assets/3d/3dicons-pencil-iso-premium.png";
 import community3d from "@/src/assets/3d/3dicons-megaphone-iso-premium.png";
-import play3d from "@/src/assets/3d/3dicons-play-iso-premium.png";
+import lab3d from "@/src/assets/3d/3dicons-lab-iso-premium.png";
 import { Button } from "./ui/button";
 import { useShimmerPulse } from "../hooks/useShimmerPulse";
 import confetti from "canvas-confetti";
@@ -529,8 +529,8 @@ export default function ProfileView({
               <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Guide</span>
             </button>
             <button onClick={() => onNavigate("arcade")} className="flex flex-col items-center gap-1.5 focus:outline-none group">
-              <img src={play3d} alt="" loading="lazy" decoding="async" className="w-12 h-12 object-contain drop-shadow-sm" />
-              <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Arcade</span>
+              <img src={lab3d} alt="" loading="lazy" decoding="async" className="w-12 h-12 object-contain drop-shadow-sm" />
+              <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Experimental</span>
             </button>
           </div>
           <div className="h-px bg-[var(--theme-card-border)]/60" />
