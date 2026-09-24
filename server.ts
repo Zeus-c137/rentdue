@@ -1890,25 +1890,37 @@ app.post("/api/admin/access/activate", async (req, res) => {
     
     await updateSiteConfig(updatedConfig);
 
-    // Create the admin user in standard users collection with 0 points (no funds)
-    await registerUserProfile({
-      phone: adminPhone,
-      username: adminUsername,
-      password: adminPass,
-      referredByCode: "",
-      operator: "MTN",
-      points: 0, // No funds
-      grantRegistrationBonus: false,
-      withdrawnCash: 0,
-      totalDeposits: 0,
-      aiIncome: 0,
-      createdAt: new Date().toISOString(),
-      invitesCount: 0,
-      referralRewardsEarned: 0
-    });
-    
-    res.json({ 
-      success: true, 
+    // Idempotent: the activate page fires on mount (StrictMode double-invokes
+    // in dev), so two requests can race past the seeded-guard above. If the
+    // admin row already exists there is nothing left to do.
+    const existingAdmin = await getUserProfile(adminPhone).catch(() => null);
+    if (!existingAdmin) {
+      try {
+        // Create the admin user in standard users collection with 0 points (no funds)
+        await registerUserProfile({
+          phone: adminPhone,
+          username: adminUsername,
+          password: adminPass,
+          referredByCode: "",
+          operator: "MTN",
+          points: 0, // No funds
+          grantRegistrationBonus: false,
+          withdrawnCash: 0,
+          totalDeposits: 0,
+          aiIncome: 0,
+          createdAt: new Date().toISOString(),
+          invitesCount: 0,
+          referralRewardsEarned: 0
+        });
+      } catch (registerErr) {
+        // Lost the race: a concurrent request created the row first.
+        const raced = await getUserProfile(adminPhone).catch(() => null);
+        if (!raced) throw registerErr;
+      }
+    }
+
+    res.json({
+      success: true,
       message: "Admin credentials successfully seeded from secure environment configuration. Access activated.",
       phone: adminPhone,
       username: adminUsername

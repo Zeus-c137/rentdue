@@ -115,12 +115,17 @@ export default function AdminView() {
   const [seedMessage, setSeedMessage] = useState("Activating admin account...");
   const [seedError, setSeedError] = useState("");
   const [activatedAdminInfo, setActivatedAdminInfo] = useState<{ username?: string; phone?: string }>({});
+  // The activate route POSTs on mount; StrictMode double-invokes effects in
+  // dev, so guard against firing the seed request twice.
+  const seedFiredRef = useRef(false);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
 
   useEffect(() => {
     if (!isActivateRoute) return;
-    
+    if (seedFiredRef.current) return;
+    seedFiredRef.current = true;
+
     const triggerSeed = async () => {
       try {
         const res = await fetch("/api/admin/access/activate", {

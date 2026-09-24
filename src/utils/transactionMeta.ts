@@ -58,10 +58,29 @@ export const LEGACY_TO_CANONICAL: Record<string, TransactionType> = {
   "daily accumulation": "daily_yield",
 };
 
+function asMetadataRecord(metadata?: any): Record<string, any> {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    return metadata as Record<string, any>;
+  }
+  // Backend rows on MariaDB carry metadata as a JSON string (LONGTEXT);
+  // parse tolerantly so shared helpers work on both shapes.
+  if (typeof metadata === "string" && metadata.trim()) {
+    try {
+      const parsed = JSON.parse(metadata);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>;
+      }
+    } catch {
+      // fall through to empty record
+    }
+  }
+  return {};
+}
+
 export function canonicalTypeOf(rawType: string, metadata?: any): TransactionType | string {
   const lower = String(rawType || "").toLowerCase();
   if (lower === "referral") {
-    const lvl = metadata && typeof metadata === "object" ? (metadata as Record<string, any>).level : undefined;
+    const lvl = asMetadataRecord(metadata).level;
     if (lvl !== undefined && lvl !== null && lvl !== "" && Number.isFinite(Number(lvl)) && Number(lvl) >= 1 && Number(lvl) <= 4) {
       return "referral_level_income";
     }
@@ -84,7 +103,7 @@ export function getTransactionDisplayMeta(type: string, metadata?: any): {
   level?: number;
 } {
   const canonical = canonicalTypeOf(type, metadata) as string;
-  const m = (metadata && typeof metadata === "object" ? metadata : {}) as Record<string, any>;
+  const m = asMetadataRecord(metadata);
   const isProductWithName = canonical === "product_activation";
   const isReferralLevel = canonical === "referral_level_income";
   return {
@@ -130,7 +149,7 @@ export function filterByHistoryFilter(transactions: any[], filter: string): any[
 }
 
 export function getWithdrawalDisplayAmounts(tx: any): { fee: number; payout: number; requested: number } {
-  const m = (tx.metadata && typeof tx.metadata === "object" ? tx.metadata : {}) as Record<string, any>;
+  const m = asMetadataRecord(tx.metadata);
   return {
     fee: Number(m.feeAmount ?? 0),
     payout: Number(m.payoutAmount ?? tx.amount ?? 0),
