@@ -9,5 +9,5 @@ coverage/
 dist.zip
 node_modules.zip
 .hermes/
-.hut12/
+rentdue/scratch/
 .zeta/
