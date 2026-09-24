@@ -66,7 +66,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
-import ParticleBg from "./ParticleBg";
 import { UserProfile, SubscriptionItem, ThemePreset, ThemeMode, VipTaskConfig } from "../types";
 import AdminChatDesk from "./AdminChatDesk";
 import AdminChart from "./AdminChart";
@@ -1271,7 +1270,6 @@ export default function AdminView() {
   if (isActivateRoute) {
     return (
       <div className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] flex flex-col items-center justify-center p-4 relative overflow-hidden transition-colors">
-        <ParticleBg />
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1363,8 +1361,6 @@ export default function AdminView() {
           backgroundPosition: 'center',
         }}
       >
-        {!authBg && <ParticleBg />}
-        
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

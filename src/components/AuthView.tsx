@@ -8,7 +8,6 @@ import { UserProfile } from "../types";
 import { Phone, Lock, User, UserPlus, LogIn, ArrowLeft, Eye, EyeOff, MessageSquare, Send, ShieldAlert, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
-import ParticleBg from "./ParticleBg";
 import { BrandLogo } from "./BrandLogo";
 import { Button } from "./ui/button";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
@@ -180,8 +179,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
         backgroundPosition: 'center',
       }}
     >
-      {!authBg && <ParticleBg />}
-
       {/* Main Container Envelope */}
       <div className="w-full max-w-xl my-auto z-10 py-6">
 

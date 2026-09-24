@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "motion/react";
-import ParticleBg from "./ParticleBg";
 import { useCurrency } from "../currency";
 import VisaMetricCard from "./VisaMetricCard";
 import { toast } from "sonner";

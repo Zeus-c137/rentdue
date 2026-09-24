@@ -19,7 +19,6 @@ import ChatView from "./components/ChatView";
 import TransactionHistoryView from "./components/TransactionHistoryView";
 import VipTasksPage from "./components/VipTasksPage";
 import ProductGuessGame from "./components/ProductGuessGame";
-import ParticleBg from "./components/ParticleBg";
 import AlertsView from "./components/AlertsView";
 import AdminView from "./components/AdminView";
 import { BrandLogo } from "./components/BrandLogo";
