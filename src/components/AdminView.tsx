@@ -2693,7 +2693,7 @@ export default function AdminView() {
                                 <span className="text-[11px] opacity-70 block mb-1">Auth View Background Image URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.authBgImage || ""}
                                     onChange={(e) => setSiteConfig({ ...siteConfig, authBgImage: e.target.value })}
                                     placeholder="https://images.unsplash.com/..."
@@ -2722,7 +2722,7 @@ export default function AdminView() {
                                 <span className="text-[11px] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.dashboardBgImage || ""}
                                     onChange={(e) => setSiteConfig({ ...siteConfig, dashboardBgImage: e.target.value })}
                                     placeholder="https://images.unsplash.com/..."
