@@ -196,10 +196,12 @@ export const ThemeProvider: React.FC<{
 
     if (isDark) {
       root.classList.add("dark");
-      root.style.setProperty("--theme-text-muted", "#94a3b8");
+      root.style.setProperty("--theme-text-muted", "#A3B18A");
+      root.style.setProperty("--theme-on-primary", "#1A2E05");
     } else {
       root.classList.remove("dark");
-      root.style.setProperty("--theme-text-muted", "#78716c");
+      root.style.setProperty("--theme-text-muted", "#5B6B4C");
+      root.style.setProperty("--theme-on-primary", "#FFFFFF");
     }
     void darkenColor;
   }, [themePreset, themeMode, cardStyle, buttonStyle, borderRadius, primaryColor, accentColor, secondaryColor, bgColor, cardBgColor, fontFamily, fontSizeScale, textColor]);

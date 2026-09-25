@@ -66,7 +66,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
-import ParticleBg from "./ParticleBg";
 import { UserProfile, SubscriptionItem, ThemePreset, ThemeMode, VipTaskConfig } from "../types";
 import AdminChatDesk from "./AdminChatDesk";
 import AdminChart from "./AdminChart";
@@ -116,12 +115,18 @@ export default function AdminView() {
   const [seedMessage, setSeedMessage] = useState("Activating admin account...");
   const [seedError, setSeedError] = useState("");
   const [activatedAdminInfo, setActivatedAdminInfo] = useState<{ username?: string; phone?: string }>({});
+  // The activate route POSTs on mount; StrictMode double-invokes effects in
+  // dev, so guard against firing the seed request twice.
+  const seedFiredRef = useRef(false);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [uploadingField, setUploadingField] = useState<"logoUrl" | "authBgImage" | "dashboardBgImage" | null>(null);
 
   useEffect(() => {
     if (!isActivateRoute) return;
-    
+    if (seedFiredRef.current) return;
+    seedFiredRef.current = true;
+
     const triggerSeed = async () => {
       try {
         const res = await fetch("/api/admin/access/activate", {
@@ -1032,6 +1037,54 @@ export default function AdminView() {
     }
   };
 
+  const handleSiteImageFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    kind: "logo" | "authbg" | "dashboardbg",
+    field: "logoUrl" | "authBgImage" | "dashboardBgImage",
+    label: string
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const allowed = kind === "logo"
+      ? ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
+      : ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      toast.error(kind === "logo" ? "Only PNG, JPG, WebP or SVG images are allowed." : "Only PNG, JPG or WebP images are allowed.");
+      return;
+    }
+    const maxBytes = kind === "logo" ? 2 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast.error(`Image must be smaller than ${maxBytes / (1024 * 1024)} MB.`);
+      return;
+    }
+    setUploadingField(field);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      setSiteConfig({ ...siteConfig, [field]: body.url });
+      toast.success(`${label} uploaded. Save configuration to apply it.`);
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) =>
+    handleSiteImageFile(e, "logo", "logoUrl", "Logo");
+
   const handleSaveSiteConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^\d{9,10}$/.test(siteConfig.adminPhone)) {
@@ -1271,7 +1324,6 @@ export default function AdminView() {
   if (isActivateRoute) {
     return (
       <div className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] flex flex-col items-center justify-center p-4 relative overflow-hidden transition-colors">
-        <ParticleBg />
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1363,8 +1415,6 @@ export default function AdminView() {
           backgroundPosition: 'center',
         }}
       >
-        {!authBg && <ParticleBg />}
-        
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -2448,6 +2498,19 @@ export default function AdminView() {
                                 <BrandLogo siteConfig={siteConfig} className="w-full h-full object-contain" />
                               </div>
                             </div>
+                            <div className="flex items-center gap-3">
+                              <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] ${uploadingField === "logoUrl" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                                  className="hidden"
+                                  disabled={uploadingField === "logoUrl"}
+                                  onChange={handleLogoFile}
+                                />
+                                {uploadingField === "logoUrl" ? "Uploading…" : "Upload logo from disk"}
+                              </label>
+                              <span className="text-[11px] text-[var(--theme-text)] opacity-60">PNG / JPG / WebP / SVG, max 2 MB. Saved on the server — then Save configuration.</span>
+                            </div>
                           </div>
 
                           <div className="border-t border-[var(--theme-card-border)] pt-4 mt-4 space-y-4">
@@ -2630,7 +2693,7 @@ export default function AdminView() {
                                 <span className="text-[11px] opacity-70 block mb-1">Auth View Background Image URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.authBgImage || ""}
                                     onChange={(e) => setSiteConfig({ ...siteConfig, authBgImage: e.target.value })}
                                     placeholder="https://images.unsplash.com/..."
@@ -2644,12 +2707,22 @@ export default function AdminView() {
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "authBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "authBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "authbg", "authBgImage", "Auth background")}
+                                  />
+                                  {uploadingField === "authBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                               <div>
                                 <span className="text-[11px] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.dashboardBgImage || ""}
                                     onChange={(e) => setSiteConfig({ ...siteConfig, dashboardBgImage: e.target.value })}
                                     placeholder="https://images.unsplash.com/..."
@@ -2663,6 +2736,16 @@ export default function AdminView() {
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "dashboardBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "dashboardBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "dashboardbg", "dashboardBgImage", "Dashboard wallpaper")}
+                                  />
+                                  {uploadingField === "dashboardBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                             </div>
                           </div>

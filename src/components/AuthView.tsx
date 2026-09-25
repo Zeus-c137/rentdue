@@ -5,39 +5,105 @@
 
 import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, User, UserPlus, LogIn, ArrowLeft, Eye, EyeOff, MessageSquare, Send, ShieldAlert, HelpCircle } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail, Gift } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
-import ParticleBg from "./ParticleBg";
 import { BrandLogo } from "./BrandLogo";
-import { Button } from "./ui/button";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
-import { useShimmerPulse } from "../hooks/useShimmerPulse";
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
   siteConfig?: any;
 }
 
+type AuthScreen = "welcome" | "login" | "register" | "support";
+
+// Welcome hero: admin-customizable via Custom Wallpapers (authBgImage),
+// otherwise a verified neon-city night photo (Unsplash, ZHENYU LUO).
+const DEFAULT_WELCOME_HERO =
+  "https://images.unsplash.com/photo-1749916883754-a7b3fc88d4a7?auto=format&fit=crop&w=900&q=70";
+
+const WELCOME_SLIDES = [
+  {
+    title: "Built for operators.",
+    sub: "Complete tasks. Earn rewards. Grow on your terms.",
+  },
+  {
+    title: "Track progress daily.",
+    sub: "Watch every run accrue, day after day.",
+  },
+  {
+    title: "Cash out on your terms.",
+    sub: "Top up in seconds, withdraw when it suits you.",
+  },
+];
+
+const PHONE_PATTERN = /^\d{9,10}$/;
+
+function AuthField({
+  icon,
+  className,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { icon: React.ReactNode }) {
+  return (
+    <div className="relative">
+      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 pointer-events-none">
+        {icon}
+      </span>
+      <input
+        {...props}
+        className={`w-full pl-12 pr-12 py-4 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
+      />
+    </div>
+  );
+}
+
+function PrimaryButton({
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className="w-full py-4 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_4px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[3px]"
+    >
+      {children}
+    </button>
+  );
+}
+
+function GhostButton({
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className="w-full py-4 px-6 rounded-2xl border border-[var(--theme-card-border)] text-[var(--theme-text)] font-sans font-semibold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] bg-transparent"
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
-  const [authMode, setAuthMode] = useState<"login" | "register" | "support">("login");
-  
+  const [screen, setScreen] = useState<AuthScreen>("welcome");
+  const [slide, setSlide] = useState(0);
+  const [heroFailed, setHeroFailed] = useState(false);
+
   const [phone, setPhone] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const [localSiteConfig, setLocalSiteConfig] = useState<any>(null);
 
   useEffect(() => {
     fetch("/api/config/site")
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         if (!data.error) setLocalSiteConfig(data);
       })
       .catch(() => {});
@@ -45,12 +111,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const activeConfig = localSiteConfig || siteConfig;
 
-  // Sitename shimmer pulse — same gated interval system as the balance cards.
-  // AuthView only mounts pre-login, so the interval dies on sign-in.
-  const sitenamePulse = useShimmerPulse();
-
+  // Invite-link landing: ?ref=CODE (search or hash) jumps straight to
+  // register with the code applied, then cleans the URL.
   useEffect(() => {
-    let ref = null;
+    let ref: string | null = null;
     try {
       const searchParams = new URLSearchParams(window.location.search);
       ref = searchParams.get("ref");
@@ -64,14 +128,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     } catch (e) {}
 
     if (ref) {
-      setAuthMode("register");
+      setScreen("register");
       setInviteCode(ref.toUpperCase());
       setTimeout(() => {
-        toast.success(`Referral code applied: ${ref.toUpperCase()}`);
+        toast.success(`Referral code applied: ${ref!.toUpperCase()}`);
       }, 500);
 
-      // Keep the referral code in the form, but remove it from the address bar
-      // so refreshing or sharing the post-landing URL does not keep reapplying it.
       try {
         const url = new URL(window.location.href);
         let changed = false;
@@ -96,22 +158,31 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Welcome carousel auto-advance (pauses off-screen: AuthView unmounts at login).
+  useEffect(() => {
+    if (screen !== "welcome") return;
+    const timer = setInterval(() => {
+      setSlide((s) => (s + 1) % WELCOME_SLIDES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [screen]);
+
+  const goTo = (next: AuthScreen) => {
+    setPassword("");
+    setShowPassword(false);
+    setScreen(next);
+  };
+
+  const handleSubmit = async (e: React.FormEvent, mode: "login" | "register") => {
     e.preventDefault();
-    const isRegister = authMode === "register";
 
     if (!phone || !password) {
       toast.error("Please enter both phone and password.");
       return;
     }
-    
-    if (!/^\d{9,10}$/.test(phone)) {
-      toast.error("Phone number must be 9 or 10 digits.");
-      return;
-    }
 
-    if (isRegister && password !== confirmPassword) {
-      toast.error("Passwords do not match.");
+    if (!PHONE_PATTERN.test(phone)) {
+      toast.error("Phone number must be 9 or 10 digits.");
       return;
     }
 
@@ -123,10 +194,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     setIsLoading(true);
 
     try {
-      const endpoint = isRegister ? "/api/auth/register" : "/api/auth/login";
-      const payload = isRegister
-        ? { phone, password, confirmPassword, inviteCode, username: username.trim() || undefined }
-        : { phone, password };
+      const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+      // Single password field by design; the API contract still expects a
+      // matching confirmPassword, so echo it.
+      const payload =
+        mode === "register"
+          ? { phone, password, confirmPassword: password, inviteCode, username: username.trim() || undefined }
+          : { phone, password };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -139,7 +213,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
         throw new Error(data.error || "Authentication failed. Try again.");
       }
 
-      if (isRegister) {
+      if (mode === "register") {
         const issuedBonus = Number(data.profile?.points || 0);
         if (issuedBonus > 0) {
           // Carry the server-confirmed bonus through the register -> login
@@ -152,10 +226,8 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
         }
         toast.success("Registration successful!");
         setTimeout(() => {
-          setAuthMode("login");
-          setPassword("");
+          goTo("login");
           setUsername("");
-          setConfirmPassword("");
         }, 1200);
       } else {
         toast.success("Logged in successfully!");
@@ -168,259 +240,375 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     }
   };
 
-  const authBg = fixGitHubImageUrl(activeConfig?.authBgImage);
-  const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
+  const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
+  const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
-  return (
-    <div 
-      className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] flex flex-col items-center justify-center p-4 relative overflow-y-auto transition-colors"
-      style={{
-        backgroundImage: authBg ? `linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.75)), url('${authBg}')` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
-    >
-      {!authBg && <ParticleBg />}
+  const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
 
-      {/* Main Container Envelope */}
-      <div className="w-full max-w-xl my-auto z-10 py-6">
+  const currentSlide = WELCOME_SLIDES[slide];
+
+  return (
+    <div className="min-h-[100dvh] bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] transition-colors">
+      <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col px-6 pt-6 pb-8">
+        {/* Brand header */}
+        <div className="flex items-center gap-3">
+          {(screen === "login" || screen === "register" || screen === "support") && (
+            <button
+              type="button"
+              aria-label="Back"
+              onClick={() => goTo(screen === "support" ? "login" : "welcome")}
+              className="w-9 h-9 -ml-2 flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+          <BrandLogo siteConfig={activeConfig} className="w-9 h-9 flex items-center justify-center shrink-0" />
+          <span className="font-display font-black text-lg tracking-tight uppercase">{brandName}</span>
+        </div>
+
+        {screen === "welcome" && (
+          <div className="flex items-center gap-1.5 pt-5">
+            {WELCOME_SLIDES.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Go to slide ${i + 1}`}
+                onClick={() => setSlide(i)}
+                className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                  i === slide ? "w-5 bg-[var(--theme-primary)]" : "w-1.5 bg-[var(--theme-text)] opacity-20"
+                }`}
+              />
+            ))}
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
-
-
-          {/* LOGIN & REGISTER FORM VIEW */}
-          {(authMode === "login" || authMode === "register") && (
+          {/* ============ WELCOME ============ */}
+          {screen === "welcome" && (
             <motion.div
-              key="auth-form"
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -15 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-md mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-6 sm:p-8 shadow-2xl relative overflow-hidden space-y-5"
+              key="welcome"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col pt-5"
             >
-              {/* Logo and Name WITHIN the form card with NO description */}
-              <div className="text-center space-y-1.5 pb-1">
-                <BrandLogo siteConfig={activeConfig} className="w-14 h-14 mx-auto block bg-transparent shadow-none" />
-                <h2 className={`font-display font-extrabold text-2xl text-[var(--theme-text)]${sitenamePulse ? " animate-shimmer-slow" : ""}`}>
-                  {activeConfig?.brandName || " "}
-                </h2>
+              <div className="min-h-[158px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={slide}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                  >
+                    <h1 className="font-display font-black text-[42px] leading-[1.05] tracking-tight">
+                      {currentSlide.title}
+                    </h1>
+                    <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                      {currentSlide.sub}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
               </div>
 
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {authMode === "register" && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-sans font-bold uppercase tracking-wider text-[var(--theme-text)]">Display Name <span className="normal-case font-normal opacity-50">(Optional)</span></label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-[var(--theme-text)] opacity-40 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        autoComplete="nickname"
-                        maxLength={64}
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-sm font-sans font-medium rounded-[14px] outline-none transition-colors select-text"
-                      />
-                    </div>
+              <div className="mt-6 flex-1 min-h-[220px] rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
+                {!heroFailed ? (
+                  <img
+                    src={heroSrc}
+                    alt="Operators at work at night"
+                    loading="eager"
+                    onError={() => setHeroFailed(true)}
+                    className="absolute inset-0 w-full h-full object-cover block"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--theme-primary)_0%,transparent_70%)] opacity-90">
+                    <BrandLogo siteConfig={activeConfig} className="w-24 h-24 flex items-center justify-center" />
                   </div>
                 )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+              </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-sans font-bold uppercase tracking-wider text-[var(--theme-text)]">Phone Number</label>
-                  <div className="relative">
-                    <Phone className="w-4 h-4 text-[var(--theme-text)] opacity-40 absolute left-3.5 top-3.5" />
-                    <input
-                      type="tel"
-                      required
-                      autoComplete="tel"
-                      placeholder="e.g. 0770000000"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-sm font-sans font-medium rounded-[14px] outline-none transition-colors select-text"
-                    />
-                  </div>
-                </div>
+              <div className="space-y-3 mt-6">
+                <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
+                  Register <ArrowRight className="w-4 h-4" />
+                </PrimaryButton>
+                <GhostButton onClick={() => goTo("login")} disabled={isLoading}>
+                  Login <ArrowRight className="w-4 h-4" />
+                </GhostButton>
+              </div>
+            </motion.div>
+          )}
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-sans font-bold uppercase tracking-wider text-[var(--theme-text)]">Password</label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-[var(--theme-text)] opacity-40 absolute left-3.5 top-3.5" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      autoComplete={authMode === "register" ? "new-password" : "current-password"}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-10 pr-10 py-3 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-sm font-sans font-medium rounded-[14px] outline-none transition-colors select-text"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3.5 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
+          {/* ============ LOGIN ============ */}
+          {screen === "login" && (
+            <motion.div
+              key="login"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col pt-10"
+            >
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
+                Welcome
+                <br />
+                back.
+              </h1>
 
-                {authMode === "register" && (
-                  <>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-sans font-bold uppercase tracking-wider text-[var(--theme-text)]">Confirm Password</label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-[var(--theme-text)] opacity-40 absolute left-3.5 top-3.5" />
-                        <input
-                          type={showConfirmPassword ? "text" : "password"}
-                          required
-                          autoComplete="new-password"
-                          placeholder="••••••••"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full pl-10 pr-10 py-3 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-sm font-sans font-medium rounded-[14px] outline-none transition-colors select-text"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-3.5 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
-                        >
-                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <label className="text-xs font-sans font-bold uppercase tracking-wider text-[var(--theme-text)]">Invite Code <span className="normal-case font-normal opacity-50">(Optional)</span></label>
-                        {inviteBonus > 0 && (
-                          <span className="text-[11px] font-sans font-medium text-emerald-600">Claim UGX {inviteBonus.toLocaleString()}</span>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <UserPlus className="w-4 h-4 text-[var(--theme-text)] opacity-40 absolute left-3.5 top-3.5" />
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          placeholder="REFERRAL CODE"
-                          value={inviteCode}
-                          onChange={(e) => setInviteCode(e.target.value)}
-                          className="w-full pl-10 pr-4 py-3 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] text-sm rounded-[14px] outline-none transition-colors uppercase font-mono font-medium tracking-wide select-text"
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <Button
-                  variant="gold-glossy"
-                  size="md"
-                  type="submit"
-                  loading={isLoading}
-                  disabled={isLoading}
-                  className="w-full mt-1"
-                  glow={false}
-                >
-                  {authMode === "register" ? (
-                    <>
-                      <UserPlus className="w-4 h-4" />
-                      <span>REGISTER</span>
-                    </>
-                  ) : (
-                    <>
-                      <LogIn className="w-4 h-4" />
-                      <span>LOGIN</span>
-                    </>
-                  )}
-                </Button>
-              </form>
-
-              {/* Mode Toggles */}
-              <div className="text-center pt-1 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode(authMode === "register" ? "login" : "register");
-                  }}
-                  className="text-xs font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer block w-full"
-                >
-                  {authMode === "register" ? "Already a member? Sign in" : "New member? Create account"}
-                </button>
-                
-                {authMode === "login" && (
+              <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
+                <AuthField
+                  icon={<Phone className="w-5 h-5" />}
+                  type="tel"
+                  required
+                  autoComplete="tel"
+                  aria-label="Phone Number"
+                  placeholder="Phone Number"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <div className="relative">
+                  <AuthField
+                    icon={<Lock className="w-5 h-5" />}
+                    type={showPassword ? "text" : "password"}
+                    required
+                    autoComplete="current-password"
+                    aria-label="Password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
                   <button
                     type="button"
-                    onClick={() => { setAuthMode("support"); }}
-                    className="text-xs font-sans font-normal text-[var(--theme-text)] opacity-50 hover:opacity-100 transition-opacity cursor-pointer block w-full"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => goTo("support")}
+                    className="text-[13px] font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer"
                   >
                     Forgot password?
                   </button>
-                )}
+                </div>
 
-              </div>
-            </motion.div>
-          )}
+                <div className="flex-1" />
 
-          {/* SUPPORT DESK VIEW - ONLY logo in support desk form, WhatsApp & Telegram placements configured via siteConfig */}
-          {authMode === "support" && (
-            <motion.div
-              key="support"
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -15 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-md mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-6 sm:p-8 shadow-2xl relative overflow-hidden space-y-6"
-            >
-              {/* Only leave the logo in the support desk form with title (no description) */}
-              <div className="text-center space-y-2">
-                <BrandLogo siteConfig={activeConfig} className="w-14 h-14 mx-auto block bg-transparent shadow-none" />
-                <h2 className="text-2xl font-extrabold text-[var(--theme-text)]">Support Desk</h2>
-              </div>
+                <div className="pt-2">
+                  <PrimaryButton type="submit" disabled={isLoading}>
+                    {isLoading ? (
+                      <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        Login <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </PrimaryButton>
+                </div>
+              </form>
 
-              {/* WhatsApp and Telegram Placements configured via siteConfig */}
-              <div className="space-y-3 pt-2">
-                {/* Telegram Support Placement */}
-                <a 
-                  href={activeConfig?.whatsappLink || "https://t.me/#"} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="btn-3d-secondary w-full py-3.5 px-4 flex items-center gap-3 text-[var(--theme-text)] cursor-pointer hover:border-sky-500/50 transition-all"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z"/></svg>
-                  <div className="text-left font-sans flex-1">
-                    <div className="font-bold text-sm">Telegram Support</div>
-                    <div className="text-xs opacity-70">Live agent chat</div>
-                  </div>
-                </a>
-                
-                {/* Telegram Channel Placement */}
-                <a 
-                  href={activeConfig?.telegramLink || "https://t.me/#"} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="btn-3d-secondary w-full py-3.5 px-4 flex items-center gap-3 text-[var(--theme-text)] cursor-pointer hover:border-sky-500/50 transition-all"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z"/></svg>
-                  <div className="text-left font-sans flex-1">
-                    <div className="font-bold text-sm">Telegram Channel</div>
-                    <div className="text-xs opacity-70">Official community announcements</div>
-                  </div>
-                </a>
-              </div>
-
-              <div className="pt-2 text-center">
+              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+                New here?{" "}
                 <button
                   type="button"
-                  onClick={() => { setAuthMode("login"); }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
+                  onClick={() => goTo("register")}
+                  className="font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
+                  Register
                 </button>
               </div>
             </motion.div>
           )}
 
-        </AnimatePresence>
+          {/* ============ REGISTER ============ */}
+          {screen === "register" && (
+            <motion.div
+              key="register"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col pt-10"
+            >
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
+                Create your
+                <br />
+                account.
+              </h1>
 
+              <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
+                <AuthField
+                  icon={<Mail className="w-5 h-5" />}
+                  type="text"
+                  autoComplete="nickname"
+                  maxLength={64}
+                  aria-label="Email or Username"
+                  placeholder="Email / Username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+                <AuthField
+                  icon={<Phone className="w-5 h-5" />}
+                  type="tel"
+                  required
+                  autoComplete="tel"
+                  aria-label="Phone Number"
+                  placeholder="Phone Number"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <div className="relative">
+                  <AuthField
+                    icon={<Lock className="w-5 h-5" />}
+                    type={showPassword ? "text" : "password"}
+                    required
+                    autoComplete="new-password"
+                    aria-label="Password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                <div>
+                  <AuthField
+                    icon={<User className="w-5 h-5" />}
+                    type="text"
+                    autoComplete="off"
+                    aria-label="Invite Code"
+                    placeholder="Invite Code"
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    className="uppercase font-mono tracking-wide"
+                  />
+                  {inviteBonus > 0 && (
+                    <p className="mt-1.5 text-xs font-sans text-[var(--theme-primary)] font-semibold">
+                      Invite bonus: UGX {inviteBonus.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex-1" />
+
+                {regBonus > 0 && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3">
+                    <span className="w-10 h-10 rounded-xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] flex items-center justify-center shrink-0">
+                      <Gift className="w-5 h-5" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-sans font-black text-[15px] leading-tight">
+                        UGX {regBonus.toLocaleString()} welcome bonus
+                      </p>
+                      <p className="text-xs font-sans text-[var(--theme-text-muted)]">
+                        Yours to claim the moment you register.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <PrimaryButton type="submit" disabled={isLoading}>
+                    {isLoading ? (
+                      <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        Register <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </PrimaryButton>
+                </div>
+              </form>
+
+              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => goTo("login")}
+                  className="font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
+                >
+                  Login
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ============ SUPPORT ============ */}
+          {screen === "support" && (
+            <motion.div
+              key="support"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col pt-10"
+            >
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
+                Need a<br />
+                hand?
+              </h1>
+              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                Talk to a live agent to recover your account.
+              </p>
+
+              <div className="mt-8 space-y-3.5">
+                <a
+                  href={activeConfig?.whatsappLink || "https://t.me/#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500">
+                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z" />
+                  </svg>
+                  <div className="text-left font-sans flex-1">
+                    <div className="font-bold text-[15px]">Telegram Support</div>
+                    <div className="text-[13px] text-[var(--theme-text-muted)]">Live agent chat</div>
+                  </div>
+                </a>
+
+                <a
+                  href={activeConfig?.telegramLink || "https://t.me/#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500">
+                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z" />
+                  </svg>
+                  <div className="text-left font-sans flex-1">
+                    <div className="font-bold text-[15px]">Telegram Channel</div>
+                    <div className="text-[13px] text-[var(--theme-text-muted)]">Official community announcements</div>
+                  </div>
+                </a>
+              </div>
+
+              <div className="flex-1" />
+              <div className="border-t border-[var(--theme-card-border)] mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+                Remembered it?{" "}
+                <button
+                  type="button"
+                  onClick={() => goTo("login")}
+                  className="font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
+                >
+                  Login
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

@@ -44,7 +44,6 @@ import link3d from "@/src/assets/3d/3dicons-link-iso-premium.png";
 import megaphone3d from "@/src/assets/3d/3dicons-megaphone-iso-premium.png";
 import chart3d from "@/src/assets/3d/3dicons-chart-iso-premium.png";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
-import ParticleBg from "./ParticleBg";
 import NewsCarousel from "./NewsCarousel";
 import MetricCard from "./MetricCard";
 import FeaturedProducts from "./FeaturedProducts";

@@ -18,24 +18,25 @@
   --text-xl--line-height: 2rem;
 }
 
-/* Dynamic Theme CSS Variables Defaults — hut12 light */
+/* Dynamic Theme CSS Variables Defaults — operator light */
 :root {
   color-scheme: light dark;
   --theme-font-family: 'Sora', 'Outfit', sans-serif;
   --theme-font-base: 16px;
-  --theme-primary: #CF7500;
-  --theme-primary-shadow: #9A4F00;
-  --theme-accent: #CF7500;
-  --theme-accent-shadow: #9A4F00;
-  --theme-secondary: #CF7500;
-  --theme-secondary-shadow: #9A4F00;
-  --theme-bg: #faf6f0;
-  --theme-card-bg: rgba(255,255,255,0.72);
-  --theme-card-border: rgba(28,25,23,0.06);
-  --theme-card-shadow: #e7e5e4;
+  --theme-primary: #65A30D;
+  --theme-primary-shadow: #3F6212;
+  --theme-accent: #4D7C0F;
+  --theme-accent-shadow: #365314;
+  --theme-secondary: #84CC16;
+  --theme-secondary-shadow: #4D7C0F;
+  --theme-on-primary: #FFFFFF;
+  --theme-bg: #F7FEE7;
+  --theme-card-bg: rgba(255,255,255,0.9);
+  --theme-card-border: rgba(26,46,5,0.1);
+  --theme-card-shadow: #E3E8CF;
   --theme-radius: 1.25rem;
-  --theme-text: #1c1917;
-  --theme-text-muted: #78716c;
+  --theme-text: #1A2E05;
+  --theme-text-muted: #5B6B4C;
 }
 
 /* (Browser autofill is handled by the single consolidated block below —
@@ -55,16 +56,17 @@ body {
 .dark {
   --theme-bg: #000000;
   --theme-card-bg: rgba(255,255,255,0.06);
-  --theme-card-border: rgba(255,255,255,0.08);
+  --theme-card-border: rgba(198,255,0,0.14);
   --theme-card-shadow: #000000;
-  --theme-text: #fafaf9;
-  --theme-text-muted: #a1a1aa;
+  --theme-text: #F7FEE7;
+  --theme-text-muted: #A3B18A;
+  --theme-on-primary: #1A2E05;
 }
 
 /* 3D Extruded & Dynamic Button Controls */
 .btn-3d-primary {
   background-color: var(--theme-primary);
-  color: #ffffff;
+  color: var(--theme-on-primary);
   box-shadow: 0 4px 0 var(--theme-primary-shadow);
   border-radius: var(--theme-radius);
   transition: all 0.15s ease-in-out;
@@ -78,7 +80,7 @@ body {
 
 .btn-3d-accent {
   background-color: var(--theme-accent);
-  color: #ffffff;
+  color: var(--theme-on-primary);
   box-shadow: 0 4px 0 var(--theme-accent-shadow);
   border-radius: var(--theme-radius);
   transition: all 0.15s ease-in-out;
@@ -466,16 +468,16 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   opacity: 0.85 !important;
 }
 
-/* — Hut12 3D Gold Button — extracted from mock3dbtn (matte) + mock3dbtn copy (glossy) — */
+/* — Operator 3D Lime Button — neon-lime ramp (var names kept for compat) — */
 :root {
   --hut-gold-highlight: #FFFFFF;
-  --hut-gold-100: #FFE8A3;
-  --hut-gold-300-matte: #FF9F0A;
-  --hut-gold-300-glossy: #FFB033;
-  --hut-gold-500: #CF7500;
-  --hut-gold-700: #9A4F00;
-  --hut-gold-900: #5A2E00;
-  --hut-gold-text: #2E1B00;
+  --hut-gold-100: #ECFCCB;
+  --hut-gold-300-matte: #A3E635;
+  --hut-gold-300-glossy: #C6FF00;
+  --hut-gold-500: #84CC16;
+  --hut-gold-700: #4D7C0F;
+  --hut-gold-900: #1A2E05;
+  --hut-gold-text: #1A2E05;
   --hut-glow-opacity-matte: 0.2;
   --hut-glow-opacity-glossy: 0.28;
 }
@@ -504,13 +506,13 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  background: radial-gradient(ellipse at center, rgba(190,147,48, var(--hut-glow-opacity-matte)), transparent 68%);
+  background: radial-gradient(ellipse at center, rgba(132,204,22, var(--hut-glow-opacity-matte)), transparent 68%);
   filter: blur(18px);
   pointer-events: none;
 }
 .hut-btn-3d:has(.hut-gold-glossy) .hut-glow,
 .hut-gold-glossy ~ .hut-glow {
-  background: radial-gradient(ellipse at center, rgba(230,189,87, var(--hut-glow-opacity-glossy)), transparent 68%);
+  background: radial-gradient(ellipse at center, rgba(198,255,0, var(--hut-glow-opacity-glossy)), transparent 68%);
 }
 .hut-btn-pulse {
   position: absolute;

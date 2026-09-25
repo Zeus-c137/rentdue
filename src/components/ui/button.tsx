@@ -68,7 +68,7 @@ export function Button({
       "inline-flex items-center justify-center gap-2 rounded-full font-black uppercase tracking-wider transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
     const variantCls =
       variant === "primary"
-        ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[3px]"
+          ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[3px]"
         : variant === "secondary"
           ? "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"
           : "bg-transparent text-[var(--theme-text)]"

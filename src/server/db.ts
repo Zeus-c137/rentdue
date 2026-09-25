@@ -29,8 +29,21 @@ class SiteConfigValidationError extends Error {
   readonly statusCode = 400;
 }
 
+function rootCause(error: unknown): any {
+  // Drizzle wraps the driver error (mysql2 message/code live on `cause`).
+  // Walk the chain so logs show the real failure, not the wrapper.
+  let current = error as any;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (current.code || current.errno) return current;
+    current = current.cause;
+  }
+  return error as any;
+}
+
 function databaseFailure(operation: string, error: unknown): DatabaseOperationError {
-  const details = error as any;
+  const details = rootCause(error);
   console.error(`[Database] ${operation} failed`, {
     code: details?.code,
     errno: details?.errno,
@@ -38,6 +51,31 @@ function databaseFailure(operation: string, error: unknown): DatabaseOperationEr
     message: details?.message || String(error)
   });
   return new DatabaseOperationError(operation, error);
+}
+
+// MariaDB reports JSON columns as LONGTEXT, so the mysql2 driver hands back
+// raw strings where MySQL 8 would yield parsed values. Normalize at the read
+// boundary so the rest of the code can rely on objects/arrays on both.
+function parseJsonField<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value as T;
+  const text = value.trim();
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function readJsonRecord(value: unknown): Record<string, any> {
+  const parsed = parseJsonField<Record<string, any>>(value, {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+function readJsonStringArray(value: unknown): string[] {
+  const parsed = parseJsonField<string[]>(value, []);
+  return Array.isArray(parsed) ? parsed.filter((entry) => typeof entry === "string") : [];
 }
 
 function requireDatabase(operation: string) {
@@ -300,12 +338,12 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
           aiIncome: u.aiIncome,
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
-          claimedVipTasks: (u.claimedVipTasks as string[]) || [],
+          claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
           checkinStreak: u.checkinStreak,
-          redeemedGiftCodes: (u.redeemedGiftCodes as string[]) || [],
+          redeemedGiftCodes: readJsonStringArray(u.redeemedGiftCodes),
           createdAt: u.createdAt
         };
         return user;
@@ -1163,9 +1201,7 @@ export async function getReferreeStatsList(phoneOrCode: string): Promise<Referra
   for (const transaction of referralTransactions) {
     const canon = canonicalTypeOf(String(transaction.type), transaction.metadata) as string;
     if (!["referral_signup_bonus", "referral_level_income"].includes(canon) || !["SUCCESSFUL", "COMPLETED"].includes(String(transaction.status).toUpperCase())) continue;
-    const metadata = transaction.metadata && typeof transaction.metadata === "object"
-      ? transaction.metadata as Record<string, any>
-      : {};
+    const metadata = readJsonRecord(transaction.metadata);
     const sourceUserPhone = String(metadata.sourceUserPhone || transaction.itemId || "").trim();
     const source = descendantByPhone.get(sourceUserPhone.toUpperCase());
     if (!source) continue;
@@ -1607,9 +1643,7 @@ export async function completeSuccessfulWithdrawal(txId: string): Promise<any> {
       throw new Error("The transaction is not a withdrawal.");
     }
 
-    const metadata = transaction.metadata && typeof transaction.metadata === "object"
-      ? transaction.metadata as Record<string, any>
-      : {};
+    const metadata = readJsonRecord(transaction.metadata);
     const payoutAmount = Math.max(0, Number(metadata.payoutAmount ?? transaction.amount));
     settledPayoutAmount = payoutAmount;
     const userRows = await tx.select().from(schema.users)
@@ -1788,12 +1822,12 @@ export async function adminGetAllUsers(): Promise<UserProfile[]> {
           aiIncome: u.aiIncome,
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
-          claimedVipTasks: (u.claimedVipTasks as string[]) || [],
+          claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
           checkinStreak: u.checkinStreak,
-          redeemedGiftCodes: (u.redeemedGiftCodes as string[]) || [],
+          redeemedGiftCodes: readJsonStringArray(u.redeemedGiftCodes),
           createdAt: u.createdAt
         }));
       }
@@ -2292,7 +2326,17 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   const drizzleDb = requireDatabase("load site configuration");
   try {
     const rows = await drizzleDb.select().from(schema.siteConfig).where(eq(schema.siteConfig.id, "main")).limit(1);
-    if (rows.length > 0 && rows[0].configJson) return rows[0].configJson as SiteConfig;
+    if (rows.length > 0 && rows[0].configJson) {
+      const parsed = parseJsonField<Record<string, any>>(rows[0].configJson, {});
+      // Drop numeric keys left by a legacy string-spread write so a repaired
+      // config never carries char-index garbage alongside real settings.
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const key of Object.keys(parsed)) {
+          if (key !== "" && Number.isInteger(Number(key))) delete (parsed as any)[key];
+        }
+        return parsed as SiteConfig;
+      }
+    }
     return {};
   } catch (err) {
     throw databaseFailure("load site configuration", err);
@@ -2302,7 +2346,12 @@ export async function getSiteConfig(): Promise<SiteConfig> {
 export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<SiteConfig> {
   const drizzleDb = requireDatabase("save site configuration");
   try {
-    const current = await getSiteConfig().catch(() => ({}));
+    const rawCurrent = await getSiteConfig().catch(() => ({}));
+    // Never spread a raw driver string: on MariaDB the JSON column reads back
+    // as text, and spreading it writes char-index garbage ("0","1",... keys).
+    const current = (rawCurrent && typeof rawCurrent === "object" && !Array.isArray(rawCurrent))
+      ? rawCurrent
+      : {};
     // hut12 tokens — sanitize merged config to heal stale presets
     const mergedRaw = { ...current, ...newConfig } as SiteConfig & Record<string, any>;
     const sanitizedTokens = sanitizeSiteConfig(mergedRaw);

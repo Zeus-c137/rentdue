@@ -57,7 +57,6 @@ import lab3d from "@/src/assets/3d/3dicons-lab-iso-premium.png";
 import { Button } from "./ui/button";
 import { useShimmerPulse } from "../hooks/useShimmerPulse";
 import confetti from "canvas-confetti";
-import ParticleBg from "./ParticleBg";
 import NewsCarousel from "./NewsCarousel";
 import VisaMetricCard from "./VisaMetricCard";
 import CommunitySheet from "./CommunitySheet";
