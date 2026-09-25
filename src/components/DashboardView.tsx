@@ -71,6 +71,11 @@ function WeekSpark({ data }: { data: number[] }) {
   );
 }
 
+const PROGRESS_GRADIENT: React.CSSProperties = {
+  backgroundImage:
+    "linear-gradient(180deg, var(--hut-gold-300-glossy) 0%, var(--hut-gold-500) 70%, var(--hut-gold-700) 100%)",
+};
+
 function themeConfettiColors(): string[] {
   try {
     const styles = getComputedStyle(document.documentElement);
@@ -114,15 +119,7 @@ export default function DashboardView({
     { enabled: true, visibilityGate: true }
   );
 
-  const todayEarnings = useMemo(() => {
-    let today = 0;
-    for (const n of activeNodes) {
-      if (n.status !== "active") continue;
-      const mapped = items.find((i) => i.id === n.itemId || i.name === n.itemName);
-      today += mapped?.dailyYield !== undefined ? mapped.dailyYield : n.dailyYield || 0;
-    }
-    return today;
-  }, [activeNodes, items]);
+  const weekTotal = weekSeries === null ? null : weekSeries.reduce((sum, v) => sum + v, 0);
 
   // Week sparkline: credited daily yields per day from the ledger.
   useEffect(() => {
@@ -286,7 +283,11 @@ export default function DashboardView({
         </p>
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-[13px] font-sans font-bold text-[var(--theme-primary)]">
-            +{formatCurrency(todayEarnings)} today
+            {weekTotal === null ? (
+              <span className="opacity-60">Tallying the week…</span>
+            ) : (
+              <>+{formatCurrency(weekTotal)} this week</>
+            )}
           </p>
           {weekSeries && <WeekSpark data={weekSeries} />}
         </div>
@@ -347,11 +348,8 @@ export default function DashboardView({
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
                       <span
-                        className="font-mono font-bold text-[13px] tabular-nums shrink-0 bg-clip-text text-transparent"
-                        style={{
-                          backgroundImage:
-                            "linear-gradient(180deg, var(--hut-gold-300-glossy) 0%, var(--hut-gold-500) 70%, var(--hut-gold-700) 100%)",
-                        }}
+                        className="font-display font-bold text-[13px] tabular-nums shrink-0 bg-clip-text text-transparent"
+                        style={PROGRESS_GRADIENT}
                       >
                         {Math.round(progress.percent)}%
                       </span>
@@ -362,11 +360,17 @@ export default function DashboardView({
                         style={{ width: `${progress.percent}%` }}
                       />
                     </div>
-                    <p className="mt-1.5 text-right font-sans font-semibold text-xs text-[var(--theme-text-muted)]">
+                    <p className="mt-1.5 flex items-center justify-between text-xs">
+                      <span className="font-sans font-semibold text-[var(--theme-text-muted)]">Next profit</span>
                       {dueMs > 0 ? (
-                        <>till next credit <span className="font-mono font-bold tabular-nums text-[var(--theme-text)]">{formatCountdownShort(creditIn)}</span></>
+                        <span
+                          className="font-display font-bold tabular-nums bg-clip-text text-transparent"
+                          style={PROGRESS_GRADIENT}
+                        >
+                          {formatCountdownShort(creditIn)}
+                        </span>
                       ) : (
-                        "MATURED"
+                        <span className="font-sans font-semibold text-[var(--theme-text-muted)]">MATURED</span>
                       )}
                     </p>
                   </div>
