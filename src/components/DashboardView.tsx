@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow } from "../types";
-import { Flame, Eye, EyeOff, ChevronRight, Plus, Check, X } from "lucide-react";
+import { Flame, Eye, EyeOff, Plus, Check, X } from "lucide-react";
 import confetti from "canvas-confetti";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -340,7 +340,15 @@ export default function DashboardView({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
-                      <ChevronRight className="w-4 h-4 opacity-40 shrink-0" />
+                      <span
+                        className="font-mono font-bold text-[13px] tabular-nums shrink-0 bg-clip-text text-transparent"
+                        style={{
+                          backgroundImage:
+                            "linear-gradient(180deg, var(--hut-gold-300-glossy) 0%, var(--hut-gold-500) 70%, var(--hut-gold-700) 100%)",
+                        }}
+                      >
+                        {Math.round(progress.percent)}%
+                      </span>
                     </div>
                     <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
                       <div
