@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail, Gift } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
@@ -277,22 +277,24 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               transition={{ duration: 0.25 }}
               className="flex-1 flex flex-col pt-8"
             >
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={slide}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  <h1 className="font-display font-black text-[42px] leading-[1.05] tracking-tight">
-                    {currentSlide.title}
-                  </h1>
-                  <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                    {currentSlide.sub}
-                  </p>
-                </motion.div>
-              </AnimatePresence>
+              <div className="min-h-[158px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={slide}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                  >
+                    <h1 className="font-display font-black text-[42px] leading-[1.05] tracking-tight">
+                      {currentSlide.title}
+                    </h1>
+                    <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                      {currentSlide.sub}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
 
               <div className="mt-6 rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
                 {!heroFailed ? (
@@ -310,8 +312,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
               </div>
-
-              <div className="flex-1" />
 
               <div className="space-y-3 mt-6">
                 <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
@@ -354,7 +354,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 back.
               </h1>
 
-              <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-8 space-y-3.5">
+              <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
                 <AuthField
                   icon={<Phone className="w-5 h-5" />}
                   type="tel"
@@ -396,6 +396,8 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   </button>
                 </div>
 
+                <div className="flex-1" />
+
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
                     {isLoading ? (
@@ -409,8 +411,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </div>
               </form>
 
-              <div className="flex-1" />
-              <div className="border-t border-[var(--theme-card-border)] mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
                 New here?{" "}
                 <button
                   type="button"
@@ -439,7 +440,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 account.
               </h1>
 
-              <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5">
+              <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
                 <AuthField
                   icon={<Mail className="w-5 h-5" />}
                   type="text"
@@ -498,6 +499,27 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   )}
                 </div>
 
+                <div className="flex-1" />
+
+                {regBonus > 0 && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3">
+                    <span className="w-10 h-10 rounded-xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] flex items-center justify-center shrink-0">
+                      <Gift className="w-5 h-5" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-sans font-black text-[15px] leading-tight">
+                        UGX {regBonus.toLocaleString()} welcome bonus
+                      </p>
+                      <p className="text-xs font-sans text-[var(--theme-text-muted)]">
+                        Yours to claim the moment you register.
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[11px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
+                      Claim
+                    </span>
+                  </div>
+                )}
+
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
                     {isLoading ? (
@@ -508,16 +530,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                       </>
                     )}
                   </PrimaryButton>
-                  {regBonus > 0 && (
-                    <p className="mt-3 text-center text-xs font-sans text-[var(--theme-text-muted)]">
-                      New operators get UGX {regBonus.toLocaleString()} to start.
-                    </p>
-                  )}
                 </div>
               </form>
 
-              <div className="flex-1" />
-              <div className="border-t border-[var(--theme-card-border)] mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
                 Already have an account?{" "}
                 <button
                   type="button"

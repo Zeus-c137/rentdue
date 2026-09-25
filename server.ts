@@ -151,6 +151,16 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 // Middleware
 app.use(express.json({ limit: "15mb" })); // allow larger payload for base64 chat screenshot uploads!
 
+// Runtime uploads (site logo etc.) live on disk, outside git and outside
+// dist/, so rebuilds and redeploys never wipe them.
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads");
+try {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch (err) {
+  console.warn("[Uploads] Could not create upload directory:", UPLOAD_DIR, err);
+}
+app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d", fallthrough: true }));
+
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, service: "referral-mining-server", uptimeSeconds: Math.floor(process.uptime()) });
 });
@@ -1981,8 +1991,70 @@ app.post("/api/admin/login", async (req, res) => {
 });
 
 app.post("/api/admin/logout", (_req, res) => {
-  res.setHeader("Set-Cookie", `${ADMIN_SESSION_COOKIE}=; HttpOnly; Path=/api/admin; SameSite=Lax; Max-Age=0`);
+  res.setHeader("Set-Cookie", `${USER_SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
   res.json({ success: true });
+});
+
+// Site image upload (logo etc.) — JSON base64, no extra deps. Files land in
+// UPLOAD_DIR and are served at /uploads/<file>. Behind the admin guard above.
+const SITE_IMAGE_KINDS: Record<string, { exts: string[]; maxBytes: number; prefix: string }> = {
+  logo: { exts: ["png", "jpg", "jpeg", "webp", "svg"], maxBytes: 2 * 1024 * 1024, prefix: "logo" },
+};
+
+app.post("/api/admin/upload", async (req, res) => {
+  try {
+    const kind = String(req.body?.kind || "logo");
+    const spec = SITE_IMAGE_KINDS[kind];
+    if (!spec) return res.status(400).json({ error: "Unknown upload kind." });
+
+    const dataUrl = String(req.body?.data || "");
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return res.status(400).json({ error: "Upload must be a base64 data URL." });
+
+    const dataMime = match[1].toLowerCase();
+    const extFromMime: Record<string, string> = {
+      "image/png": "png",
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/webp": "webp",
+      "image/svg+xml": "svg",
+    };
+    const ext = extFromMime[dataMime];
+    if (!ext || !spec.exts.includes(ext)) {
+      return res.status(400).json({ error: "Only PNG, JPG, WebP or SVG images are allowed." });
+    }
+
+    const buffer = Buffer.from(match[2], "base64");
+    if (!buffer.length || buffer.length > spec.maxBytes) {
+      return res.status(400).json({ error: "Image must be smaller than 2 MB." });
+    }
+    if (ext === "svg") {
+      const text = buffer.toString("utf8");
+      if (text.length > spec.maxBytes || /<script|on\w+\s*=|javascript:/i.test(text)) {
+        return res.status(400).json({ error: "SVG contains blocked content." });
+      }
+    }
+
+    const fileName = `${spec.prefix}-${Date.now()}.${ext}`;
+    // Prune the previous upload for this kind so disk doesn't fill up.
+    try {
+      const config = await getSiteConfig();
+      const prev = String((config as any).logoUrl || "");
+      if (prev.startsWith("/uploads/")) {
+        const prevName = path.basename(prev.split("?")[0]);
+        if (prevName.startsWith(`${spec.prefix}-`)) {
+          fs.rmSync(path.join(UPLOAD_DIR, prevName), { force: true });
+        }
+      }
+    } catch {
+      // best effort — never block the new upload
+    }
+    fs.writeFileSync(path.join(UPLOAD_DIR, fileName), buffer);
+    res.json({ success: true, url: `/uploads/${fileName}` });
+  } catch (error: any) {
+    console.error("[Upload] failed:", error);
+    res.status(500).json({ error: "Upload failed. Try again." });
+  }
 });
 
 app.get("/api/admin/config", async (req, res) => {

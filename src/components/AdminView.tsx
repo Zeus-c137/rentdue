@@ -120,6 +120,7 @@ export default function AdminView() {
   const seedFiredRef = useRef(false);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   useEffect(() => {
     if (!isActivateRoute) return;
@@ -1033,6 +1034,42 @@ export default function AdminView() {
       toast.error(err.message);
     } finally {
       setIsDeletingGiftCode(false);
+    }
+  };
+
+  const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type)) {
+      toast.error("Only PNG, JPG, WebP or SVG images are allowed.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be smaller than 2 MB.");
+      return;
+    }
+    setIsUploadingLogo(true);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "logo", data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      setSiteConfig({ ...siteConfig, logoUrl: body.url });
+      toast.success("Logo uploaded. Save configuration to apply it.");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -2448,6 +2485,19 @@ export default function AdminView() {
                               <div className="w-12 h-12 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center p-2 shrink-0 shadow-sm" title="Logo Preview">
                                 <BrandLogo siteConfig={siteConfig} className="w-full h-full object-contain" />
                               </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] ${isUploadingLogo ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                                  className="hidden"
+                                  disabled={isUploadingLogo}
+                                  onChange={handleLogoFile}
+                                />
+                                {isUploadingLogo ? "Uploading…" : "Upload logo from disk"}
+                              </label>
+                              <span className="text-[11px] text-[var(--theme-text)] opacity-60">PNG / JPG / WebP / SVG, max 2 MB. Saved on the server — then Save configuration.</span>
                             </div>
                           </div>
 
