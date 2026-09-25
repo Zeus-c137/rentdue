@@ -130,7 +130,8 @@ export default function DashboardView({
         startOfToday.setHours(0, 0, 0, 0);
         const startMs = startOfToday.getTime();
         for (const tx of rows) {
-          if (!CREDIT_TYPES.has(String(tx.type || "").toLowerCase())) continue;
+          const type = String(tx.type || "").toLowerCase();
+          if (!CREDIT_TYPES.has(type)) continue;
           if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
           const ts = new Date(tx.timestamp).getTime();
           if (!Number.isFinite(ts)) continue;
@@ -157,6 +158,35 @@ export default function DashboardView({
 
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
+
+  // Mini 7-day streak, same math as the original check-in modal: the server
+  // keeps streaks consecutive, so the live run is exactly `todayStreak` days
+  // ending today (claimed) or yesterday (claimable). Tiles derive from it.
+  const weekTiles = useMemo(() => {
+    const now = new Date();
+    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const todayStreak = checkedInToday ? streak : streak + 1;
+    const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
+    const mondayOffset = (now.getUTCDay() + 6) % 7;
+    const mondayMs = todayMs - mondayOffset * 86400000;
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    return {
+      month: now.toLocaleString("default", { month: "long" }),
+      days: labels.map((label, i) => {
+        const ms = mondayMs + i * 86400000;
+        const key = new Date(ms).toISOString().split("T")[0];
+        const isToday = ms === todayMs;
+        return {
+          key,
+          label,
+          isToday,
+          isFuture: ms > todayMs,
+          // Claimed: inside the live run and (past, or today already checked).
+          claimed: ms >= runStartMs && ms <= todayMs && (ms < todayMs || checkedInToday),
+        };
+      }),
+    };
+  }, [checkedInToday, streak, todayKey]);
 
   const deliverCheckin = (bonus: number, streak: number) => {
     // Atomic balance update: parent profile swaps the moment coins land.
@@ -388,36 +418,67 @@ export default function DashboardView({
         </section>
       )}
 
-      {/* Streak — Day counter with coin */}
-      <section className="flex items-center gap-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-        <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-10 h-10 object-contain shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="font-display font-black text-[15px] leading-tight">
-            Day {checkedInToday ? Math.max(1, streak) : streak + 1}
-          </p>
-          <p className="text-xs font-sans text-[var(--theme-text-muted)]">
-            {checkedInToday
-              ? `${streak}-day streak • see you tomorrow.`
-              : streak > 0
-                ? `${streak}-day streak • check in for day ${streak + 1}.`
-                : "Check in to start day 1."}
-          </p>
+      {/* Daily streak — mini 7-day run, Mon–Sun */}
+      <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
+            <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
+              {weekTiles.month} • {streak > 0 ? `${streak}-day run` : "week"}
+            </p>
+          </div>
+          {checkedInToday ? (
+            <span className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] text-[13px] font-sans font-bold">
+              <Check className="w-4 h-4" /> Checked in
+            </span>
+          ) : (
+            <button
+              ref={checkinBtnRef}
+              type="button"
+              onClick={handleCheckin}
+              disabled={checkinBusy}
+              className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+            >
+              {checkinBusy ? "…" : "Check in"}
+            </button>
+          )}
         </div>
-        {checkedInToday ? (
-          <span className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] text-[13px] font-sans font-bold">
-            <Check className="w-4 h-4" /> Checked in
-          </span>
-        ) : (
-          <button
-            ref={checkinBtnRef}
-            type="button"
-            onClick={handleCheckin}
-            disabled={checkinBusy}
-            className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
-          >
-            {checkinBusy ? "…" : "Check in"}
-          </button>
-        )}
+        <div className="grid grid-cols-7 gap-1.5">
+          {weekTiles.days.map((d) => {
+            const missed = !d.isFuture && !d.isToday && !d.claimed;
+            const active = d.isToday && !d.claimed;
+            return (
+              <div
+                key={d.key}
+                className={`relative rounded-xl aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
+                  d.claimed
+                    ? "bg-[var(--theme-primary)]/15"
+                    : active
+                      ? "border border-[var(--theme-primary)]/70"
+                      : d.isFuture
+                        ? "opacity-40"
+                        : ""
+                }`}
+              >
+                <img
+                  src={dollar3d}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className={`w-7 h-7 object-contain ${missed || d.isFuture ? "grayscale" : ""}`}
+                />
+                {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
+                <span
+                  className={`text-[8px] font-sans font-black uppercase tracking-wide ${
+                    d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
+                  }`}
+                >
+                  {d.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </section>
     </div>
   );
