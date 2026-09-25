@@ -516,9 +516,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         Yours to claim the moment you register.
                       </p>
                     </div>
-                    <span className="shrink-0 text-[11px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
-                      Claim
-                    </span>
                   </div>
                 )}
 

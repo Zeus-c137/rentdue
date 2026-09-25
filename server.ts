@@ -1997,8 +1997,10 @@ app.post("/api/admin/logout", (_req, res) => {
 
 // Site image upload (logo etc.) — JSON base64, no extra deps. Files land in
 // UPLOAD_DIR and are served at /uploads/<file>. Behind the admin guard above.
-const SITE_IMAGE_KINDS: Record<string, { exts: string[]; maxBytes: number; prefix: string }> = {
-  logo: { exts: ["png", "jpg", "jpeg", "webp", "svg"], maxBytes: 2 * 1024 * 1024, prefix: "logo" },
+const SITE_IMAGE_KINDS: Record<string, { exts: string[]; maxBytes: number; prefix: string; field: string }> = {
+  logo: { exts: ["png", "jpg", "jpeg", "webp", "svg"], maxBytes: 2 * 1024 * 1024, prefix: "logo", field: "logoUrl" },
+  authbg: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 4 * 1024 * 1024, prefix: "authbg", field: "authBgImage" },
+  dashboardbg: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 4 * 1024 * 1024, prefix: "dashboardbg", field: "dashboardBgImage" },
 };
 
 app.post("/api/admin/upload", async (req, res) => {
@@ -2039,7 +2041,7 @@ app.post("/api/admin/upload", async (req, res) => {
     // Prune the previous upload for this kind so disk doesn't fill up.
     try {
       const config = await getSiteConfig();
-      const prev = String((config as any).logoUrl || "");
+      const prev = String((config as any)[spec.field] || "");
       if (prev.startsWith("/uploads/")) {
         const prevName = path.basename(prev.split("?")[0]);
         if (prevName.startsWith(`${spec.prefix}-`)) {

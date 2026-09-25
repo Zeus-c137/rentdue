@@ -120,7 +120,7 @@ export default function AdminView() {
   const seedFiredRef = useRef(false);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
-  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [uploadingField, setUploadingField] = useState<"logoUrl" | "authBgImage" | "dashboardBgImage" | null>(null);
 
   useEffect(() => {
     if (!isActivateRoute) return;
@@ -1037,19 +1037,28 @@ export default function AdminView() {
     }
   };
 
-  const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSiteImageFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    kind: "logo" | "authbg" | "dashboardbg",
+    field: "logoUrl" | "authBgImage" | "dashboardBgImage",
+    label: string
+  ) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(file.type)) {
-      toast.error("Only PNG, JPG, WebP or SVG images are allowed.");
+    const allowed = kind === "logo"
+      ? ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
+      : ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      toast.error(kind === "logo" ? "Only PNG, JPG, WebP or SVG images are allowed." : "Only PNG, JPG or WebP images are allowed.");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Image must be smaller than 2 MB.");
+    const maxBytes = kind === "logo" ? 2 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast.error(`Image must be smaller than ${maxBytes / (1024 * 1024)} MB.`);
       return;
     }
-    setIsUploadingLogo(true);
+    setUploadingField(field);
     try {
       const data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -1060,18 +1069,21 @@ export default function AdminView() {
       const res = await fetch("/api/admin/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "logo", data }),
+        body: JSON.stringify({ kind, data }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Upload failed.");
-      setSiteConfig({ ...siteConfig, logoUrl: body.url });
-      toast.success("Logo uploaded. Save configuration to apply it.");
+      setSiteConfig({ ...siteConfig, [field]: body.url });
+      toast.success(`${label} uploaded. Save configuration to apply it.`);
     } catch (err: any) {
       toast.error(err.message || "Upload failed.");
     } finally {
-      setIsUploadingLogo(false);
+      setUploadingField(null);
     }
   };
+
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) =>
+    handleSiteImageFile(e, "logo", "logoUrl", "Logo");
 
   const handleSaveSiteConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2487,15 +2499,15 @@ export default function AdminView() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] ${isUploadingLogo ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                              <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] ${uploadingField === "logoUrl" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
                                 <input
                                   type="file"
                                   accept="image/png,image/jpeg,image/webp,image/svg+xml"
                                   className="hidden"
-                                  disabled={isUploadingLogo}
+                                  disabled={uploadingField === "logoUrl"}
                                   onChange={handleLogoFile}
                                 />
-                                {isUploadingLogo ? "Uploading…" : "Upload logo from disk"}
+                                {uploadingField === "logoUrl" ? "Uploading…" : "Upload logo from disk"}
                               </label>
                               <span className="text-[11px] text-[var(--theme-text)] opacity-60">PNG / JPG / WebP / SVG, max 2 MB. Saved on the server — then Save configuration.</span>
                             </div>
@@ -2695,6 +2707,16 @@ export default function AdminView() {
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "authBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "authBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "authbg", "authBgImage", "Auth background")}
+                                  />
+                                  {uploadingField === "authBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                               <div>
                                 <span className="text-[11px] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
@@ -2714,6 +2736,16 @@ export default function AdminView() {
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "dashboardBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "dashboardBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "dashboardbg", "dashboardBgImage", "Dashboard wallpaper")}
+                                  />
+                                  {uploadingField === "dashboardBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                             </div>
                           </div>
