@@ -57,7 +57,7 @@ import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
 import welcomeGift3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
-import { LevelBadge, tierNameForLevel } from "./components/LevelBadge";
+import { LevelBadge, tierNameForLevel, OPERATOR_TIERS } from "./components/LevelBadge";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
@@ -508,6 +508,12 @@ export default function App() {
     return null; // main content rendered below
   };
 
+  // Welcome modal ladder: admin-defined tiers when present, static ladder otherwise.
+  const modalAdminCats = Array.isArray(siteConfig?.vipTaskCategories)
+    ? siteConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
+    : [];
+  const modalLevels = (modalAdminCats.length > 0 ? modalAdminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
+
   const isMainApp = !isAdminRoute && !isRestoringSession && !!userProfile;
 
   return (
@@ -548,12 +554,52 @@ export default function App() {
               <img src={welcomeGift3d} alt="Welcome gift" decoding="async" className="w-20 h-20 object-contain drop-shadow-xl relative z-10 mx-auto" />
 
               <div className="space-y-2 relative z-10">
-                {/* <span className="text-[11px] font-[var(--theme-font-family)] text-[var(--theme-primary)] font-extrabold uppercase tracking-widest block">WELCOME BONUS CREDITED</span> */}
-                <h3 className="font-display font-black text-lg text-[var(--theme-text)] uppercase tracking-tight">Welcome!</h3>
+                <h3 className="font-display font-black text-lg text-[var(--theme-text)] uppercase tracking-tight">Welcome, Operator.</h3>
                 <p className="text-xs text-[var(--theme-text)] opacity-80 leading-relaxed font-[var(--theme-font-family)] px-1">
-                  Your registration is complete! You have received a welcome bonus of <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> credited directly to your account.
+                  Registration complete — <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> credited to your account.
                 </p>
               </div>
+
+              <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 space-y-3 text-left relative z-10">
+                <div className="flex items-center gap-3">
+                  <LevelBadge level={0} className="w-12 h-12" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-sans font-black text-[15px] leading-tight text-[var(--theme-text)]">
+                      You start as {modalLevels[0]}
+                    </p>
+                    <p className="text-xs font-sans text-[var(--theme-text)] opacity-70">
+                      {modalLevels.length > 1
+                        ? `Complete your first Run to reach ${modalLevels[1]}.`
+                        : "Complete your first Run to climb."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {modalLevels.map((name, i) => (
+                    <span
+                      key={`${name}-${i}`}
+                      className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-sans font-black uppercase tracking-wider ${
+                        i === 0
+                          ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
+                          : "border border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-60"
+                      }`}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleCloseWelcomeModal();
+                  setActiveTab("catalog");
+                }}
+                className="relative z-10 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] transition-all active:scale-[0.98] cursor-pointer"
+              >
+                Start your first Run
+              </button>
             </motion.div>
           </div>
         )}
