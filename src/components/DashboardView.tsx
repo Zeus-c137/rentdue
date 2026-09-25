@@ -18,7 +18,7 @@ import { useCurrency } from "../currency";
 import {
   getRunProgress,
   getRunEndMs,
-  formatCountdownShort,
+  formatClock,
   msToNairobiMidnight,
   getDaypartGreeting,
   getTodayKey,
@@ -367,7 +367,7 @@ export default function DashboardView({
                           className="font-display font-bold tabular-nums bg-clip-text text-transparent"
                           style={PROGRESS_GRADIENT}
                         >
-                          {formatCountdownShort(creditIn)}
+                          {formatClock(creditIn)}
                         </span>
                       ) : (
                         <span className="font-sans font-semibold text-[var(--theme-text-muted)]">MATURED</span>
