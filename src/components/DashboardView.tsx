@@ -18,7 +18,6 @@ import {
   getRunEndMs,
   getNextMaturingRun,
   formatCountdown,
-  getDaypartGreeting,
   getTodayKey,
 } from "../utils/runs";
 
@@ -149,21 +148,16 @@ export default function DashboardView({
     }
   };
 
-  const greetingName = profile.username || "Operator";
   const rangeValue = range === "today" ? todayEarnings : weekEarnings;
   const balanceText = showBalance ? formatCurrency(Number(profile.points) || 0) : `${formatCurrency(0).replace(/[\d.,]+/, "••••")}`;
 
   return (
     <div className="space-y-5 text-[var(--theme-text)]">
-      <p className="font-display font-bold text-[15px] text-[var(--theme-text-muted)] px-1">
-        {getDaypartGreeting()}, {greetingName}.
-      </p>
-
       {/* Balance hero — one balance, plus progress */}
-      <section className="rounded-[var(--theme-radius)] border border-[var(--theme-primary)]/40 bg-[var(--theme-card-bg)] p-5">
+      <section className="px-1 pt-1">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-            Cash Out balance
+            Balance
           </p>
           <button
             type="button"
