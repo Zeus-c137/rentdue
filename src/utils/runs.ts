@@ -76,16 +76,21 @@ export function msToNairobiMidnight(now = new Date()): number {
     hour12: false,
   }).formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
-  // Nairobi is UTC+3 with no DST: platform midnight == 21:00 UTC previous day.
+  // Nairobi is UTC+3 with no DST: Nairobi midnight starting date D == 21:00
+  // UTC on date D itself (00:00+03:00). Next midnight from date D is 21:00 UTC
+  // on date D — NOT D+1, which overshoots by a full day.
   const utcMidnight = Date.UTC(
     Number(get("year")),
     Number(get("month")) - 1,
-    Number(get("day")) + 1,
+    Number(get("day")),
     21,
     0,
     0
   );
-  return Math.max(0, utcMidnight - now.getTime());
+  let remaining = utcMidnight - now.getTime();
+  // Exactly at/after midnight UTC artificats: roll to the next one.
+  if (remaining <= 0) remaining += 24 * 3600 * 1000;
+  return remaining;
 }
 
 /** Clock "07:12:44" for the sub-24h daily countdown. */
@@ -98,14 +103,15 @@ export function formatClock(remainingMs: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
-/** Compact "12D 04:00" for run rows. */
+/** Compact "12D 04:00:11" for run rows — seconds included so rows visibly tick. */
 export function formatCountdownShort(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
   const days = Math.floor(totalSeconds / 86400);
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${days}D ${pad(hours)}:${pad(minutes)}`;
+  return `${days}D ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
 /** Time-of-day greeting on platform time (Africa/Nairobi). */

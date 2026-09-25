@@ -361,8 +361,12 @@ export default function DashboardView({
                         style={{ width: `${progress.percent}%` }}
                       />
                     </div>
-                    <p className="mt-1.5 text-right font-mono font-bold text-xs tabular-nums text-[var(--theme-text)]">
-                      {dueMs > 0 ? formatCountdownShort(creditIn) : "MATURED"}
+                    <p className="mt-1.5 text-right font-sans font-semibold text-xs text-[var(--theme-text-muted)]">
+                      {dueMs > 0 ? (
+                        <>till next credit <span className="font-mono font-bold tabular-nums text-[var(--theme-text)]">{formatCountdownShort(creditIn)}</span></>
+                      ) : (
+                        "MATURED"
+                      )}
                     </p>
                   </div>
                 </div>
