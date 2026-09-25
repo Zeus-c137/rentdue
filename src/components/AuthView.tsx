@@ -9,6 +9,7 @@ import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail, Gift } f
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
+import { LevelBadge, OPERATOR_TIERS } from "./LevelBadge";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 
 interface AuthViewProps {
@@ -241,6 +242,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   };
 
   const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
+  // Admin-backed level ladder for the register card (falls back to the
+  // static operator ladder when the admin hasn't defined tiers yet).
+  const adminCats = Array.isArray(activeConfig?.vipTaskCategories)
+    ? activeConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
+    : [];
+  const levelNames = (adminCats.length > 0 ? adminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
   const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
   const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
@@ -503,21 +510,39 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
                 <div className="flex-1" />
 
-                {regBonus > 0 && (
-                  <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3">
-                    <span className="w-10 h-10 rounded-xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] flex items-center justify-center shrink-0">
-                      <Gift className="w-5 h-5" />
-                    </span>
+                <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <LevelBadge level={0} className="w-12 h-12" />
                     <div className="flex-1 min-w-0">
                       <p className="font-sans font-black text-[15px] leading-tight">
-                        UGX {regBonus.toLocaleString()} welcome bonus
+                        Start as {levelNames[0]}
                       </p>
                       <p className="text-xs font-sans text-[var(--theme-text-muted)]">
-                        Yours to claim the moment you register.
+                        {levelNames.length} levels to climb — unlock by running, inviting &amp; checking in.
                       </p>
                     </div>
                   </div>
-                )}
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {levelNames.map((name, i) => (
+                      <span
+                        key={`${name}-${i}`}
+                        className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-sans font-black uppercase tracking-wider ${
+                          i === 0
+                            ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
+                            : "border border-[var(--theme-card-border)] text-[var(--theme-text-muted)]"
+                        }`}
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                  {regBonus > 0 && (
+                    <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
+                      <Gift className="w-3.5 h-3.5 text-[var(--theme-primary)]" />
+                      Plus UGX {regBonus.toLocaleString()} welcome bonus on sign-up.
+                    </p>
+                  )}
+                </div>
 
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
