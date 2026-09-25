@@ -113,6 +113,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const activeConfig = localSiteConfig || siteConfig;
 
+  // Admin-backed level ladder (falls back to the static operator ladder).
+  // Declared up here: effects below depend on its length.
+  const adminCats = Array.isArray(activeConfig?.vipTaskCategories)
+    ? activeConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
+    : [];
+  const levelNames = (adminCats.length > 0 ? adminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
+
   // Invite-link landing: ?ref=CODE (search or hash) jumps straight to
   // register with the code applied, then cleans the URL.
   useEffect(() => {
@@ -257,12 +264,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   };
 
   const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
-  // Admin-backed level ladder for the register card (falls back to the
-  // static operator ladder when the admin hasn't defined tiers yet).
-  const adminCats = Array.isArray(activeConfig?.vipTaskCategories)
-    ? activeConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
-    : [];
-  const levelNames = (adminCats.length > 0 ? adminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
   const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
   const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
