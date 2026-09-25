@@ -266,6 +266,22 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
           <span className="font-display font-black text-lg tracking-tight uppercase">{brandName}</span>
         </div>
 
+        {screen === "welcome" && (
+          <div className="flex items-center gap-1.5 pt-5">
+            {WELCOME_SLIDES.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={`Go to slide ${i + 1}`}
+                onClick={() => setSlide(i)}
+                className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                  i === slide ? "w-5 bg-[var(--theme-primary)]" : "w-1.5 bg-[var(--theme-text)] opacity-20"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
           {/* ============ WELCOME ============ */}
           {screen === "welcome" && (
@@ -275,7 +291,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col pt-8"
+              className="flex-1 flex flex-col pt-5"
             >
               <div className="min-h-[158px]">
                 <AnimatePresence mode="wait">
@@ -313,6 +329,8 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
               </div>
 
+              <div className="flex-1" />
+
               <div className="space-y-3 mt-6">
                 <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
                   Register <ArrowRight className="w-4 h-4" />
@@ -320,20 +338,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <GhostButton onClick={() => goTo("login")} disabled={isLoading}>
                   Login <ArrowRight className="w-4 h-4" />
                 </GhostButton>
-              </div>
-
-              <div className="flex items-center justify-center gap-1.5 mt-6">
-                {WELCOME_SLIDES.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    aria-label={`Go to slide ${i + 1}`}
-                    onClick={() => setSlide(i)}
-                    className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                      i === slide ? "w-5 bg-[var(--theme-primary)]" : "w-1.5 bg-[var(--theme-text)] opacity-20"
-                    }`}
-                  />
-                ))}
               </div>
             </motion.div>
           )}
