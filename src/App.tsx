@@ -553,16 +553,7 @@ export default function App() {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  handleCloseWelcomeModal();
-                  setActiveTab("catalog");
-                }}
-                className="relative z-10 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] transition-all active:scale-[0.98] cursor-pointer"
-              >
-                Start your first Run
-              </button>
+
             </motion.div>
           </div>
         )}
