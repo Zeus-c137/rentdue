@@ -675,19 +675,9 @@ export default function App() {
                 <DashboardView
                   profile={userProfile}
                   activeNodes={activeNodes}
-                  onNavigateToCatalog={() => setActiveTab("catalog")}
-                  onNavigateToDeposit={() => {
-                    setPreselectedGpuRent(null);
-                    setActiveTab("deposit");
-                  }}
-                  onNavigateToWithdraw={() => setActiveTab("withdraw")}
-                  onNavigateToProfile={() => setActiveTab("profile")}
-                  onNavigateToAlerts={() => setActiveTab("alerts")}
                   items={items}
-                  systemStats={systemStats}
-                  siteConfig={siteConfig}
-                  notifications={userNotifications}
-                  onRefreshDashboard={handleManualStatsRefresh}
+                  onNavigateToCatalog={() => setActiveTab("catalog")}
+                  onNavigateToIncome={() => setActiveTab("income")}
                 />
               </motion.div>
             )}
