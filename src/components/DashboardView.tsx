@@ -16,8 +16,10 @@ import { useCurrency } from "../currency";
 import {
   getRunProgress,
   getRunEndMs,
-  getNextMaturingRun,
-  formatCountdown,
+  formatCountdownShort,
+  formatClock,
+  msToNairobiMidnight,
+  getDaypartGreeting,
   getTodayKey,
 } from "../utils/runs";
 
@@ -109,10 +111,9 @@ export default function DashboardView({
     return list;
   }, [activeNodes]);
 
-  const nextRun = useMemo(() => getNextMaturingRun(activeNodes), [activeNodes]);
-  const nextRunEndMs = nextRun ? getRunEndMs(nextRun) : null;
-  const clockRemaining = nextRunEndMs === null ? 0 : nextRunEndMs - nowMs;
-  const clockMatured = nextRun !== null && clockRemaining <= 0;
+  // Rent Clock: shared daily-credit heartbeat — identical for every run,
+  // so mixed products/durations never make it meaningless.
+  const dailyRemaining = useMemo(() => msToNairobiMidnight(new Date(nowMs)), [nowMs]);
 
   const todayKey = getTodayKey();
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
@@ -149,6 +150,7 @@ export default function DashboardView({
   };
 
   const rangeValue = range === "today" ? todayEarnings : weekEarnings;
+  const greetingName = profile.username || "Operator";
   const balanceText = showBalance ? formatCurrency(Number(profile.points) || 0) : `${formatCurrency(0).replace(/[\d.,]+/, "••••")}`;
 
   return (
@@ -198,46 +200,43 @@ export default function DashboardView({
         </div>
       </section>
 
-      {/* Rent Clock — countdown to the nearest maturity */}
-      {nextRun ? (
-        <button
-          type="button"
-          onClick={onNavigateToIncome}
-          className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 transition-all active:scale-[0.99] cursor-pointer"
-        >
-          <div className="flex items-center gap-2 text-[var(--theme-primary)]">
-            <Clock className="w-4 h-4" />
-            <p className="text-[11px] font-display font-black uppercase tracking-[0.14em]">Rent due in</p>
-          </div>
-          <p className="mt-2 font-mono font-bold text-[30px] leading-none tracking-tight tabular-nums">
-            {clockMatured ? "MATURED" : formatCountdown(clockRemaining)}
-          </p>
-          <p className="mt-2 text-[13px] font-sans text-[var(--theme-text-muted)]">
-            {clockMatured ? (
-              <>Open Income to complete <span className="font-bold text-[var(--theme-text)]">{nextRun.itemName}</span>.</>
-            ) : (
-              <><span className="font-bold text-[var(--theme-text)]">{nextRun.itemName}</span> matures — keep running.</>
-            )}
-          </p>
-        </button>
-      ) : (
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
-          <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to start the clock.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Start your first Run
-          </button>
-        </section>
-      )}
+      <p className="font-display font-bold text-[15px] text-[var(--theme-text-muted)] px-1 -mt-2">
+        {getDaypartGreeting()}, {greetingName}.
+      </p>
 
-      {/* Runs */}
+      {/* Rent Clock — shared daily heartbeat; per-run paydays live in the rows */}
+      <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5">
+        <div className="flex items-center gap-2 text-[var(--theme-primary)]">
+          <Clock className="w-4 h-4" />
+          <p className="text-[11px] font-display font-black uppercase tracking-[0.14em]">Next progress in</p>
+        </div>
+        <p className="mt-2 font-mono font-bold text-[30px] leading-none tracking-tight tabular-nums">
+          {formatClock(dailyRemaining)}
+        </p>
+        {activeRuns.length > 0 ? (
+          <p className="mt-2 text-[13px] font-sans text-[var(--theme-text-muted)]">
+            Active runs credit automatically.
+          </p>
+        ) : (
+          <>
+            <p className="mt-2 text-[13px] font-sans text-[var(--theme-text-muted)]">
+              Start a Run to earn daily progress.
+            </p>
+            <button
+              type="button"
+              onClick={onNavigateToCatalog}
+              className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Start your first Run
+            </button>
+          </>
+        )}
+      </section>
+
+      {/* Runs — one card, two rows, overflow as a count */}
       {activeRuns.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between px-1 mb-2.5">
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 py-2">
+          <div className="flex items-center justify-between py-2.5">
             <h2 className="font-display font-black text-[15px]">
               Active Runs <span className="text-[var(--theme-text-muted)] font-bold">{activeRuns.length}</span>
             </h2>
@@ -246,43 +245,44 @@ export default function DashboardView({
               onClick={onNavigateToIncome}
               className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
             >
-              View all
+              View all{activeRuns.length > 2 ? ` • +${activeRuns.length - 2}` : ""}
             </button>
           </div>
-          <div className="space-y-2.5">
-            {activeRuns.slice(0, 2).map((node) => {
-              const progress = getRunProgress(node);
-              const dailyPct = node.amount > 0 ? ((node.dailyYield / node.amount) * 100).toFixed(1) : "0.0";
-              return (
-                <button
-                  key={node.id}
-                  type="button"
-                  onClick={onNavigateToIncome}
-                  className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
-                    <ChevronRight className="w-4 h-4 opacity-40 shrink-0" />
-                  </div>
-                  <p className="mt-0.5 text-xs font-sans text-[var(--theme-text-muted)]">
-                    {formatCurrency(node.amount)} • {node.duration}d • {dailyPct}% daily
-                  </p>
-                  <div className="mt-3 h-2 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-[var(--theme-primary)] transition-[width] duration-500"
-                      style={{ width: `${progress.percent}%` }}
-                    />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs font-sans">
-                    <span className="text-[var(--theme-text-muted)] font-semibold">
-                      {progress.elapsed} / {progress.total} days
-                    </span>
-                    <span className="font-bold text-[var(--theme-primary)]">+{formatCurrency(node.totalEarned || 0)}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          {activeRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node);
+            const dailyPct = node.amount > 0 ? ((node.dailyYield / node.amount) * 100).toFixed(1) : "0.0";
+            const endMs = getRunEndMs(node);
+            const dueMs = endMs === null ? 0 : endMs - nowMs;
+            return (
+              <button
+                key={node.id}
+                type="button"
+                onClick={onNavigateToIncome}
+                  className="w-full text-left py-3.5 border-t border-[var(--theme-card-border)] transition-all active:opacity-70 cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                  <ChevronRight className="w-4 h-4 opacity-40 shrink-0" />
+                </div>
+                <p className="mt-0.5 text-xs font-sans text-[var(--theme-text-muted)]">
+                  {formatCurrency(node.amount)} • {node.duration}d • {dailyPct}% daily
+                </p>
+                <div className="mt-3 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                  <div
+                    className="h-full run-progress-fill transition-[width] duration-500"
+                    style={{ width: `${progress.percent}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs font-sans">
+                  <span className="text-[var(--theme-text-muted)] font-semibold">
+                    {progress.elapsed} / {progress.total} days
+                    {dueMs > 0 ? ` • due in ${formatCountdownShort(dueMs)}` : " • matured"}
+                  </span>
+                  <span className="font-bold text-[var(--theme-primary)]">+{formatCurrency(node.totalEarned || 0)}</span>
+                </div>
+              </button>
+            );
+          })}
         </section>
       )}
 

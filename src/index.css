@@ -591,6 +591,25 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   .hut-btn-face, .hut-glow, .hut-btn-pulse, .hut-shine, .hut-sparkle { transition: none !important; animation: none !important; }
 }
 
+/* Run progress fill — inherits the Deposit/Withdraw glossy-3D treatment.
+   Uses fixed hut-* vars (never theme-*) so the bar matches the buttons in
+   both presets. Labels on the fill must use --hut-gold-text. */
+.run-progress-fill {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--hut-gold-highlight) 0%, var(--hut-gold-100) 22%, var(--hut-gold-300-glossy) 48%, var(--hut-gold-500) 76%, var(--hut-gold-700) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 -3px 6px rgba(110,79,14,0.35);
+}
+.run-progress-fill::before {
+  content: "";
+  position: absolute;
+  left: 6%; right: 6%; top: 8%; height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0));
+  pointer-events: none;
+}
+
 /* AI thinking shimmer — gradient sweep across text (apple-design: calm, non-vestibular feedback) */
 .animate-shimmer {
   background: linear-gradient(100deg, var(--theme-primary) 20%, color-mix(in srgb, var(--theme-primary) 35%, white) 40%, var(--theme-primary) 60%);

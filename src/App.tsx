@@ -55,10 +55,9 @@ import navIncome3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import navHistory3d from "@/src/assets/3d/3dicons-calender-iso-premium.png";
 import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
-import headerAi3d from "@/src/assets/3d/3dicons-lock-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
-import headerBoy3d from "@/src/assets/3d/3dicons-boy-iso-premium.png";
 import welcomeGift3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
+import { LevelBadge, tierNameForLevel } from "./components/LevelBadge";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
@@ -66,29 +65,6 @@ import { readApiJson } from "./utils/api";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useGatedInterval, useGatedTimeout, useAbortSignal } from "./hooks/useGatedInterval";
 import { fetchJsonWithSignal, abortableAll } from "./utils/abortableFetch";
-
-function getVipBadgeConfig(level: number = 0) {
-  const configs: Record<number, { label: string; badgeColor: string }> = {
-    0: { label: "VIP 0", badgeColor: "text-slate-400 bg-slate-500/15 border-slate-500/25" },
-    1: { label: "VIP 1", badgeColor: "text-amber-500 bg-amber-500/15 border-amber-500/25" },
-    2: { label: "VIP 2", badgeColor: "text-slate-400 bg-slate-500/15 border-slate-500/25" },
-    3: { label: "VIP 3", badgeColor: "text-yellow-500 bg-yellow-500/15 border-yellow-500/25" },
-    4: { label: "VIP 4", badgeColor: "text-sky-500 bg-sky-500/15 border-sky-500/25" },
-    5: { label: "VIP 5", badgeColor: "text-teal-500 bg-teal-500/15 border-teal-500/25" },
-    6: { label: "VIP 6", badgeColor: "text-blue-500 bg-blue-500/15 border-blue-500/25" },
-    7: { label: "VIP 7", badgeColor: "text-pink-500 bg-pink-500/15 border-pink-500/25" },
-    8: { label: "VIP 8", badgeColor: "text-rose-500 bg-rose-500/15 border-rose-500/25" },
-    9: { label: "VIP 9", badgeColor: "text-fuchsia-500 bg-fuchsia-500/15 border-fuchsia-500/25" },
-    10: { label: "VIP 10", badgeColor: "text-red-500 bg-red-500/15 border-red-500/25" },
-  };
-
-  if (level <= 0) return configs[0];
-  if (configs[level]) return configs[level];
-  return {
-    label: `VIP ${level}`,
-    badgeColor: "text-[var(--theme-primary)] bg-[var(--theme-primary)]/15 border-[var(--theme-primary)]/25"
-  };
-}
 
 export default function App() {
   const { formatCurrency } = useCurrency();
@@ -599,41 +575,14 @@ export default function App() {
         {/* Top Premium navigation Header ribbon */}
         <header className="sticky top-0 z-40 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border-b border-white/10 supports-[backdrop-filter]:bg-[var(--theme-card-bg)]/40 h-16 flex items-center justify-between px-3.5 sm:px-4.5 shrink-0 will-change-[backdrop-filter]">
           <div className="flex items-center gap-2.5">
-            <img src={headerBoy3d} alt="App logo" decoding="async" loading="eager" fetchPriority="high" className="w-10 h-10 object-contain drop-shadow-sm shrink-0" />
-            <div>
-              <span className="font-display font-black text-sm tracking-tight text-[var(--theme-text)] block leading-none mb-1">
-                Hi, {userProfile.username || "there"}
-              </span>
-              {(() => {
-                const vipBadge = getVipBadgeConfig(vipBadgeLevel);
-                return (
-                  <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded-full uppercase border ${vipBadge.badgeColor}`}>
-                    {vipBadge.label}
-                  </span>
-                );
-              })()}
-            </div>
+            <LevelBadge level={vipBadgeLevel} className="w-10 h-10" />
+            <span className="font-display font-black text-sm tracking-tight text-[var(--theme-text)] uppercase">
+              {tierNameForLevel(vipBadgeLevel)}
+            </span>
           </div>
 
           {/* Action controllers */}
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* AI Copilot — header, next to bell → chat AI tab */}
-            <button
-              onClick={() => {
-                if (activeTab !== "chat") setPreviousTab(activeTab as any);
-                setChatRoomDefault("ai");
-                setActiveTab("chat");
-              }}
-              className={`relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform ${activeTab==="chat" && chatRoomDefault==="ai" ? "opacity-100" : "opacity-80 hover:opacity-100"}`}
-              title="AI Assistant"
-            >
-              <img src={headerAi3d} alt="" decoding="async" loading="eager" className="w-7 h-7 object-contain shrink-0 drop-shadow-sm" />
-              <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border-2 border-[var(--theme-card-bg)]"></span>
-              </span>
-            </button>
-
             {/* Notification Bell trigger button */}
             <button
               onClick={() => {
