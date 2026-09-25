@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { UserProfile } from "../types";
 import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail, Gift } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -100,6 +100,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const [localSiteConfig, setLocalSiteConfig] = useState<any>(null);
+  const ladderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/config/site")
@@ -158,6 +159,20 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       }
     }
   }, []);
+
+  // Level ladder autoplay: drifts the badges every 2s, loops back at the end.
+  useEffect(() => {
+    if (screen !== "register") return;
+    const id = window.setInterval(() => {
+      const el = ladderRef.current;
+      if (!el || document.hidden) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const next = el.scrollLeft + el.clientWidth * 0.6;
+      el.scrollTo({ left: next >= max - 4 ? 0 : next, behavior: "smooth" });
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [screen, levelNames.length]);
 
   // Welcome carousel auto-advance (pauses off-screen: AuthView unmounts at login).
   useEffect(() => {
@@ -518,11 +533,11 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         Start as {levelNames[0]}
                       </p>
                       <p className="text-xs font-sans text-[var(--theme-text-muted)]">
-                        {levelNames.length} levels to climb — unlock by running, inviting &amp; checking in.
+                        Unlock by running, inviting &amp; checking in.
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div ref={ladderRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {levelNames.map((name, i) => (
                       <span
                         key={`${name}-${i}`}
