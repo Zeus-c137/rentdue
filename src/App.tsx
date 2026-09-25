@@ -56,8 +56,7 @@ import navHistory3d from "@/src/assets/3d/3dicons-calender-iso-premium.png";
 import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
-import welcomeGift3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
-import { LevelBadge, tierNameForLevel, OPERATOR_TIERS } from "./components/LevelBadge";
+import { LevelBadge, tierNameForLevel } from "./components/LevelBadge";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
@@ -143,7 +142,7 @@ export default function App() {
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [welcomeBonusAmount, setWelcomeBonusAmount] = useState(0);
   const [welcomePending, setWelcomePending] = useState(false);
-  useGatedTimeout(() => { if (welcomePending && !document.hidden) setShowWelcomeModal(true); }, 30000, [welcomePending]);
+  useGatedTimeout(() => { if (welcomePending && !document.hidden) setShowWelcomeModal(true); }, 2000, [welcomePending]);
 
   // Only a successful registration creates this handoff. A normal login has
   // no pending key, so returning users never see the welcome modal.
@@ -508,12 +507,6 @@ export default function App() {
     return null; // main content rendered below
   };
 
-  // Welcome modal ladder: admin-defined tiers when present, static ladder otherwise.
-  const modalAdminCats = Array.isArray(siteConfig?.vipTaskCategories)
-    ? siteConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
-    : [];
-  const modalLevels = (modalAdminCats.length > 0 ? modalAdminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
-
   const isMainApp = !isAdminRoute && !isRestoringSession && !!userProfile;
 
   return (
@@ -551,43 +544,13 @@ export default function App() {
                 <X className="w-4 h-4" />
               </button>
 
-              <img src={welcomeGift3d} alt="Welcome gift" decoding="async" className="w-20 h-20 object-contain drop-shadow-xl relative z-10 mx-auto" />
+              <LevelBadge level={0} className="w-16 h-16 mx-auto relative z-10" />
 
               <div className="space-y-2 relative z-10">
-                <h3 className="font-display font-black text-lg text-[var(--theme-text)] uppercase tracking-tight">Welcome, Operator.</h3>
+                <h3 className="font-display font-black text-lg text-[var(--theme-text)] uppercase tracking-tight">Welcome.</h3>
                 <p className="text-xs text-[var(--theme-text)] opacity-80 leading-relaxed font-[var(--theme-font-family)] px-1">
-                  Registration complete — <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> credited to your account.
+                  You have successfully began your journey. <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> has been credited to your account.
                 </p>
-              </div>
-
-              <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 space-y-3 text-left relative z-10">
-                <div className="flex items-center gap-3">
-                  <LevelBadge level={0} className="w-12 h-12" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-sans font-black text-[15px] leading-tight text-[var(--theme-text)]">
-                      You start as {modalLevels[0]}
-                    </p>
-                    <p className="text-xs font-sans text-[var(--theme-text)] opacity-70">
-                      {modalLevels.length > 1
-                        ? `Complete your first Run to reach ${modalLevels[1]}.`
-                        : "Complete your first Run to climb."}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {modalLevels.map((name, i) => (
-                    <span
-                      key={`${name}-${i}`}
-                      className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-sans font-black uppercase tracking-wider ${
-                        i === 0
-                          ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
-                          : "border border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-60"
-                      }`}
-                    >
-                      {name}
-                    </span>
-                  ))}
-                </div>
               </div>
 
               <button

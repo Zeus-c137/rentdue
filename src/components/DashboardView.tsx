@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow } from "../types";
-import { Flame, Eye, EyeOff, Plus, Check, X } from "lucide-react";
+import { Eye, EyeOff, Plus, Check } from "lucide-react";
 import confetti from "canvas-confetti";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -106,9 +106,6 @@ export default function DashboardView({
   const balanceRef = useRef<HTMLParagraphElement>(null);
   const checkinBtnRef = useRef<HTMLButtonElement>(null);
   const todayKey = getTodayKey();
-  const [streakDismissed, setStreakDismissed] = useState(
-    () => localStorage.getItem(`home_streak_dismissed_${todayKey}`) === "1"
-  );
 
   // Rent Clock tick — gated to visible tab.
   useGatedInterval(
@@ -121,7 +118,7 @@ export default function DashboardView({
 
   const weekTotal = weekSeries === null ? null : weekSeries.reduce((sum, v) => sum + v, 0);
 
-  // Week sparkline: credited daily yields per day from the ledger.
+  // Week sparkline: everything credited to withdrawable, per day.
   useEffect(() => {
     if (weekSeries !== null) return;
     const ctrl = new AbortController();
@@ -133,7 +130,7 @@ export default function DashboardView({
         startOfToday.setHours(0, 0, 0, 0);
         const startMs = startOfToday.getTime();
         for (const tx of rows) {
-          if (String(tx.type || "").toLowerCase() !== "daily_yield") continue;
+          if (!CREDIT_TYPES.has(String(tx.type || "").toLowerCase())) continue;
           if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
           const ts = new Date(tx.timestamp).getTime();
           if (!Number.isFinite(ts)) continue;
@@ -229,10 +226,20 @@ export default function DashboardView({
     }
   };
 
-  const dismissStreak = () => {
-    localStorage.setItem(`home_streak_dismissed_${todayKey}`, "1");
-    setStreakDismissed(true);
-  };
+  // Every ledger type that credits the withdrawable (Cash Out) balance.
+  const CREDIT_TYPES = useMemo(
+    () =>
+      new Set([
+        "daily_yield",
+        "referral_signup_bonus",
+        "referral_level_income",
+        "daily_checkin_bonus",
+        "gift_code",
+        "vip_task",
+        "registration_bonus",
+      ]),
+    []
+  );
 
   const greetingName = profile.username || "Operator";
   const balanceText = showBalance ? formatCurrency(Number(profile.points) || 0) : `${formatCurrency(0).replace(/[\d.,]+/, "••••")}`;
@@ -381,51 +388,37 @@ export default function DashboardView({
         </section>
       )}
 
-      {/* Streak — dismissible once done, back with the new day */}
-      {(!checkedInToday || !streakDismissed) && (
-        <section className="flex items-center gap-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-          <span className="w-10 h-10 flex items-center justify-center shrink-0 bg-transparent">
-            {streak > 0 ? (
-              <Flame className="w-7 h-7 text-[var(--theme-primary)]" fill="currentColor" />
-            ) : (
-              <Flame className="w-7 h-7 text-[var(--theme-text-muted)]" />
-            )}
+      {/* Streak — Day counter with coin */}
+      <section className="flex items-center gap-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+        <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-10 h-10 object-contain shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-display font-black text-[15px] leading-tight">
+            Day {checkedInToday ? Math.max(1, streak) : streak + 1}
+          </p>
+          <p className="text-xs font-sans text-[var(--theme-text-muted)]">
+            {checkedInToday
+              ? `${streak}-day streak • see you tomorrow.`
+              : streak > 0
+                ? `${streak}-day streak • check in for day ${streak + 1}.`
+                : "Check in to start day 1."}
+          </p>
+        </div>
+        {checkedInToday ? (
+          <span className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] text-[13px] font-sans font-bold">
+            <Check className="w-4 h-4" /> Checked in
           </span>
-          <div className="flex-1 min-w-0">
-            <p className="font-display font-black text-[15px] leading-tight">
-              {streak > 0 ? `${streak} day streak` : "Start your streak"}
-            </p>
-            <p className="text-xs font-sans text-[var(--theme-text-muted)]">
-              {checkedInToday ? "Checked in — see you tomorrow." : "Check in today to keep it alive."}
-            </p>
-          </div>
-          {checkedInToday ? (
-            <span className="shrink-0 flex items-center gap-1.5">
-              <span className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] text-[13px] font-sans font-bold">
-                <Check className="w-4 h-4" /> Checked in
-              </span>
-              <button
-                type="button"
-                aria-label="Dismiss streak"
-                onClick={dismissStreak}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </span>
-          ) : (
-            <button
-              ref={checkinBtnRef}
-              type="button"
-              onClick={handleCheckin}
-              disabled={checkinBusy}
-              className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
-            >
-              {checkinBusy ? "…" : "Check in"}
-            </button>
-          )}
-        </section>
-      )}
+        ) : (
+          <button
+            ref={checkinBtnRef}
+            type="button"
+            onClick={handleCheckin}
+            disabled={checkinBusy}
+            className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+          >
+            {checkinBusy ? "…" : "Check in"}
+          </button>
+        )}
+      </section>
     </div>
   );
 }
