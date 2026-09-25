@@ -64,8 +64,9 @@ function WeekSpark({ data }: { data: number[] }) {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
+        className="spark-draw"
       />
-      <circle cx={lastX} cy={lastY} r="3" fill="var(--theme-primary)" />
+      <circle cx={lastX} cy={lastY} r="3" fill="var(--theme-primary)" className="spark-dot" />
     </svg>
   );
 }
