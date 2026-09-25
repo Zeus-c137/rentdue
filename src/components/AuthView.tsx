@@ -241,7 +241,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   };
 
   const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
-  const brandName = activeConfig?.brandName || "RENTDUE";
+  const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
   const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
 
@@ -312,24 +312,22 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </AnimatePresence>
               </div>
 
-              <div className="mt-6 rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
+              <div className="mt-6 flex-1 min-h-[220px] rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
                 {!heroFailed ? (
                   <img
                     src={heroSrc}
                     alt="Operators at work at night"
                     loading="eager"
                     onError={() => setHeroFailed(true)}
-                    className="w-full aspect-[16/10] object-cover block"
+                    className="absolute inset-0 w-full h-full object-cover block"
                   />
                 ) : (
-                  <div className="w-full aspect-[16/10] flex items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--theme-primary)_0%,transparent_70%)] opacity-90">
+                  <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--theme-primary)_0%,transparent_70%)] opacity-90">
                     <BrandLogo siteConfig={activeConfig} className="w-24 h-24 flex items-center justify-center" />
                   </div>
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
               </div>
-
-              <div className="flex-1" />
 
               <div className="space-y-3 mt-6">
                 <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
