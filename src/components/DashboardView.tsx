@@ -42,6 +42,34 @@ interface FlightCoin {
   delay: number;
 }
 
+function WeekSpark({ data }: { data: number[] }) {
+  const W = 120;
+  const H = 36;
+  const P = 3;
+  const max = Math.max(...data, 0);
+  const min = Math.min(...data, 0);
+  const span = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = P + (i * (W - P * 2)) / Math.max(1, data.length - 1);
+    const y = H - P - ((v - min) / span) * (H - P * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const [lastX, lastY] = pts[pts.length - 1].split(",");
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 overflow-visible" aria-hidden>
+      <polyline
+        points={pts.join(" ")}
+        fill="none"
+        stroke="var(--theme-primary)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx={lastX} cy={lastY} r="3" fill="var(--theme-primary)" />
+    </svg>
+  );
+}
+
 function themeConfettiColors(): string[] {
   try {
     const styles = getComputedStyle(document.documentElement);
@@ -64,9 +92,7 @@ export default function DashboardView({
   const { formatCurrency } = useCurrency();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showBalance, setShowBalance] = useState(true);
-  const [range, setRange] = useState<"today" | "week">("today");
-  const [weekEarnings, setWeekEarnings] = useState<number | null>(null);
-  const [weekLoading, setWeekLoading] = useState(false);
+  const [weekSeries, setWeekSeries] = useState<number[] | null>(null);
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
@@ -97,33 +123,32 @@ export default function DashboardView({
     return today;
   }, [activeNodes, items]);
 
-  // Week progress: credited daily yields from the ledger, fetched lazily on
-  // first toggle so today-only views cost nothing.
+  // Week sparkline: credited daily yields per day from the ledger.
   useEffect(() => {
-    if (range !== "week" || weekEarnings !== null || weekLoading) return;
+    if (weekSeries !== null) return;
     const ctrl = new AbortController();
-    setWeekLoading(true);
     fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
       .then((rows) => {
         if (ctrl.signal.aborted || !Array.isArray(rows)) return;
-        const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-        let sum = 0;
+        const days: number[] = [0, 0, 0, 0, 0, 0, 0];
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startMs = startOfToday.getTime();
         for (const tx of rows) {
           if (String(tx.type || "").toLowerCase() !== "daily_yield") continue;
           if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
           const ts = new Date(tx.timestamp).getTime();
-          if (!Number.isFinite(ts) || ts < cutoff) continue;
-          sum += Number(tx.amount) || 0;
+          if (!Number.isFinite(ts)) continue;
+          const dayIndex = Math.floor((ts - startMs) / (24 * 3600 * 1000)) + 6;
+          if (dayIndex < 0 || dayIndex > 6) continue;
+          days[dayIndex] += Number(tx.amount) || 0;
         }
-        setWeekEarnings(sum);
+        setWeekSeries(days);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!ctrl.signal.aborted) setWeekLoading(false);
-      });
+      .catch(() => {});
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, profile.phone]);
+  }, [profile.phone]);
 
   const activeRuns = useMemo(() => {
     const list = activeNodes.filter((n) => n.status === "active");
@@ -211,7 +236,6 @@ export default function DashboardView({
     setStreakDismissed(true);
   };
 
-  const rangeValue = range === "today" ? todayEarnings : weekEarnings;
   const greetingName = profile.username || "Operator";
   const balanceText = showBalance ? formatCurrency(Number(profile.points) || 0) : `${formatCurrency(0).replace(/[\d.,]+/, "••••")}`;
 
@@ -259,30 +283,11 @@ export default function DashboardView({
         <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
           {balanceText}
         </p>
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-[13px] font-sans font-bold text-[var(--theme-primary)]">
-            {range === "today" ? (
-              <>+{formatCurrency(todayEarnings)} today</>
-            ) : weekLoading || rangeValue === null ? (
-              <span className="opacity-60">Tallying the week…</span>
-            ) : (
-              <>+{formatCurrency(rangeValue)} this week</>
-            )}
+            +{formatCurrency(todayEarnings)} today
           </p>
-          <div className="flex rounded-full border border-[var(--theme-card-border)] p-0.5 text-[11px] font-sans font-bold">
-            {(["today", "week"] as const).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRange(r)}
-                className={`px-3 py-1 rounded-full capitalize transition-colors cursor-pointer ${
-                  range === r ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "text-[var(--theme-text-muted)]"
-                }`}
-              >
-                {r === "today" ? "Today" : "Week"}
-              </button>
-            ))}
-          </div>
+          {weekSeries && <WeekSpark data={weekSeries} />}
         </div>
       </section>
 
@@ -303,7 +308,7 @@ export default function DashboardView({
 
       {/* Runs — one card, two rows, overflow as a count */}
       {activeRuns.length > 0 && (
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 py-2">
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
             <h2 className="font-display font-black text-[15px]">
               Active Runs <span className="text-[var(--theme-text-muted)] font-bold">{activeRuns.length}</span>
