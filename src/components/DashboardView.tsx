@@ -161,26 +161,26 @@ export default function DashboardView({
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
 
-  // Mini 7-day streak, same math as the original check-in modal: the server
+  // Full-month streak, same math as the original check-in modal: the server
   // keeps streaks consecutive, so the live run is exactly `todayStreak` days
   // ending today (claimed) or yesterday (claimable). Tiles derive from it.
   const weekTiles = useMemo(() => {
     const now = new Date();
-    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const todayMs = Date.UTC(year, month, now.getUTCDate());
     const todayStreak = checkedInToday ? streak : streak + 1;
     const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
-    const mondayOffset = (now.getUTCDay() + 6) % 7;
-    const mondayMs = todayMs - mondayOffset * 86400000;
-    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     return {
       month: now.toLocaleString("default", { month: "long" }),
-      days: labels.map((label, i) => {
-        const ms = mondayMs + i * 86400000;
+      days: Array.from({ length: daysInMonth }, (_, i) => {
+        const ms = Date.UTC(year, month, i + 1);
         const key = new Date(ms).toISOString().split("T")[0];
         const isToday = ms === todayMs;
         return {
           key,
-          label,
+          label: String(i + 1),
           isToday,
           isFuture: ms > todayMs,
           // Claimed: inside the live run and (past, or today already checked).
@@ -189,6 +189,12 @@ export default function DashboardView({
       }),
     };
   }, [checkedInToday, streak, todayKey]);
+  const tilesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tilesRef.current
+      ?.querySelector('[data-today="true"]')
+      ?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, []);
 
   const deliverCheckin = (bonus: number, streak: number) => {
     // Atomic balance update: parent profile swaps the moment coins land.
@@ -419,15 +425,12 @@ export default function DashboardView({
           <div>
             <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
             <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
-              {weekTiles.month} • {streak > 0 ? `${streak}-day run` : "week"}
+              {weekTiles.month}
             </p>
           </div>
           {checkedInToday ? (
-            <span className="shrink-0 text-[13px] font-sans font-semibold text-[var(--theme-text-muted)]">
-              come back in{" "}
-              <span className="font-display font-bold tabular-nums text-[var(--theme-text)]">
-                {formatClock(nextCheckinIn)}
-              </span>
+            <span className="shrink-0 font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
+              {formatClock(nextCheckinIn)}
             </span>
           ) : (
             <button
@@ -441,7 +444,7 @@ export default function DashboardView({
             </button>
           )}
         </div>
-        <div className="grid grid-cols-7 gap-1.5">
+        <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
             const missed = !d.isFuture && !d.isToday && !d.claimed;
             const active = d.isToday && !d.claimed;
@@ -464,7 +467,7 @@ export default function DashboardView({
                 </span>
               </>
             );
-            const cls = `relative rounded-xl aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
+            const cls = `relative rounded-xl w-11 shrink-0 aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
               d.claimed
                 ? "bg-[var(--theme-primary)]/15"
                 : active
