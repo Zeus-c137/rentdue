@@ -13,6 +13,17 @@ import { Button } from "@/src/components/ui/button";
 let vipCache: { phone: string; board: VipTaskboard; at: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 
+// Shared loader so Home can show the next milestone without a second fetch.
+export async function getMilestoneBoard(phone: string, signal: AbortSignal): Promise<VipTaskboard> {
+  if (vipCache && vipCache.phone === phone && Date.now() - vipCache.at < CACHE_TTL) return vipCache.board;
+  const data = await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, signal);
+  const board = normalizeVipTaskboard(data);
+  vipCache = { phone, board, at: Date.now() };
+  return board;
+}
+
+export function bustMilestoneCache() { vipCache = null; }
+
 interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; }
 
 export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBack }: Props) {

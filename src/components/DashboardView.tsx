@@ -8,8 +8,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
-import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow } from "../types";
-import { Plus } from "lucide-react";
+import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
+import { Plus, Trophy, ChevronRight } from "lucide-react";
+import { getMilestoneBoard, bustMilestoneCache } from "./VipTasksPage";
 import confetti from "canvas-confetti";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -28,6 +29,7 @@ interface DashboardViewProps {
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
   onNavigateToIncome: () => void;
+  onNavigateToMilestones: () => void;
   onProfileUpdate: (p: UserProfile) => void;
 }
 
@@ -102,6 +104,7 @@ export default function DashboardView({
   items,
   onNavigateToCatalog,
   onNavigateToIncome,
+  onNavigateToMilestones,
   onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
@@ -111,6 +114,39 @@ export default function DashboardView({
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [barsIn, setBarsIn] = useState(false);
+  const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
+  const [msClaimId, setMsClaimId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    void getMilestoneBoard(profile.phone, ctrl.signal)
+      .then((b) => { if (!cancelled) setMsBoard(b); })
+      .catch(() => { /* milestones are progressive enhancement; home works without them */ });
+    return () => { cancelled = true; ctrl.abort(); };
+  }, [profile.phone]);
+  const nextMilestone = useMemo(() => {
+    if (!msBoard || msBoard.tasks.length === 0) return null;
+    const open = msBoard.tasks.filter((t) => !t.claimed);
+    if (open.length === 0) return { done: true as const };
+    const claimable = open.find((t) => t.unlocked);
+    return { done: false as const, task: (claimable || open.find((t) => !t.unlocked) || open[0]) as VipTask, claimable: !!claimable };
+  }, [msBoard]);
+  const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
+  const msUnit = (m?: string) => (m === "streak_days" ? "days" : "runs");
+  const handleMilestoneClaim = async (task: VipTask) => {
+    setMsClaimId(task.id);
+    const ctrl = new AbortController();
+    try {
+      const data = await fetchJsonWithSignal<{ bonus: number; claimedVipTasks?: string[] }>(`/api/profile/vip-tasks/claim`, ctrl.signal, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: profile.phone, taskId: task.id }) });
+      const bonus = Number(data.bonus || 0);
+      toast.success(`${formatCurrency(bonus)} milestone reward claimed`);
+      try { confetti({ particleCount: 90, spread: 70, origin: { y: 0.7 }, colors: themeConfettiColors() }); } catch { /* confetti is decoration */ }
+      onProfileUpdate({ ...profile, points: Number(profile.points || 0) + bonus, claimedVipTasks: data.claimedVipTasks || [...(profile.claimedVipTasks || []), task.id] });
+      bustMilestoneCache();
+      setMsBoard((prev) => prev && { ...prev, tasks: prev.tasks.map((t) => (t.id === task.id ? { ...t, claimed: true } : t)) });
+    } catch (err: any) { if (err?.name !== "AbortError") toast.error(err.message || "Claim failed"); }
+    finally { setMsClaimId(null); }
+  };
   useEffect(() => {
     const frame = requestAnimationFrame(() => setBarsIn(true));
     return () => cancelAnimationFrame(frame);
@@ -495,6 +531,76 @@ export default function DashboardView({
           })}
         </div>
       </section>
+
+      {/* Next milestone — mockup strip: art tile, reward, thin progress, inline claim */}
+      {nextMilestone && (
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Small wins. Bigger moves.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToMilestones}
+              className="shrink-0 inline-flex items-center gap-1 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+            >
+              View all <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          {nextMilestone.done ? (
+            <p className="text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+          ) : (() => {
+            const task = nextMilestone.task;
+            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
+            const remaining = Math.max(0, Number(task.requiredBonus || 0) - Number(task.progress || 0));
+            const toGo = msIsMoney(task.metric) ? formatCurrency(remaining) : `${remaining.toLocaleString()} ${msUnit(task.metric)}`;
+            return (
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
+                  {task.imageUrl ? (
+                    <img src={task.imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                  ) : (
+                    <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-sans font-extrabold truncate">{task.title}</p>
+                  <p className="text-[11px] font-sans text-[var(--theme-primary)] font-bold">+{formatCurrency(Number(task.reward || 0))} on claim</p>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-black/20 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-[width] duration-700 ease-out"
+                      style={{ ...PROGRESS_GRADIENT, width: barsIn ? `${pct}%` : "0%" }}
+                    />
+                  </div>
+                  {!nextMilestone.claimable && (
+                    <p className="mt-1 text-[10px] font-sans text-[var(--theme-text-muted)]">{toGo} to go</p>
+                  )}
+                </div>
+                {nextMilestone.claimable ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleMilestoneClaim(task)}
+                    disabled={msClaimId === task.id}
+                    className="shrink-0 px-4 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+                  >
+                    {msClaimId === task.id ? "…" : "Claim"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onNavigateToMilestones}
+                    aria-label="View milestones"
+                    className="shrink-0 p-2 rounded-full opacity-60 hover:opacity-100 cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </section>
+      )}
     </div>
   );
 }

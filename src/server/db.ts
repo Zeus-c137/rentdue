@@ -2149,21 +2149,56 @@ export async function getVipTaskboard(phone: string) {
   const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
   const claimed = user.claimedVipTasks || [];
 
+  // Per-milestone event metrics for the mockup one-shots (First Run,
+  // 7-Day Streak, First 100K, Clean Exit, Still Running). Tasks created
+  // before metrics existed carry no `metric` key and keep the legacy
+  // operator-points ladder behaviour, so existing rows keep working.
+  const streakDays = Math.max(0, Number((user as any).checkinStreak || 0));
+  let runsStarted = 0, activeRuns = 0, completedRuns = 0, lifetimeYield = 0;
+  try {
+    const statRows: any[] = await drizzleDb.select({
+      started: sql`count(*)`,
+      active: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) = 'ACTIVE' THEN 1 ELSE 0 END), 0)`,
+      completed: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) = 'COMPLETED' THEN 1 ELSE 0 END), 0)`,
+      earned: sql`COALESCE(SUM(${schema.subscribedNodes.totalEarned}), 0)`
+    }).from(schema.subscribedNodes).where(eq(schema.subscribedNodes.userId, phone));
+    const stats = statRows?.[0] || {};
+    runsStarted = Number(stats.started || 0);
+    activeRuns = Number(stats.active || 0);
+    completedRuns = Number(stats.completed || 0);
+    lifetimeYield = Math.max(0, Number(stats.earned || 0));
+  } catch {
+    // Metrics default to zero; the points ladder still works.
+  }
+  const metricValue = (metric: string): number => {
+    switch (metric) {
+      case "runs_started": return runsStarted;
+      case "active_runs": return activeRuns;
+      case "completed_runs": return completedRuns;
+      case "streak_days": return streakDays;
+      case "lifetime_yield": return lifetimeYield;
+      default: return operatorPoints;
+    }
+  };
+
   const tasks = configuredTasks
     .filter((task: any) => task && task.active !== false)
     .map((task: any) => {
       const threshold = Math.max(0, Number(task.requiredBonus || 0));
+      const metric = String(task.metric || "operator_points");
+      const progress = metricValue(metric);
       const art = String(task.imageUrl || "").trim();
       return {
         id: String(task.id),
         title: String(task.title || "Milestone Task"),
         description: String(task.description || "Unlock this reward with operator points."),
         category: String(task.category || "Milestone"),
+        metric,
         requiredBonus: threshold,
         reward: Math.max(0, Number(task.reward || 0)),
         ...(art ? { imageUrl: art } : {}),
-        progress: operatorPoints,
-        unlocked: operatorPoints >= threshold,
+        progress,
+        unlocked: progress >= threshold,
         claimed: claimed.includes(String(task.id))
       };
     })

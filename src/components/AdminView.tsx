@@ -264,6 +264,7 @@ export default function AdminView() {
   const [vipTaskTitle, setVipTaskTitle] = useState("");
   const [vipTaskDescription, setVipTaskDescription] = useState("");
   const [vipTaskCategory, setVipTaskCategory] = useState("");
+  const [vipTaskMetric, setVipTaskMetric] = useState("operator_points");
   const [vipTaskRequiredBonus, setVipTaskRequiredBonus] = useState(0);
   const [vipTaskReward, setVipTaskReward] = useState(0);
   const [vipTaskImageUrl, setVipTaskImageUrl] = useState("");
@@ -307,6 +308,7 @@ export default function AdminView() {
     setVipTaskTitle("");
     setVipTaskDescription("");
     setVipTaskCategory("");
+    setVipTaskMetric("operator_points");
     setVipTaskRequiredBonus(0);
     setVipTaskReward(0);
     setVipTaskImageUrl("");
@@ -318,6 +320,7 @@ export default function AdminView() {
       title: vipTaskTitle,
       description: vipTaskDescription,
       category: vipTaskCategory,
+      metric: vipTaskMetric,
       requiredBonus: vipTaskRequiredBonus,
       reward: vipTaskReward,
       imageUrl: vipTaskImageUrl,
@@ -350,6 +353,7 @@ export default function AdminView() {
     setVipTaskTitle(task.title);
     setVipTaskDescription(task.description || "");
     setVipTaskCategory(task.category || "");
+    setVipTaskMetric(task.metric || "operator_points");
     setVipTaskRequiredBonus(Number(task.requiredBonus || 0));
     setVipTaskReward(Number(task.reward || 0));
     setVipTaskImageUrl(task.imageUrl || "");
@@ -3169,7 +3173,7 @@ export default function AdminView() {
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsVipTaskModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
                     <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-lg theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
                       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]">
-                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit milestone" : "Create milestone"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the reward, category, art, or points threshold." : "Publish a reward that unlocks from operator lifetime points."}</p></div>
+                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit milestone" : "Create milestone"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the reward, category, art, metric, or requirement." : "Publish a one-shot reward that unlocks from a real operator event."}</p></div>
                         <button type="button" onClick={() => setIsVipTaskModalOpen(false)} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
                       </div>
                       <form onSubmit={(event) => { event.preventDefault(); void handleAddVipTask(); }} className="p-5 space-y-4">
@@ -3191,9 +3195,21 @@ export default function AdminView() {
                           <textarea value={vipTaskDescription} onChange={(event) => setVipTaskDescription(event.target.value)} placeholder="Explain what this reward unlocks." rows={3} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 resize-none" />
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Points target ({currency})
-                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder="500000" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Unlocks from
+                            <select value={vipTaskMetric} onChange={(event) => setVipTaskMetric(event.target.value)} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
+                              <option value="operator_points">Operator lifetime points</option>
+                              <option value="runs_started">Runs started</option>
+                              <option value="active_runs">Active runs</option>
+                              <option value="completed_runs">Completed runs</option>
+                              <option value="streak_days">Check-in streak (days)</option>
+                              <option value="lifetime_yield">Lifetime run yield ({currency})</option>
+                            </select>
                           </label>
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : "(runs)"}
+                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Reward ({currency})
                             <input type="text" inputMode="numeric" required value={vipTaskReward || ""} onChange={(event) => setVipTaskReward(Number(event.target.value) || 0)} placeholder="50000" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                           </label>

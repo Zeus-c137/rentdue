@@ -89,6 +89,7 @@ export interface VipTaskConfig {
   title: string;
   description?: string;
   category: string;
+  metric?: string;
   requiredBonus: number;
   reward: number;
   active?: boolean;
@@ -100,6 +101,7 @@ export interface VipTask {
   title: string;
   description?: string;
   category: string;
+  metric?: string;
   requiredBonus: number;
   reward: number;
   progress: number;

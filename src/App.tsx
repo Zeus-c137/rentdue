@@ -616,6 +616,7 @@ export default function App() {
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
                   onNavigateToIncome={() => setActiveTab("income")}
+                  onNavigateToMilestones={() => setActiveTab("vip")}
                   onProfileUpdate={handleProfileChange}
                 />
               </motion.div>

@@ -31,11 +31,13 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
 export function normalizeVipTask(raw: unknown): VipTaskConfig {
   const d = (raw ?? {}) as Record<string, unknown>;
   const imageUrl = String(d.imageUrl ?? "").trim();
+  const metric = String(d.metric ?? "operator_points").trim() || "operator_points";
   return {
     id: String(d.id ?? "").trim(),
     title: String(d.title ?? "").trim(),
     description: String(d.description ?? "").trim(),
     category: String(d.category ?? "").trim(),
+    metric,
     requiredBonus: Math.max(0, Number(d.requiredBonus ?? 0)),
     reward: Math.max(0, Number(d.reward ?? 0)),
     active: d.active !== false,
