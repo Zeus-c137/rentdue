@@ -42,9 +42,9 @@ interface FlightCoin {
 }
 
 function WeekSpark({ data }: { data: number[] }) {
-  const W = 120;
-  const H = 36;
-  const P = 3;
+  const W = 300;
+  const H = 56;
+  const P = 4;
   const max = Math.max(...data, 0);
   const min = Math.min(...data, 0);
   const span = max - min || 1;
@@ -55,12 +55,23 @@ function WeekSpark({ data }: { data: number[] }) {
   });
   const [lastX, lastY] = pts[pts.length - 1].split(",");
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 overflow-visible" aria-hidden>
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className="w-full h-14 overflow-visible"
+      aria-hidden
+    >
+      <polygon
+        points={`${P},${H} ${pts.join(" ")} ${W - P},${H}`}
+        fill="var(--theme-primary)"
+        opacity="0.12"
+      />
       <polyline
         points={pts.join(" ")}
         fill="none"
         stroke="var(--theme-primary)"
         strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
         strokeLinecap="round"
         strokeLinejoin="round"
         className="spark-draw"
@@ -101,6 +112,11 @@ export default function DashboardView({
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
+  const [barsIn, setBarsIn] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setBarsIn(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
   const checkinBtnRef = useRef<HTMLButtonElement>(null);
@@ -326,16 +342,18 @@ export default function DashboardView({
         <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
           {balanceText}
         </p>
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-[13px] font-sans font-bold text-[var(--theme-primary)]">
-            {weekTotal === null ? (
-              <span className="opacity-60">Tallying the week…</span>
-            ) : (
-              <>+{formatCurrency(weekTotal)} this week</>
-            )}
-          </p>
-          {weekSeries && <WeekSpark data={weekSeries} />}
-        </div>
+        <p className="mt-3 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
+          {weekTotal === null ? (
+            <span className="opacity-60">Tallying the week…</span>
+          ) : (
+            <>+{formatCurrency(weekTotal)} this week</>
+          )}
+        </p>
+        {weekSeries && (
+          <div className="mt-2">
+            <WeekSpark data={weekSeries} />
+          </div>
+        )}
       </section>
 
       {/* Empty state — the loop entry */}
@@ -399,8 +417,8 @@ export default function DashboardView({
                     </div>
                     <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
                       <div
-                        className="h-full run-progress-fill transition-[width] duration-500"
-                        style={{ width: `${progress.percent}%` }}
+                        className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
+                        style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
                       />
                     </div>
                     <p className="mt-1.5 text-right">
