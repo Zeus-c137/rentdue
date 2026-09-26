@@ -365,7 +365,6 @@ export default function DashboardView({
           {activeRuns.slice(0, 2).map((node) => {
             const progress = getRunProgress(node);
             const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
-            const daily = mapped?.dailyYield !== undefined ? mapped.dailyYield : node.dailyYield || 0;
             const thumb = mapped?.imageUrl || node.image || "";
             return (
               <button
@@ -399,13 +398,13 @@ export default function DashboardView({
                       />
                     </div>
                     <p className="mt-1.5 flex items-center justify-between text-xs">
-                      <span className="font-sans font-semibold text-[var(--theme-text-muted)]">Next profit</span>
                       <span
                         className="font-display font-bold tabular-nums bg-clip-text text-transparent"
                         style={PROGRESS_GRADIENT}
                       >
-                        +{formatCurrency(daily)}
+                        +{formatCurrency(node.totalEarned || 0)}
                       </span>
+                      <span className="font-sans font-semibold text-[var(--theme-text-muted)]">Accrued</span>
                     </p>
                   </div>
                 </div>
