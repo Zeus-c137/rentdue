@@ -397,14 +397,13 @@ export default function DashboardView({
                         style={{ width: `${progress.percent}%` }}
                       />
                     </div>
-                    <p className="mt-1.5 flex items-center justify-between text-xs">
+                    <p className="mt-1.5 text-right">
                       <span
-                        className="font-display font-bold tabular-nums bg-clip-text text-transparent"
+                        className="font-display font-bold tabular-nums text-xs bg-clip-text text-transparent"
                         style={PROGRESS_GRADIENT}
                       >
                         +{formatCurrency(node.totalEarned || 0)}
                       </span>
-                      <span className="font-sans font-semibold text-[var(--theme-text-muted)]">Accrued</span>
                     </p>
                   </div>
                 </div>
