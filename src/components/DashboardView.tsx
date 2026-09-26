@@ -193,7 +193,7 @@ export default function DashboardView({
   useEffect(() => {
     tilesRef.current
       ?.querySelector('[data-today="true"]')
-      ?.scrollIntoView({ inline: "center", block: "nearest" });
+      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
   }, []);
 
   const deliverCheckin = (bonus: number, streak: number) => {
@@ -483,12 +483,13 @@ export default function DashboardView({
                 onClick={handleCheckin}
                 disabled={checkinBusy}
                 aria-label="Check in today"
+                data-today="true"
                 className={`${cls} cursor-pointer active:scale-95 transition-transform`}
               >
                 {inner}
               </button>
             ) : (
-              <div key={d.key} className={cls}>
+              <div key={d.key} data-today={d.isToday || undefined} className={cls}>
                 {inner}
               </div>
             );
