@@ -632,6 +632,27 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   .spark-dot { opacity: 1; }
 }
 
+/* Tile/button sheen — light sweep for actionable surfaces. */
+.tile-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.tile-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  animation: tile-shimmer-x 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tile-shimmer-x {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-shimmer::after { animation: none; display: none; }
+}
+
 /* AI thinking shimmer — gradient sweep across text (apple-design: calm, non-vestibular feedback) */
 .animate-shimmer {
   background: linear-gradient(100deg, var(--theme-primary) 20%, color-mix(in srgb, var(--theme-primary) 35%, white) 40%, var(--theme-primary) 60%);

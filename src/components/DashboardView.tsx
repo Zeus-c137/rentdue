@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow } from "../types";
-import { Eye, EyeOff, Plus, Check } from "lucide-react";
+import { Eye, EyeOff, Plus } from "lucide-react";
 import confetti from "canvas-confetti";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -19,7 +19,6 @@ import {
   getRunProgress,
   getRunEndMs,
   formatClock,
-  msToNairobiMidnight,
   getDaypartGreeting,
   getTodayKey,
 } from "../utils/runs";
@@ -152,9 +151,12 @@ export default function DashboardView({
     return list;
   }, [activeNodes]);
 
-  // Shared heartbeat: every run credits at Nairobi midnight, so every row
-  // ticks to the same moment regardless of product mix.
-  const creditIn = msToNairobiMidnight(new Date(nowMs));
+  // Next check-in opens at UTC midnight (check-ins settle on UTC days).
+  const nextCheckinIn = useMemo(() => {
+    const n = new Date(nowMs);
+    const midnight = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1);
+    return Math.max(0, midnight - nowMs);
+  }, [nowMs]);
 
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
@@ -362,9 +364,8 @@ export default function DashboardView({
           </div>
           {activeRuns.slice(0, 2).map((node) => {
             const progress = getRunProgress(node);
-            const endMs = getRunEndMs(node);
-            const dueMs = endMs === null ? 0 : endMs - nowMs;
             const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
+            const daily = mapped?.dailyYield !== undefined ? mapped.dailyYield : node.dailyYield || 0;
             const thumb = mapped?.imageUrl || node.image || "";
             return (
               <button
@@ -399,16 +400,12 @@ export default function DashboardView({
                     </div>
                     <p className="mt-1.5 flex items-center justify-between text-xs">
                       <span className="font-sans font-semibold text-[var(--theme-text-muted)]">Next profit</span>
-                      {dueMs > 0 ? (
-                        <span
-                          className="font-display font-bold tabular-nums bg-clip-text text-transparent"
-                          style={PROGRESS_GRADIENT}
-                        >
-                          {formatClock(creditIn)}
-                        </span>
-                      ) : (
-                        <span className="font-sans font-semibold text-[var(--theme-text-muted)]">MATURED</span>
-                      )}
+                      <span
+                        className="font-display font-bold tabular-nums bg-clip-text text-transparent"
+                        style={PROGRESS_GRADIENT}
+                      >
+                        +{formatCurrency(daily)}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -428,8 +425,11 @@ export default function DashboardView({
             </p>
           </div>
           {checkedInToday ? (
-            <span className="shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] text-[13px] font-sans font-bold">
-              <Check className="w-4 h-4" /> Checked in
+            <span className="shrink-0 text-[13px] font-sans font-semibold text-[var(--theme-text-muted)]">
+              come back in{" "}
+              <span className="font-display font-bold tabular-nums text-[var(--theme-text)]">
+                {formatClock(nextCheckinIn)}
+              </span>
             </span>
           ) : (
             <button
@@ -437,7 +437,7 @@ export default function DashboardView({
               type="button"
               onClick={handleCheckin}
               disabled={checkinBusy}
-              className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+              className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer tile-shimmer"
             >
               {checkinBusy ? "…" : "Check in"}
             </button>
@@ -447,19 +447,8 @@ export default function DashboardView({
           {weekTiles.days.map((d) => {
             const missed = !d.isFuture && !d.isToday && !d.claimed;
             const active = d.isToday && !d.claimed;
-            return (
-              <div
-                key={d.key}
-                className={`relative rounded-xl aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
-                  d.claimed
-                    ? "bg-[var(--theme-primary)]/15"
-                    : active
-                      ? "border border-[var(--theme-primary)]/70"
-                      : d.isFuture
-                        ? "opacity-40"
-                        : ""
-                }`}
-              >
+            const inner = (
+              <>
                 <img
                   src={dollar3d}
                   alt=""
@@ -475,6 +464,31 @@ export default function DashboardView({
                 >
                   {d.label}
                 </span>
+              </>
+            );
+            const cls = `relative rounded-xl aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
+              d.claimed
+                ? "bg-[var(--theme-primary)]/15"
+                : active
+                  ? "border border-[var(--theme-primary)]/70 tile-shimmer"
+                  : d.isFuture
+                    ? "opacity-40"
+                    : ""
+            }`;
+            return active ? (
+              <button
+                key={d.key}
+                type="button"
+                onClick={handleCheckin}
+                disabled={checkinBusy}
+                aria-label="Check in today"
+                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key={d.key} className={cls}>
+                {inner}
               </div>
             );
           })}
