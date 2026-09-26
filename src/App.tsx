@@ -56,11 +56,11 @@ import navHistory3d from "@/src/assets/3d/3dicons-calender-iso-premium.png";
 import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
-import { LevelBadge, tierNameForLevel } from "./components/LevelBadge";
+import { LevelBadge } from "./components/LevelBadge";
+import { getDaypartGreeting } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
-import { readApiJson } from "./utils/api";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useGatedInterval, useGatedTimeout, useAbortSignal } from "./hooks/useGatedInterval";
 import { fetchJsonWithSignal, abortableAll } from "./utils/abortableFetch";
@@ -137,7 +137,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade">("dashboard");
   const [siteConfig, setSiteConfig] = useState<any>(null);
   const chatUnread = useChatUnread(userProfile?.phone);
-  const [vipBadgeLevel, setVipBadgeLevel] = useState(0);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [welcomeBonusAmount, setWelcomeBonusAmount] = useState(0);
@@ -369,9 +368,8 @@ export default function App() {
         (s) => fetchJsonWithSignal<NotificationItem[]>(`/api/profile/notifications/${phone}`, s),
         (s) => fetchJsonWithSignal<UserProfile>(`/api/profile/${phone}`, s),
         (s) => fetchJsonWithSignal<unknown>("/api/config/site", s),
-        (s) => fetchJsonWithSignal<{ vipLevel?: number }>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s),
       ];
-      const [itemsData, subsData, statsData, notifData, profileData, siteData, vipData] = await abortableAll(tasks, signal) as [unknown, unknown, unknown, unknown, unknown, unknown, { vipLevel?: number }];
+      const [itemsData, subsData, statsData, notifData, profileData, siteData] = await abortableAll(tasks, signal) as [unknown, unknown, unknown, unknown, unknown, unknown];
       if (signal.aborted) return;
       applyUserDataResults({
         items: itemsData,
@@ -381,7 +379,6 @@ export default function App() {
       });
       if (profileData) setUserProfile(profileData as UserProfile);
       if (siteData && !(siteData as { error?: unknown }).error) setSiteConfig(siteData);
-      setVipBadgeLevel(Number((vipData as { vipLevel?: number })?.vipLevel || 0));
     } catch (e: unknown) {
       if ((e as Error)?.name === "AbortError") return;
       console.error("Failed to sync backend endpoints:", e);
@@ -408,17 +405,12 @@ export default function App() {
       sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
     }
     setUserProfile(null);
-    setVipBadgeLevel(0);
     revokeUserSession();
     setActiveTab("dashboard");
   };
 
   const handleProfileChange = (newProfile: UserProfile) => {
     setUserProfile(newProfile);
-    fetch(`/api/profile/vip-tasks/${encodeURIComponent(newProfile.phone)}`)
-      .then((response) => readApiJson<{ vipLevel?: number }>(response))
-      .then((board) => setVipBadgeLevel(Number(board.vipLevel || 0)))
-      .catch(() => undefined);
   };
 
   // Callback on successful active subscription activation
@@ -573,13 +565,10 @@ export default function App() {
       >
         
         {/* Top Premium navigation Header ribbon */}
-        <header className="sticky top-0 z-40 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border-b border-white/10 supports-[backdrop-filter]:bg-[var(--theme-card-bg)]/40 h-16 flex items-center justify-between px-3.5 sm:px-4.5 shrink-0 will-change-[backdrop-filter]">
-          <div className="flex items-center gap-2.5">
-            <LevelBadge level={vipBadgeLevel} className="w-10 h-10" />
-            <span className="font-display font-black text-sm tracking-tight text-[var(--theme-text)] uppercase">
-              {tierNameForLevel(vipBadgeLevel)}
-            </span>
-          </div>
+        <header className="sticky top-0 z-40 bg-transparent h-16 flex items-center justify-between px-3.5 sm:px-4.5 shrink-0">
+          <p className="font-display font-black text-[19px] leading-tight tracking-tight text-[var(--theme-text)] truncate">
+            {getDaypartGreeting()}, {userProfile.username || "Operator"}.
+          </p>
 
           {/* Action controllers */}
           <div className="flex items-center gap-1.5 sm:gap-2">

@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow } from "../types";
-import { Eye, EyeOff, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import confetti from "canvas-confetti";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -19,7 +19,6 @@ import {
   getRunProgress,
   getRunEndMs,
   formatClock,
-  getDaypartGreeting,
   getTodayKey,
 } from "../utils/runs";
 
@@ -107,7 +106,6 @@ export default function DashboardView({
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [showBalance, setShowBalance] = useState(true);
   const [weekSeries, setWeekSeries] = useState<number[] | null>(null);
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
@@ -295,9 +293,6 @@ export default function DashboardView({
     []
   );
 
-  const greetingName = profile.username || "Operator";
-  const balanceText = showBalance ? formatCurrency(Number(profile.points) || 0) : `${formatCurrency(0).replace(/[\d.,]+/, "••••")}`;
-
   return (
     <div ref={rootRef} className="relative space-y-5 text-[var(--theme-text)]">
       {/* Coin flight: check-in reward travels to the balance */}
@@ -320,27 +315,13 @@ export default function DashboardView({
           </div>
         )}
       </AnimatePresence>
-      <p className="font-display font-black text-[22px] leading-tight tracking-tight px-1">
-        {getDaypartGreeting()}, {greetingName}.
-      </p>
-
       {/* Balance hero — one balance, plus progress */}
       <section className="px-1">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-            Balance
-          </p>
-          <button
-            type="button"
-            aria-label={showBalance ? "Hide balance" : "Show balance"}
-            onClick={() => setShowBalance((v) => !v)}
-            className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
-          >
-            {showBalance ? <Eye className="w-4.5 h-4.5" /> : <EyeOff className="w-4.5 h-4.5" />}
-          </button>
-        </div>
+        <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+          Withdrawable
+        </p>
         <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
-          {balanceText}
+          {formatCurrency(Number(profile.points) || 0)}
         </p>
         <p className="mt-3 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
           {weekTotal === null ? (
