@@ -140,7 +140,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
           else if (cat === "withdraw") { categoryIcon3d = money3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
           else if (cat === "register") { categoryIcon3d = medal3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (cat === "checkin" || cat.includes("checkin") || title.includes("check-in")) { categoryIcon3d = calendar3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (cat.includes("vip") || title.includes("vip")) { categoryIcon3d = trophy3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
+          else if (cat.includes("vip") || cat.includes("milestone") || title.includes("vip") || title.includes("milestone")) { categoryIcon3d = trophy3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (title.includes("product activated")) { categoryIcon3d = flash3d; modalBadgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (cat.includes("referral") || title.includes("referral")) { categoryIcon3d = link3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
           else if (cat === "rewards" || cat === "daily accumulation" || title.includes("daily income")) { categoryIcon3d = giftBox3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
@@ -278,7 +278,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                 } else if (lcat === "checkin" || lcat.includes("checkin") || ltitle.includes("check-in")) {
                   categoryIcon3dList = calendar3d;
                   badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (lcat.includes("vip") || ltitle.includes("vip")) {
+                } else if (lcat.includes("vip") || lcat.includes("milestone") || ltitle.includes("vip") || ltitle.includes("milestone")) {
                   categoryIcon3dList = trophy3d;
                   badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
                 } else if (ltitle.includes("product activated")) {

@@ -92,6 +92,7 @@ export interface VipTaskConfig {
   requiredBonus: number;
   reward: number;
   active?: boolean;
+  imageUrl?: string;
 }
 
 export interface VipTask {
@@ -104,6 +105,7 @@ export interface VipTask {
   progress: number;
   unlocked: boolean;
   claimed: boolean;
+  imageUrl?: string;
 }
 
 export interface VipTaskboard {
@@ -122,6 +124,7 @@ export interface VipTaskboard {
     level4Bonus: number;
     accumulatedBonus: number;
     totalReferralBonus: number;
+    operatorPoints: number;
   };
 }
 

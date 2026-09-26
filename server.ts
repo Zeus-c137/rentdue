@@ -516,19 +516,20 @@ app.post("/api/profile/withdraw", async (req, res) => {
   }
 });
 
-// VIP Taskboard endpoints. Progress and rewards are calculated server-side;
-// both endpoints require the signed user session created during login.
+// Milestone board endpoints (routes keep the vip-tasks path for compatibility).
+// Progress and rewards are calculated server-side; both endpoints require the
+// signed user session created during login.
 app.get("/api/profile/vip-tasks/:phone", async (req, res) => {
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
   if (!authenticatedPhone || authenticatedPhone !== normalizePhone(req.params.phone)) {
-    return res.status(401).json({ error: "Please sign in again to view your VIP taskboard." });
+    return res.status(401).json({ error: "Please sign in again to view your milestones." });
   }
   try {
     const board = await getVipTaskboard(req.params.phone);
     res.json(board);
   } catch (error: any) {
-    console.error("[VIP tasks] load error:", error);
-    res.status(500).json({ error: error.message || "Unable to load VIP tasks right now." });
+    console.error("[Milestones] load error:", error);
+    res.status(500).json({ error: error.message || "Unable to load milestones right now." });
   }
 });
 
@@ -541,14 +542,14 @@ app.post("/api/profile/vip-tasks/claim", async (req, res) => {
 
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
   if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
-    return res.status(401).json({ error: "Please sign in again before claiming a VIP task." });
+    return res.status(401).json({ error: "Please sign in again before claiming a milestone." });
   }
 
   try {
     const result = await claimVipTask(phone, taskId);
     res.json(result);
   } catch (error: any) {
-    console.error("Claim VIP task error:", error);
+    console.error("Claim milestone error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -1302,10 +1303,10 @@ app.post("/api/copilot/chat", async (req, res) => {
       const tasks = Array.isArray(vipBoard.tasks) ? vipBoard.tasks : [];
       vipTasksList = tasks.length > 0
         ? tasks.slice(0, 12).map((t: any) => {
-            const state = t.claimed ? "claimed" : t.unlocked ? "UNLOCKED — tell them to claim it on the VIP page" : `progress ${fmt(t.progress)} of ${fmt(t.requiredBonus)}`;
-            return `- ${t.title}: needs ${fmt(t.requiredBonus)} referral bonus, reward ${fmt(t.reward)} [${state}]`;
+            const state = t.claimed ? "claimed" : t.unlocked ? "UNLOCKED — tell them to claim it on the Milestones page" : `progress ${fmt(t.progress)} of ${fmt(t.requiredBonus)}`;
+            return `- ${t.title}: needs ${fmt(t.requiredBonus)} operator points, reward ${fmt(t.reward)} [${state}]`;
           }).join("\n")
-        : "No VIP tasks configured right now.";
+        : "No milestones configured right now.";
     }
   } catch (err) {
     console.error("Failed fetching catalog/gift code items for AI prompt:", err);
@@ -1354,11 +1355,11 @@ Current User Details (fresh from the database as of this message):
 - Withdrawable balance: UGX ${liveWithdrawable.toLocaleString()} (daily income, bonuses and rewards land here; withdrawals come from this balance)
 - Total withdrawn to date: UGX ${liveWithdrawn.toLocaleString()}
 - Referral income earned: UGX ${liveReferralEarned.toLocaleString()} across ${liveInvites} invites${liveLevelBonus ? ` (by level — ${liveLevelBonus})` : ""}
-- VIP level: VIP ${liveVipLevel}
+- Operator level: ${liveVipLevel}
 - Active products count: ${activeSubscriptions?.length || 0} active products
 
-Their VIP taskboard (progress is their live Level 1-4 referral bonus):
-${vipTasksList || "Sign-in data unavailable — speak generally about VIP tasks."}
+Their milestone board (progress is their live operator points total):
+${vipTasksList || "Sign-in data unavailable — speak generally about milestones."}
 
 How ${brand} works (always explain it this way):
 - Users deposit funds into their rechargeable balance. That balance is used to rent products in the system.
@@ -1371,7 +1372,7 @@ Knowledge & Capabilities:
 - **Withdrawal**: Withdraw from the withdrawable balance to Mobile Money or USDT. Only works with an active product. Withdrawal fee is exactly ${siteConfig?.withdrawFee || 0}%.
 - **Invite Program**: Users share referral links and earn ${siteConfig?.level1InviteIncomePct ?? 15}% on Level 1, ${siteConfig?.level2InviteIncomePct ?? 5}% on Level 2, ${siteConfig?.level3InviteIncomePct ?? 0}% on Level 3, and ${siteConfig?.level4InviteIncomePct ?? 0}% on Level 4 when invited friends activate products (referrals only pay while the invitee has an active product).
 - **Gift Codes**: New gift codes are given out daily in the community groups set by the admin (WhatsApp: ${siteConfig?.whatsappLink || "N/A"}, Telegram: ${siteConfig?.telegramLink || "N/A"}). Tell users to join the community groups to claim them.
-- **VIP Tasks**: Complete referral targets to unlock rewards up to UGX 50,000,000. This user's exact level, per-task progress and unlock state are listed above under "Their VIP taskboard" — quote their real figures, and when a task shows UNLOCKED, direct them to claim it on the VIP page.
+- **Milestones**: Complete operator-points targets to unlock rewards. This user's exact per-task progress and unlock state are listed above under "Their milestone board" — quote their real figures, and when a task shows UNLOCKED, direct them to claim it on the Milestones page.
 - **Support Links**: WhatsApp (${siteConfig?.whatsappLink || "N/A"}) and Telegram (${siteConfig?.telegramLink || "N/A"}).
 
 Instructions:
@@ -2001,6 +2002,9 @@ const SITE_IMAGE_KINDS: Record<string, { exts: string[]; maxBytes: number; prefi
   logo: { exts: ["png", "jpg", "jpeg", "webp", "svg"], maxBytes: 2 * 1024 * 1024, prefix: "logo", field: "logoUrl" },
   authbg: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 4 * 1024 * 1024, prefix: "authbg", field: "authBgImage" },
   dashboardbg: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 4 * 1024 * 1024, prefix: "dashboardbg", field: "dashboardBgImage" },
+  // Milestone art attaches to vipTasks[].imageUrl (no top-level field), so
+  // pruning sweeps unreferenced prefix files instead of one previous path.
+  viptask: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 2 * 1024 * 1024, prefix: "viptask", field: "" },
 };
 
 app.post("/api/admin/upload", async (req, res) => {
@@ -2038,14 +2042,32 @@ app.post("/api/admin/upload", async (req, res) => {
     }
 
     const fileName = `${spec.prefix}-${Date.now()}.${ext}`;
-    // Prune the previous upload for this kind so disk doesn't fill up.
+    // Prune stale uploads for this kind so disk doesn't fill up. Field kinds
+    // drop one previous path; embedded kinds (milestone art) sweep files no
+    // task references anymore.
     try {
       const config = await getSiteConfig();
-      const prev = String((config as any)[spec.field] || "");
-      if (prev.startsWith("/uploads/")) {
-        const prevName = path.basename(prev.split("?")[0]);
-        if (prevName.startsWith(`${spec.prefix}-`)) {
-          fs.rmSync(path.join(UPLOAD_DIR, prevName), { force: true });
+      if (spec.field) {
+        const prev = String((config as any)[spec.field] || "");
+        if (prev.startsWith("/uploads/")) {
+          const prevName = path.basename(prev.split("?")[0]);
+          if (prevName.startsWith(`${spec.prefix}-`)) {
+            fs.rmSync(path.join(UPLOAD_DIR, prevName), { force: true });
+          }
+        }
+      } else {
+        const tasks = Array.isArray((config as any).vipTasks) ? (config as any).vipTasks : [];
+        const live = new Set(
+          tasks
+            .map((t: any) => String(t?.imageUrl || ""))
+            .filter((u: string) => u.startsWith("/uploads/"))
+            .map((u: string) => path.basename(u.split("?")[0]))
+        );
+        live.add(fileName);
+        for (const entry of fs.readdirSync(UPLOAD_DIR)) {
+          if (entry.startsWith(`${spec.prefix}-`) && !live.has(entry)) {
+            fs.rmSync(path.join(UPLOAD_DIR, entry), { force: true });
+          }
         }
       }
     } catch {

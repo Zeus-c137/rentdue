@@ -19,7 +19,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
   const { formatCurrency } = useCurrency();
   const [board, setBoard] = useState<VipTaskboard>({
     tasks: [], vipLevel: 0, referralRates: { level1: 15, level2: 5, level3: 0, level4: 0 },
-    progress: { level1Bonus: 0, level2Bonus: 0, level3Bonus: 0, level4Bonus: 0, accumulatedBonus: 0, totalReferralBonus: 0 },
+    progress: { level1Bonus: 0, level2Bonus: 0, level3Bonus: 0, level4Bonus: 0, accumulatedBonus: 0, totalReferralBonus: 0, operatorPoints: 0 },
   });
   const [loading, setLoading] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -31,16 +31,17 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
     setLoading(true);
     const s=renew();
     try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); vipCache={phone, board:n, at:Date.now()}; }
-    catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"VIP unavailable"); }
+    catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"Milestones unavailable"); }
     finally{ setLoading(false); }
   }, [phone]);
 
   useEffect(()=>{ void load(); const onVis=()=>{ if(!document.hidden) void load(); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
 
-  const { accumulatedBonus } = board.progress;
-  const nextReq = getNextVipRequirement(board.tasks, accumulatedBonus);
-  const overall = calcVipProgress(accumulatedBonus, nextReq);
-  const toGo = Math.max(0, nextReq - accumulatedBonus);
+  const { operatorPoints } = board.progress;
+  const nextReq = getNextVipRequirement(board.tasks, operatorPoints);
+  const overall = calcVipProgress(operatorPoints, nextReq);
+  const toGo = Math.max(0, nextReq - operatorPoints);
+  const nextTask = board.tasks.find((t) => !t.unlocked && !t.claimed);
 
   const handleClaim = async(task:VipTask)=>{
     setClaimingId(task.id); const s=renew();
@@ -80,20 +81,20 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
               <div className="flex gap-4 items-start relative">
                 <img src={heroTrophy} alt="" className="w-14 h-14 object-contain shrink-0 drop-shadow-sm mt-1"/>
                 <div className="flex-1 min-w-0 pr-6">
-                  <p className="text-[11px] font-sans font-medium opacity-50">Referral income</p>
-                  <p className="text-[28px] font-display font-bold leading-none tracking-tight mt-1" style={{fontVariantNumeric:"tabular-nums"}}>{formatCurrency(accumulatedBonus)}</p>
-                  <p className="text-[11px] font-sans opacity-40 mt-1">Total bonus you've earned from referrals so far.</p>
+                  <p className="text-[11px] font-sans font-medium opacity-50">Operator points</p>
+                  <p className="text-[28px] font-display font-bold leading-none tracking-tight mt-1" style={{fontVariantNumeric:"tabular-nums"}}>{formatCurrency(operatorPoints)}</p>
+                  <p className="text-[11px] font-sans opacity-40 mt-1">Lifetime points across yields, referrals, check-ins and gifts.</p>
                 </div>
               </div>
               <div className="relative mt-4">
                 <div className="flex justify-end">
-                  <span className="text-[11px] font-sans font-semibold px-2.5 py-1 rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] border border-[var(--theme-primary)]/15">{formatCurrency(toGo)} to VIP {(board.vipLevel||0)+1}</span>
+                  <span className="text-[11px] font-sans font-semibold px-2.5 py-1 rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] border border-[var(--theme-primary)]/15">{formatCurrency(toGo)} to {nextTask ? nextTask.category : "next tier"}</span>
                 </div>
                 <div className="w-full h-3 bg-black/10 rounded-full overflow-hidden mt-2 border border-white/10">
                   <div className="h-full bg-[var(--theme-primary)] rounded-full transition-all" style={{width:`${overall}%`}}/>
                 </div>
                 <div className="flex justify-end mt-1.5 text-[11px] font-sans">
-                  <span className="font-semibold text-[var(--theme-primary)]">{formatCurrency(accumulatedBonus)}</span>
+                  <span className="font-semibold text-[var(--theme-primary)]">{formatCurrency(operatorPoints)}</span>
                   <span className="opacity-50 mx-1">/</span>
                   <span className="opacity-50">{formatCurrency(nextReq)}</span>
                 </div>
@@ -103,8 +104,8 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
             {/* Section head — like mockvip legend */}
             {board.tasks.length>0 && (
               <div className="px-1 pt-1">
-                <h2 className="text-[15px] font-display font-bold tracking-tight">Referral bonus tiers</h2>
-                <p className="text-[11px] font-sans opacity-50 mt-1 leading-snug">Each tier has its own target. Reach it with your referral balance to unlock the reward.</p>
+                <h2 className="text-[15px] font-display font-bold tracking-tight">Milestone tiers</h2>
+                <p className="text-[11px] font-sans opacity-50 mt-1 leading-snug">Each tier has its own points target. Reach it with your operator points to unlock the reward.</p>
                 <div className="flex gap-4 mt-2">
                   <span className="flex items-center gap-1.5 text-[11px] font-sans opacity-60"><span className="w-2 h-2 rounded-full bg-[var(--theme-primary)]"/>Balance</span>
                   <span className="flex items-center gap-1.5 text-[11px] font-sans opacity-60"><span className="w-2 h-2 rounded-full bg-black/20 border border-white/10"/>Target</span>
@@ -115,7 +116,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
             {board.tasks.length===0 ? (
               <div className="py-10 text-center rounded-[24px] bg-white/[0.03] border border-white/10">
                 <img src={medal3d} alt="" className="w-14 h-14 mx-auto opacity-50"/>
-                <p className="text-sm font-sans font-semibold mt-3 opacity-70">No tasks yet</p>
+                <p className="text-sm font-sans font-semibold mt-3 opacity-70">No milestones yet</p>
                 <p className="text-[11px] font-sans opacity-40 mt-1">Check back soon</p>
               </div>
             ) : (
@@ -137,9 +138,14 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, onBac
                           <div className="text-[10px] font-sans opacity-40 text-right">reward</div>
                         </div>
                       </div>
-                      <div>
-                        <h4 className="text-[15px] font-display font-semibold leading-tight">{task.title}</h4>
-                        {task.description && <p className="text-[12px] font-sans opacity-50 leading-snug mt-1">{task.description}</p>}
+                      <div className="flex items-center gap-3">
+                        {task.imageUrl && (
+                          <img src={task.imageUrl} alt="" loading="lazy" decoding="async" className="w-10 h-10 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-[15px] font-display font-semibold leading-tight">{task.title}</h4>
+                          {task.description && <p className="text-[12px] font-sans opacity-50 leading-snug mt-1">{task.description}</p>}
+                        </div>
                       </div>
                       <div>
                         <div className="w-full h-3 bg-black/10 rounded-full overflow-hidden border border-white/5">

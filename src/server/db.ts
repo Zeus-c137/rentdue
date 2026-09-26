@@ -2138,24 +2138,35 @@ export async function getVipTaskboard(phone: string) {
   const legacyUnallocated = Math.max(0, reportedReferralIncome - reportedByLevel);
   const level1Bonus = rawLevel1Bonus + legacyUnallocated;
   const totalReferralBonus = Math.max(reportedReferralIncome, rawLevel1Bonus + level2Bonus + level3Bonus + level4Bonus);
-  // VIP tasks use the user's complete credited referral income across all
-  // four levels. Keep accumulatedBonus as the API field name for compatibility.
+  // Milestones qualify on operator lifetime points: gross credited ledger
+  // income across every type that pays withdrawable balance (yields,
+  // referrals, check-ins, gifts, milestones, registration). requiredBonus is
+  // the points threshold. Keep accumulatedBonus populated for compatibility.
   const accumulatedBonus = totalReferralBonus;
+  const drizzleDb = requireDatabase("total operator points");
+  const opResult: any = await drizzleDb.execute(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = ${phone} AND type IN ('daily_yield', 'referral_signup_bonus', 'referral_level_income', 'daily_checkin_bonus', 'gift_code', 'vip_task', 'registration_bonus') AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')`);
+  const opRows = Array.isArray(opResult?.[0]) ? opResult[0] : [];
+  const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
   const claimed = user.claimedVipTasks || [];
 
   const tasks = configuredTasks
     .filter((task: any) => task && task.active !== false)
-    .map((task: any) => ({
-      id: String(task.id),
-      title: String(task.title || "VIP Referral Task"),
-      description: String(task.description || "Unlock this reward with referral earnings."),
-      category: String(task.category || "VIP"),
-      requiredBonus: Math.max(0, Number(task.requiredBonus || 0)),
-      reward: Math.max(0, Number(task.reward || 0)),
-      progress: accumulatedBonus,
-      unlocked: accumulatedBonus >= Math.max(0, Number(task.requiredBonus || 0)),
-      claimed: claimed.includes(String(task.id))
-    }))
+    .map((task: any) => {
+      const threshold = Math.max(0, Number(task.requiredBonus || 0));
+      const art = String(task.imageUrl || "").trim();
+      return {
+        id: String(task.id),
+        title: String(task.title || "Milestone Task"),
+        description: String(task.description || "Unlock this reward with operator points."),
+        category: String(task.category || "Milestone"),
+        requiredBonus: threshold,
+        reward: Math.max(0, Number(task.reward || 0)),
+        ...(art ? { imageUrl: art } : {}),
+        progress: operatorPoints,
+        unlocked: operatorPoints >= threshold,
+        claimed: claimed.includes(String(task.id))
+      };
+    })
     .sort((a, b) => a.requiredBonus - b.requiredBonus);
 
   // VIP rank follows the published task ladder, not referral-count guesses or
@@ -2186,7 +2197,8 @@ export async function getVipTaskboard(phone: string) {
       level3Bonus,
       level4Bonus,
       accumulatedBonus,
-      totalReferralBonus
+      totalReferralBonus,
+      operatorPoints
     }
   };
 }
@@ -2194,9 +2206,9 @@ export async function getVipTaskboard(phone: string) {
 export async function claimVipTask(phone: string, taskId: string) {
   const board = await getVipTaskboard(phone);
   const task = board.tasks.find((candidate) => candidate.id === taskId);
-  if (!task) throw new Error("This VIP task is not currently available.");
-  if (!task.unlocked) throw new Error("Keep building your Level 1–4 referral bonus to unlock this task.");
-  if (task.claimed) throw new Error("VIP task reward already claimed.");
+  if (!task) throw new Error("This milestone is not currently available.");
+  if (!task.unlocked) throw new Error("Keep earning operator points to unlock this milestone.");
+  if (task.claimed) throw new Error("Milestone reward already claimed.");
 
   const drizzleDb = requireDatabase("claim the VIP task");
   let claimedVipTasks: string[] = [];
@@ -2207,8 +2219,8 @@ export async function claimVipTask(phone: string, taskId: string) {
       .for("update");
     const user = userRows[0];
     if (!user) throw new Error("User not found");
-    claimedVipTasks = [...(user.claimedVipTasks || [])];
-    if (claimedVipTasks.includes(task.id)) throw new Error("VIP task reward already claimed.");
+    claimedVipTasks = readJsonStringArray(user.claimedVipTasks);
+    if (claimedVipTasks.includes(task.id)) throw new Error("Milestone reward already claimed.");
     claimedVipTasks.push(task.id);
 
     // Credit directly to withdrawable balance (points)! The reward and
@@ -2237,8 +2249,8 @@ export async function claimVipTask(phone: string, taskId: string) {
   // Create notification alert
   await createNotification(
     phone,
-    "VIP Task Reward Claimed",
-    `Successfully claimed VIP task reward of UGX ${task.reward.toLocaleString()} credited to your withdrawable balance!`,
+    "Milestone Reward Claimed",
+    `Successfully claimed milestone reward of UGX ${task.reward.toLocaleString()} credited to your withdrawable balance!`,
     "rewards"
   );
 
@@ -2246,7 +2258,7 @@ export async function claimVipTask(phone: string, taskId: string) {
     roomId: "shared",
     sender: "system",
     senderName: "SYSTEM BROADCAST",
-    text: `User ${phone.slice(0, 4)}*** claimed a VIP task reward of UGX ${task.reward.toLocaleString()}!`
+    text: `User ${phone.slice(0, 4)}*** claimed a milestone reward of UGX ${task.reward.toLocaleString()}!`
   });
 
   return { bonus: task.reward, claimedVipTasks };

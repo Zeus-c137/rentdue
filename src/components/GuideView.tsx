@@ -63,11 +63,11 @@ const SECTIONS: { title: string; body: string[] }[] = [
     ],
   },
   {
-    title: "VIP tasks",
+      title: "Milestones",
     body: [
       "Grow referral bonus totals to climb tiers.",
       "Each tier unlocks a one-time reward.",
-      "Claim rewards from the VIP page.",
+      "Claim rewards from the Milestones page.",
     ],
   },
   {

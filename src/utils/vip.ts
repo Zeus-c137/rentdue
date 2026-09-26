@@ -23,12 +23,14 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
       level4Bonus: Number((rp.level4Bonus ?? rp.level4 ?? raw.level4Bonus ?? 0) as number),
       accumulatedBonus: Number((rp.accumulatedBonus ?? raw.accumulatedBonus ?? 0) as number),
       totalReferralBonus: Number((rp.totalReferralBonus ?? raw.totalReferralBonus ?? 0) as number),
+      operatorPoints: Number((rp.operatorPoints ?? raw.operatorPoints ?? 0) as number),
     },
   };
 }
 
 export function normalizeVipTask(raw: unknown): VipTaskConfig {
   const d = (raw ?? {}) as Record<string, unknown>;
+  const imageUrl = String(d.imageUrl ?? "").trim();
   return {
     id: String(d.id ?? "").trim(),
     title: String(d.title ?? "").trim(),
@@ -37,6 +39,7 @@ export function normalizeVipTask(raw: unknown): VipTaskConfig {
     requiredBonus: Math.max(0, Number(d.requiredBonus ?? 0)),
     reward: Math.max(0, Number(d.reward ?? 0)),
     active: d.active !== false,
+    ...(imageUrl ? { imageUrl } : {}),
   };
 }
 

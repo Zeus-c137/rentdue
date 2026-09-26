@@ -20,7 +20,7 @@ export const TRANSACTION_LABELS: Record<TransactionType, string> = {
   gift_code: "Gift Code",
   referral_signup_bonus: "Referral income",
   referral_level_income: "Referral income",
-  vip_task: "VIP Task",
+  vip_task: "Milestone",
 };
 
 export const TRANSACTION_ICON_KEYS: Record<TransactionType, string> = {

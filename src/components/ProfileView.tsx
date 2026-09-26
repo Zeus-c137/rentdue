@@ -493,7 +493,7 @@ export default function ProfileView({
             </button>
             <button onClick={() => onNavigate("vip")} className="flex flex-col items-center gap-1.5 focus:outline-none group">
               <img src={vip3d} alt="" loading="lazy" decoding="async" className="w-12 h-12 object-contain drop-shadow-sm" />
-              <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">VIP Tasks</span>
+              <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Milestones</span>
             </button>
             <button onClick={() => setShowGiftCodeSheet(true)} className="flex flex-col items-center gap-1.5 focus:outline-none group">
               <img src={gift3d2} alt="" className="w-12 h-12 object-contain drop-shadow-sm" />
