@@ -25,7 +25,6 @@ import {
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "motion/react";
 import { useCurrency } from "../currency";
-import VisaMetricCard from "./VisaMetricCard";
 import { toast } from "sonner";
 
 interface CatalogViewProps {

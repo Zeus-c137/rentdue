@@ -84,11 +84,6 @@ function WeekSpark({ data }: { data: number[] }) {
   );
 }
 
-const PROGRESS_GRADIENT: React.CSSProperties = {
-  backgroundImage:
-    "linear-gradient(180deg, var(--hut-gold-300-glossy) 0%, var(--hut-gold-500) 70%, var(--hut-gold-700) 100%)",
-};
-
 export default function DashboardView({
   profile,
   activeNodes,
@@ -368,7 +363,7 @@ export default function DashboardView({
       {/* Balance hero — one balance, plus progress */}
       <section className="px-1">
         <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-          Withdrawable
+          Withdrawable balance
         </p>
         <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
           {formatCurrency(Number(profile.points) || 0)}
@@ -387,98 +382,78 @@ export default function DashboardView({
         )}
       </section>
 
-      {/* Empty state — the loop entry */}
-      {activeNodes.length === 0 && (
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
-          <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
-          >
-            <Plus className="w-4 h-4" /> Start your first Run
-          </button>
-        </section>
-      )}
-
-      {/* Runs — one card, two rows, overflow as a count */}
-      {(activeRuns.length > 0 || completedRuns.length > 0) && (
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
-          <div className="flex items-center justify-between py-2.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <button
-                type="button"
-                onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
-                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
-                className={`p-2 -ml-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-              </button>
-              <h2 className="font-display font-black text-[15px] truncate">
-                {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
-              </h2>
+      {/* Next milestone — flat header, card body. Body taps route to the stage. */}
+      {nextMilestone && (
+        <section>
+          <div className="flex items-start justify-between mb-3 px-1">
+            <div>
+              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
             </div>
             <button
               type="button"
-              onClick={onNavigateToIncome}
-              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+              onClick={() => onNavigateToMilestones()}
+              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
             >
-              View all
+              View all <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-          <div className="min-h-[196px]">
-            {shownRuns.length === 0 ? (
-              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
-                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
-              </p>
-            ) : null}
-            {shownRuns.slice(0, 2).map((node) => {
-            const progress = getRunProgress(node, items);
-            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
-            const thumb = mapped?.imageUrl || node.image || "";
+          {nextMilestone.done ? (
+            <p className="px-1 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+          ) : (() => {
+            const task = nextMilestone.task;
+            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
+            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
+            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
+            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
+            const counts = msIsMoney(task.metric)
+              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
+              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
             return (
               <button
-                key={node.id}
                 type="button"
-                onClick={onNavigateToIncome}
-                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
+                onClick={() => onNavigateToMilestones(task.category)}
+                aria-label="View journey stage"
+                className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
               >
                 <div className="flex items-center gap-3">
-                  {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-11 h-11 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
-                  ) : (
-                    <span className="w-11 h-11 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-lg flex items-center justify-center">
-                      {node.itemName.charAt(0).toUpperCase()}
+                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
+                    {tierArt ? (
+                      <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    ) : (
+                      <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
+                      {task.category}
                     </span>
-                  )}
-                  <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                    <p className="text-[15px] font-display font-black truncate mt-0.5">{task.title}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                        <div
+                          className="h-full run-progress-fill transition-[width] duration-700 ease-out"
+                          style={{ width: barsIn ? `${pct}%` : "0%" }}
+                        />
                       </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
-                          <div
-                            className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
-                            style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
-                          />
-                        </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
-                          {Math.round(progress.percent)}%
-                        </span>
-                      </div>
+                      <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                        {Math.round(pct)}%
+                      </span>
+                    </div>
                     <p className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Accrued</span>
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Progress</span>
                       <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
-                        +{formatCurrency(node.totalEarned || 0)}
+                        {counts}
                       </span>
                     </p>
                   </div>
+                  <span className="shrink-0 p-2 rounded-full opacity-60">
+                    <ChevronRight className="w-4 h-4" />
+                  </span>
                 </div>
               </button>
             );
-          })}
-          </div>
+          })()}
         </section>
       )}
 
@@ -575,68 +550,98 @@ export default function DashboardView({
         </div>
       </section>
 
-      {/* Next milestone — mockup strip: art tile, reward, thin progress, inline claim */}
-      {nextMilestone && (
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
-              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
+      {/* Empty state — the loop entry, kept with its runs card */}
+      {activeNodes.length === 0 && (
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
+          <p className="font-display font-black text-lg">No active runs.</p>
+          <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
+          <button
+            type="button"
+            onClick={onNavigateToCatalog}
+            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
+          >
+            <Plus className="w-4 h-4" /> Start your first Run
+          </button>
+        </section>
+      )}
+
+      {/* Runs — one card, two rows, overflow as a count */}
+      {(activeRuns.length > 0 || completedRuns.length > 0) && (
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
+                className={`p-2 -ml-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+              <h2 className="font-display font-black text-[15px] truncate">
+                {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
+              </h2>
             </div>
             <button
               type="button"
-              onClick={() => onNavigateToMilestones()}
-              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+              onClick={onNavigateToIncome}
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
             >
-              View all <ChevronRight className="w-4 h-4" />
+              View all
             </button>
           </div>
-          {nextMilestone.done ? (
-            <p className="text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
-          ) : (() => {
-            const task = nextMilestone.task;
-            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
-            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
-            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
-            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
-            const counts = msIsMoney(task.metric)
-              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
-              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
+          <div className="min-h-[196px]">
+            {shownRuns.length === 0 ? (
+              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
+                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
+              </p>
+            ) : null}
+            {shownRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node, items);
+            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
+            const thumb = mapped?.imageUrl || node.image || "";
             return (
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
-                  {tierArt ? (
-                    <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <button
+                key={node.id}
+                type="button"
+                onClick={onNavigateToIncome}
+                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  {thumb ? (
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-11 h-11 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
                   ) : (
-                    <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
+                    <span className="w-11 h-11 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-lg flex items-center justify-center">
+                      {node.itemName.charAt(0).toUpperCase()}
+                    </span>
                   )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
-                    {task.category}
-                  </span>
-                  <p className="text-[13px] font-sans font-extrabold truncate mt-0.5">{task.title}</p>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-black/20 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-[width] duration-700 ease-out"
-                      style={{ ...PROGRESS_GRADIENT, width: barsIn ? `${pct}%` : "0%" }}
-                    />
+                  <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                          <div
+                            className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
+                            style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
+                          />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                          {Math.round(progress.percent)}%
+                        </span>
+                      </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Accrued</span>
+                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
+                        +{formatCurrency(node.totalEarned || 0)}
+                      </span>
+                    </p>
                   </div>
-                  <div className="mt-1 flex items-center justify-end gap-2">
-                    <p className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-80">{counts}</p>
-                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onNavigateToMilestones(task.category)}
-                  aria-label="View journey stage"
-                  className="shrink-0 p-2 rounded-full opacity-60 hover:opacity-100 cursor-pointer"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+              </button>
             );
-          })()}
+          })}
+          </div>
         </section>
       )}
     </div>

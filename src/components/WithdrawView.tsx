@@ -142,18 +142,18 @@ export default function WithdrawView({
   if (paymentStatus === "SUCCESS") {
     return (
       <div className="bg-transparent text-[var(--theme-text)] p-4 min-h-[100dvh] space-y-4 select-none">
-        <div className="flex items-center justify-between gap-3">
+        {/* Top bar — back */}
+        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               setPaymentStatus("IDLE");
               onBack();
             }}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-black uppercase tracking-wider hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
+            aria-label="Go back"
+            className="w-10 h-10 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/40 active:scale-95 transition-all cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4 text-[var(--theme-primary)]" /> Back
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-sm font-display font-black uppercase tracking-wider text-[var(--theme-text)]">Withdraw Funds</h1>
-          <span className="w-[72px]" />
         </div>
         <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-5 shadow-sm">
           <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-500">
@@ -187,7 +187,7 @@ export default function WithdrawView({
               setPaymentStatus("IDLE");
               onBack();
             }}
-            className="w-full py-3.5 rounded-full bg-[var(--theme-primary)] text-white font-black text-xs uppercase tracking-wider shadow-[0_3px_0_0_var(--theme-primary-shadow)] cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-extrabold text-sm shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
           >
             Done
           </button>
@@ -198,20 +198,25 @@ export default function WithdrawView({
 
   return (
     <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] space-y-4 select-none p-4 min-h-[100dvh]">
-      <div className="flex items-center justify-between gap-3">
+      {/* Top bar — back */}
+      <div className="flex items-center gap-3">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-black uppercase tracking-wider hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
+          aria-label="Go back"
+          className="w-10 h-10 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/40 active:scale-95 transition-all cursor-pointer"
         >
-          <ArrowLeft className="w-4 h-4 text-[var(--theme-primary)]" /> Back
+          <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-sm font-display font-black uppercase tracking-wider text-[var(--theme-text)]">Withdraw Funds</h1>
-        <span className="w-[72px]" />
+      </div>
+
+      {/* Title — below back */}
+      <div className="px-1">
+        <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)]">Withdraw funds</h1>
+        <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-2">Cash out to mobile money or USDT.</p>
       </div>
 
       {/* Visa balance card — withdrawable only */}
       <VisaMetricCard
-        variant="bank-dark"
         mode="single"
         leftLabel="Withdrawable balance"
         leftValue={formatCurrency(userProfile.points || 0)}
@@ -219,9 +224,7 @@ export default function WithdrawView({
 
       <div className="rounded-[var(--theme-radius)] overflow-hidden">
         <div className="p-3 border-b border-[var(--theme-card-border)] space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-black uppercase tracking-[0.14em] opacity-60">Payout method</h2>
-          </div>
+          <h2 className="text-[15px] font-sans font-extrabold tracking-tight">Payout method</h2>
           <div className="flex gap-1 border-b border-[var(--theme-card-border)]">
             <PillBtn
               active={withdrawOperator !== "USDT"}
@@ -257,31 +260,15 @@ export default function WithdrawView({
               }
             />
           </div>
-          <div className="flex items-center gap-2 text-[10px] font-bold leading-none px-1">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-[var(--theme-primary)] text-white flex items-center justify-center text-[10px] font-black">1</span>{" "}
-              Destination
-            </span>
-            <span className="opacity-30">—</span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] flex items-center justify-center text-[10px] font-black">2</span>{" "}
-              Amount
-            </span>
-            <span className="opacity-30">—</span>
-            <span className="inline-flex items-center gap-1.5 opacity-70">
-              <span className="w-5 h-5 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] flex items-center justify-center text-[10px] font-black">3</span>{" "}
-              Confirm
-            </span>
-          </div>
         </div>
 
         <form onSubmit={handleWithdrawal} className="p-4 space-y-4">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wider opacity-60">
+            <label className="text-[13px] font-sans font-medium opacity-60">
               {withdrawOperator === "USDT" ? "USDT wallet address" : "Withdrawal phone number"}
             </label>
             <div className="relative">
-              {withdrawOperator !== "USDT" && <Phone className="w-4 h-4 text-[var(--theme-primary)] absolute left-3 top-3.5" />}
+              {withdrawOperator !== "USDT" && <Phone className="w-4 h-4 text-[var(--theme-primary)] absolute left-3.5 top-1/2 -translate-y-1/2" />}
               <input
                 type={withdrawOperator === "USDT" ? "text" : "tel"}
                 required
@@ -291,14 +278,14 @@ export default function WithdrawView({
                 onChange={(e) => {
                   if (withdrawOperator === "USDT") setUsdtAddress(e.target.value);
                 }}
-                className={`w-full ${withdrawOperator === "USDT" ? "px-4" : "pl-9 pr-4"} py-3.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-sm rounded-full outline-none font-bold focus:border-[var(--theme-primary)] transition-all disabled:opacity-60`}
+                className={`w-full ${withdrawOperator === "USDT" ? "px-4" : "pl-10 pr-4"} py-4 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-[15px] rounded-2xl outline-none font-bold placeholder:font-medium placeholder:opacity-40 focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] transition-all disabled:opacity-60`}
                 placeholder={withdrawOperator === "USDT" ? "T..." : "07XXXXXXXX"}
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[11px] font-black uppercase tracking-wider opacity-60">Amount (UGX)</label>
+            <label className="text-[13px] font-sans font-medium opacity-60">Amount (UGX)</label>
             <div className="relative">
               <input
                 type="text"
@@ -309,14 +296,14 @@ export default function WithdrawView({
                 placeholder={`Min ${minimumWithdrawal.toLocaleString()}${maximumWithdrawal > 0 ? ` - Max ${maximumWithdrawal.toLocaleString()}` : ""}`}
                 value={pointsToWithdraw || ""}
                 onChange={(e) => setPointsToWithdraw(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                className="w-full px-4 py-3.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-sm rounded-full outline-none font-bold focus:border-[var(--theme-primary)] transition-all pr-20"
+                className="w-full px-4 py-4 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-[15px] rounded-2xl outline-none font-bold placeholder:font-medium placeholder:opacity-40 focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] transition-all pr-20"
               />
               <button
                 type="button"
                 onClick={() =>
                   setPointsToWithdraw(Math.min(userProfile.points || 0, maximumWithdrawal > 0 ? maximumWithdrawal : userProfile.points || 0))
                 }
-                className="absolute right-2 top-2 px-3 py-1.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-black rounded-full transition-colors cursor-pointer uppercase"
+                className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-black rounded-full transition-colors cursor-pointer uppercase"
               >
                 MAX
               </button>
@@ -387,8 +374,8 @@ export default function WithdrawView({
           </div>
 
           <Button
-            variant="gold-glossy"
-            size="md"
+            variant="primary"
+            size="lg"
             type="submit"
             loading={isWithdrawing}
             disabled={

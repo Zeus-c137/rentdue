@@ -12,7 +12,6 @@ import {
   SlidersHorizontal
 } from "lucide-react";
 import MetricCard from "./MetricCard";
-import VisaMetricCard from "./VisaMetricCard";
 import { Button } from "./ui/button";
 import { useCurrency } from "../currency";
 import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";

@@ -932,7 +932,10 @@ export default function App() {
               onClick={() => setActiveTab("dashboard")}
               className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <Home className="w-6 h-6" />
+              <span className="grid place-items-center w-6 h-6">
+                <Home className="w-6 h-6 col-start-1 row-start-1" />
+                <Home fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "dashboard" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+              </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Home</span>
             </button>
 
@@ -941,7 +944,10 @@ export default function App() {
               onClick={() => setActiveTab("catalog")}
               className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <Store className="w-6 h-6" />
+              <span className="grid place-items-center w-6 h-6">
+                <Store className="w-6 h-6 col-start-1 row-start-1" />
+                <Store fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+              </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Store</span>
             </button>
 
@@ -950,7 +956,14 @@ export default function App() {
               onClick={() => setActiveTab("income")}
               className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "income" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <Zap className="w-6 h-6" />
+              {siteConfig?.logoUrl?.trim() ? (
+                <BrandLogo siteConfig={siteConfig} className="w-6 h-6 flex items-center justify-center shrink-0 [&>img]:rounded-md" />
+              ) : (
+                <span className="grid place-items-center w-6 h-6">
+                  <Zap className="w-6 h-6 col-start-1 row-start-1" />
+                  <Zap fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "income" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+                </span>
+              )}
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">My Runs</span>
             </button>
 
@@ -959,7 +972,10 @@ export default function App() {
               onClick={() => setActiveTab("vip")}
               className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <Trophy className="w-6 h-6" />
+              <span className="grid place-items-center w-6 h-6">
+                <Trophy className="w-6 h-6 col-start-1 row-start-1" />
+                <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+              </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Milestones</span>
             </button>
 
@@ -968,7 +984,10 @@ export default function App() {
               onClick={() => setActiveTab("profile")}
               className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <User className="w-6 h-6" />
+              <span className="grid place-items-center w-6 h-6">
+                <User className="w-6 h-6 col-start-1 row-start-1" />
+                <User fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "profile" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+              </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Profile</span>
             </button>
           </nav>
