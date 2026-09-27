@@ -379,7 +379,7 @@ export default function ProductGuessGame({ items, onExit }: ProductGuessGameProp
               ))}
             </div>
             <div>
-              <Button variant="gold-glossy" size="sm" onClick={startGame} glow={false}>
+              <Button variant="primary" size="sm" onClick={startGame}>
                 <Play className="w-4 h-4" /> Play
               </Button>
             </div>
@@ -479,7 +479,7 @@ export default function ProductGuessGame({ items, onExit }: ProductGuessGameProp
               final ? (
                 <p className="text-[11px] font-bold text-[var(--theme-text)] opacity-60">Final round — tallying…</p>
               ) : (
-                <Button variant="gold-glossy" size="sm" onClick={next} glow={false}>
+                <Button variant="primary" size="sm" onClick={next}>
                   Next <ArrowRight className="w-4 h-4" />
                 </Button>
               )
@@ -519,7 +519,7 @@ export default function ProductGuessGame({ items, onExit }: ProductGuessGameProp
             {correctCount}/{mode === "rounds" ? ROUNDS_TOTAL : round} correct{mode === "endless" ? ` • reached round ${round}` : ""}
           </p>
           <div className="pt-1">
-            <Button variant="gold-glossy" size="sm" onClick={startGame} glow={false}>
+            <Button variant="primary" size="sm" onClick={startGame}>
               <RotateCcw className="w-4 h-4" /> Play again
             </Button>
           </div>

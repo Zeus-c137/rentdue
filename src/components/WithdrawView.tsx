@@ -387,7 +387,6 @@ export default function WithdrawView({
               activeNodes.length === 0
             }
             className="w-full"
-            glow={false}
           >
             {!activeNodes || activeNodes.length === 0 ? (
               <span>Purchase product first</span>

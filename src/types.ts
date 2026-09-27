@@ -62,7 +62,8 @@ export interface SiteConfig {
   whatsappSupport?: string;
   noticeBanner?: string;
   paymentGateways?: any;
-  categories?: any;
+  categories?: string[];
+  categoryMeta?: Record<string, { description?: string }>;
   withdrawFee?: number;
   depositMode?: "automatic" | "manual";
   welcomeBonus?: number;

@@ -474,7 +474,6 @@ export default function DepositView({
                   loading={isSubmitting}
                   disabled={payType === "gpu" && !selectedGpu}
                   className="w-full"
-                  glow={false}
                 >
                   <span>Pay {formatCurrency(finalAmount)}</span>
                 </Button>
@@ -618,7 +617,6 @@ export default function DepositView({
                   loading={isSubmitting}
                   disabled={payType === "gpu" && !selectedGpu}
                   className="w-full"
-                  glow={false}
                 >
                   <span>Submit proof • {formatCurrency(finalAmount)}</span>
                 </Button>
@@ -711,7 +709,6 @@ export default function DepositView({
                   loading={isSubmitting}
                   disabled={payType === "gpu" && !selectedGpu}
                   className="w-full"
-                  glow={false}
                 >
                   <span>Submit USDT proof</span>
                 </Button>

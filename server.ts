@@ -48,6 +48,7 @@ import {
   adminCreateGiftCode,
   adminGetGiftCodes,
   adminDeleteGiftCode,
+  getAvailableGiftCodeCount,
   redeemGiftCode,
   dailyCheckin,
   adminGetCatalogItems,
@@ -2172,6 +2173,15 @@ app.put("/api/admin/config", async (req, res) => {
   } catch (err: any) {
     const response = errorResponse(err, "Unable to save site configuration.", 500);
     res.status(response.status).json(response.body);
+  }
+});
+
+app.get("/api/user/gift_codes/available/:phone", async (req, res) => {
+  try {
+    const count = await getAvailableGiftCodeCount(req.params.phone);
+    res.json({ available: count > 0, count });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
   }
 });
 

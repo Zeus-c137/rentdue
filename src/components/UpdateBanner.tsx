@@ -149,14 +149,16 @@ export default function UpdateBanner() {
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
           className="fixed top-0 inset-x-0 z-[70] px-3 pt-3 pointer-events-none"
         >
-          <div className="pointer-events-auto mx-auto max-w-md rounded-2xl bg-[var(--theme-primary)] text-white shadow-lg border border-white/20 px-4 pt-2.5 pb-3 space-y-2">
+          <div className="pointer-events-auto mx-auto max-w-md rounded-2xl bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] shadow-lg border border-[var(--theme-card-border)] px-4 pt-2.5 pb-3 space-y-2">
             <div className="flex items-center gap-3">
-              {phase === "complete" ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              ) : (
-                <RefreshCw className={`w-4 h-4 shrink-0 ${phase === "downloading" && !reducedMotion ? "animate-spin" : ""}`} />
-              )}
-              <span className="flex-1 text-xs font-bold leading-snug">
+              <span className="shrink-0 w-7 h-7 rounded-full bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)] flex items-center justify-center">
+                {phase === "complete" ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <RefreshCw className={`w-4 h-4 ${phase === "downloading" && !reducedMotion ? "animate-spin" : ""}`} />
+                )}
+              </span>
+              <span className="flex-1 text-xs font-bold leading-snug text-[var(--theme-text)]">
                 {phase === "idle" && "A new version of the app is ready."}
                 {phase === "downloading" && `Downloading update… ${pct}%`}
                 {phase === "complete" && "Update complete — restarting…"}
@@ -165,12 +167,12 @@ export default function UpdateBanner() {
                 <button
                   type="button"
                   onClick={startUpdate}
-                  className="shrink-0 px-4 py-2 rounded-xl bg-white text-[var(--theme-primary)] text-xs font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-transform"
+                  className="shrink-0 px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-xs font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-transform"
                 >
                   Update
                 </button>
               ) : (
-                <span className="shrink-0 text-xs font-black tabular-nums">{phase === "complete" ? "100%" : `${pct}%`}</span>
+                <span className="shrink-0 text-xs font-black tabular-nums text-[var(--theme-text)] opacity-70">{phase === "complete" ? "100%" : `${pct}%`}</span>
               )}
             </div>
             {phase !== "idle" && (
@@ -180,10 +182,10 @@ export default function UpdateBanner() {
                 aria-valuMax={100}
                 aria-valuenow={pct}
                 aria-label="App update download progress"
-                className="h-1.5 w-full rounded-full bg-white/25 overflow-hidden"
+                className="h-1.5 w-full rounded-full bg-[var(--theme-primary)]/15 overflow-hidden"
               >
                 <div
-                  className="h-full w-full rounded-full bg-white origin-left"
+                  className="h-full w-full rounded-full bg-[var(--theme-primary)] origin-left"
                   style={{ transform: `scaleX(${Math.min(1, progress / 100)})`, willChange: phase === "downloading" ? "transform" : undefined }}
                 />
               </div>
