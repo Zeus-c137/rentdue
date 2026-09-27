@@ -2327,8 +2327,9 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // In production, server.cjs is located inside dist/
-    // So __dirname will be the dist/ folder.
-    const distPath = __dirname;
+    // so __dirname is the dist/ folder. Under tsx/ESM there is no __dirname —
+    // fall back to <cwd>/dist (repo root layout).
+    const distPath = typeof __dirname !== "undefined" ? (__dirname as string) : path.join(process.cwd(), "dist");
     app.use(express.static(distPath, {
       index: false,
       setHeaders: (res, filePath) => {
