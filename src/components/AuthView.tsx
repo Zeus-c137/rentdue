@@ -3,13 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Mail, Gift } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Gift } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
-import { LevelBadge, OPERATOR_TIERS } from "./LevelBadge";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 
 interface AuthViewProps {
@@ -100,7 +99,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const [localSiteConfig, setLocalSiteConfig] = useState<any>(null);
-  const ladderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/config/site")
@@ -112,13 +110,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   }, []);
 
   const activeConfig = localSiteConfig || siteConfig;
-
-  // Admin-backed level ladder (falls back to the static operator ladder).
-  // Declared up here: effects below depend on its length.
-  const adminCats = Array.isArray(activeConfig?.vipTaskCategories)
-    ? activeConfig.vipTaskCategories.filter((c: any) => typeof c === "string" && c.trim())
-    : [];
-  const levelNames = (adminCats.length > 0 ? adminCats : OPERATOR_TIERS.map((t) => t.name)).slice(0, 6);
 
   // Invite-link landing: ?ref=CODE (search or hash) jumps straight to
   // register with the code applied, then cleans the URL.
@@ -166,20 +157,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       }
     }
   }, []);
-
-  // Level ladder autoplay: drifts the badges every 2s, loops back at the end.
-  useEffect(() => {
-    if (screen !== "register") return;
-    const id = window.setInterval(() => {
-      const el = ladderRef.current;
-      if (!el || document.hidden) return;
-      const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0) return;
-      const next = el.scrollLeft + el.clientWidth * 0.6;
-      el.scrollTo({ left: next >= max - 4 ? 0 : next, behavior: "smooth" });
-    }, 2000);
-    return () => window.clearInterval(id);
-  }, [screen, levelNames.length]);
 
   // Welcome carousel auto-advance (pauses off-screen: AuthView unmounts at login).
   useEffect(() => {
@@ -247,7 +224,11 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             JSON.stringify({ amount: issuedBonus, issuedAt: Date.now() })
           );
         }
-        toast.success("Registration successful!");
+        toast.success(
+          Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 0) > 0
+            ? "Registration successful! Log in to claim your registration bonus."
+            : "Registration successful! You can now log in."
+        );
         setTimeout(() => {
           goTo("login");
           setUsername("");
@@ -266,7 +247,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
   const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
-  const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 1000);
+  const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 0);
 
   const currentSlide = WELCOME_SLIDES[slide];
 
@@ -354,10 +335,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
               <div className="space-y-3 mt-6">
                 <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
-                  Register <ArrowRight className="w-4 h-4" />
+                  Register
                 </PrimaryButton>
                 <GhostButton onClick={() => goTo("login")} disabled={isLoading}>
-                  Login <ArrowRight className="w-4 h-4" />
+                  Login
                 </GhostButton>
               </div>
             </motion.div>
@@ -467,12 +448,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
               <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
                 <AuthField
-                  icon={<Mail className="w-5 h-5" />}
+                  icon={<User className="w-5 h-5" />}
                   type="text"
                   autoComplete="nickname"
                   maxLength={64}
-                  aria-label="Email or Username"
-                  placeholder="Email / Username"
+                  aria-label="Username"
+                  placeholder="Username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
@@ -526,39 +507,14 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
                 <div className="flex-1" />
 
-                <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <LevelBadge level={0} className="w-12 h-12" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-sans font-black text-[15px] leading-tight">
-                        Start as {levelNames[0]}
-                      </p>
-                      <p className="text-xs font-sans text-[var(--theme-text-muted)]">
-                        Unlock by running, inviting &amp; checking in.
-                      </p>
-                    </div>
-                  </div>
-                  <div ref={ladderRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {levelNames.map((name, i) => (
-                      <span
-                        key={`${name}-${i}`}
-                        className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-sans font-black uppercase tracking-wider ${
-                          i === 0
-                            ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
-                            : "border border-[var(--theme-card-border)] text-[var(--theme-text-muted)]"
-                        }`}
-                      >
-                        {name}
-                      </span>
-                    ))}
-                  </div>
-                  {regBonus > 0 && (
+                {regBonus > 0 && (
+                  <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5">
                     <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
                       <Gift className="w-3.5 h-3.5 text-[var(--theme-primary)]" />
                       Plus UGX {regBonus.toLocaleString()} welcome bonus on sign-up.
                     </p>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>

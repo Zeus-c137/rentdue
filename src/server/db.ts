@@ -367,7 +367,7 @@ export async function registerUserProfile(data: any): Promise<any> {
   const config = await getSiteConfig();
   const grantRegistrationBonus = data.grantRegistrationBonus !== false;
   const regBonus = grantRegistrationBonus
-    ? Number(config.registrationBonus ?? 1000)
+    ? Number(config.registrationBonus ?? 0)
     : 0;
   const inviteBonusAmt = (config.inviteBonus !== undefined && config.inviteBonus !== null) ? Number(config.inviteBonus) : 0;
 
@@ -1037,7 +1037,7 @@ export function getMaximumDepositAmount(config: SiteConfig): number {
 
 export function getMinimumWithdrawalAmount(config: SiteConfig): number {
   const configured = Number(config.minimumWithdrawal);
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 10_000;
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 0;
 }
 
 export function getMaximumWithdrawalAmount(config: SiteConfig): number {
@@ -2085,8 +2085,8 @@ export async function dailyCheckin(phone: string) {
   }
 
   const config = await getSiteConfig();
-  const base = (config.checkinBaseBonus !== undefined && config.checkinBaseBonus !== null) ? config.checkinBaseBonus : 1000;
-  const inc = (config.checkinIncrement !== undefined && config.checkinIncrement !== null) ? config.checkinIncrement : 100;
+  const base = (config.checkinBaseBonus !== undefined && config.checkinBaseBonus !== null) ? config.checkinBaseBonus : 0;
+  const inc = (config.checkinIncrement !== undefined && config.checkinIncrement !== null) ? config.checkinIncrement : 0;
   // A streak is consecutive days only: claiming after a missed day restarts
   // at 1 instead of inflating forever. The calendar UI renders this same
   // rule, so previews and payouts can never disagree.

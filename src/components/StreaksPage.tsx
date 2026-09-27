@@ -37,8 +37,8 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayKey = getTodayKey();
   const checkedInToday = userProfile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(userProfile.checkinStreak) || 0);
-  const base = siteConfig?.checkinBaseBonus ?? 1000;
-  const inc = siteConfig?.checkinIncrement ?? 100;
+  const base = siteConfig?.checkinBaseBonus ?? 0;
+  const inc = siteConfig?.checkinIncrement ?? 0;
 
   // Ledger truth from daily_checkin_bonus transactions.
   useEffect(() => {
