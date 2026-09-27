@@ -3,11 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type ThemePreset = "duolingo-playful" | "emerald-farm" | "cyber-arcade" | "sunset-gold" | "royal-violet" | "apple" | "terminal-hacker" | "8-bit-pixel" | "cyberpunk-neon" | "luxury-dark-gold" | "neumorphic" | "custom";
+import type { TransactionType } from "./utils/transactionMeta";
+
+// hut12 minimal — old presets purged 2026-09-15
+export type ThemePreset = "hut12-light" | "hut12-dark";
 export type ThemeMode = "light" | "dark" | "system";
-export type CardStyle = "playful-3d" | "glass" | "liquid-glass" | "solid" | "neo-brutalist" | "chunky-border" | "textured-wood" | "textured-metal";
-export type ButtonStyle = "playful-3d" | "pill-gradient" | "neo-brutalist" | "glass" | "minimal-solid";
-export type BorderRadiusStyle = "rounded-xl" | "rounded-2xl" | "rounded-3xl";
+export type CardStyle = "solid" | "glass";
+export type ButtonStyle = "pill-gradient";
+export type BorderRadiusStyle = "rounded-2xl";
 
 export interface SiteConfig {
   adminPhone?: string;
@@ -44,6 +47,8 @@ export interface SiteConfig {
   level4InviteIncomePct?: number;
   vipTasks?: VipTaskConfig[];
   vipTaskCategories?: string[];
+  vipTierRewards?: Record<string, number>;
+  vipTierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   checkinBaseBonus?: number;
   checkinIncrement?: number;
   exchangeRateUSD?: number;
@@ -86,9 +91,51 @@ export interface VipTaskConfig {
   title: string;
   description?: string;
   category: string;
+  metric?: string;
   requiredBonus: number;
   reward: number;
   active?: boolean;
+  imageUrl?: string;
+}
+
+export interface VipTask {
+  id: string;
+  title: string;
+  description?: string;
+  category: string;
+  metric?: string;
+  requiredBonus: number;
+  reward: number;
+  progress: number;
+  unlocked: boolean;
+  claimed: boolean;
+  imageUrl?: string;
+  stageIndex?: number;
+  stageLocked?: boolean;
+}
+
+export interface VipTaskboard {
+  tasks: VipTask[];
+  vipLevel?: number;
+  stageOrder?: string[];
+  tierRewards?: Record<string, number>;
+  tierMeta?: Record<string, { description?: string; imageUrl?: string }>;
+  claimedTierRewards?: string[];
+  referralRates?: {
+    level1: number;
+    level2: number;
+    level3: number;
+    level4: number;
+  };
+  progress: {
+    level1Bonus: number;
+    level2Bonus: number;
+    level3Bonus: number;
+    level4Bonus: number;
+    accumulatedBonus: number;
+    totalReferralBonus: number;
+    operatorPoints: number;
+  };
 }
 
 export interface UserProfile {
@@ -108,6 +155,7 @@ export interface UserProfile {
   totalDeposits?: number; // total deposits in UGX
   aiIncome?: number; // total passive yield claims built up
   claimedVipTasks?: string[]; // VIP tasks already claimed (e.g. ["vip-1"])
+  claimedTierRewards?: string[]; // Journey stages (tiers) already claimed (e.g. ["Rookie"])
   locked?: boolean; // account locked status
   usdtAddress?: string;
   lastCheckinDate?: string;
@@ -154,6 +202,37 @@ export interface SubscribedNode {
   lastClaimedDate: string; // ISO Date YYYY-MM-DD
   totalEarned: number;
   status: "active" | "completed" | "expired";
+}
+
+export type { TransactionType } from "./utils/transactionMeta";
+
+export interface TransactionRow {
+  id: string;
+  userId: string;
+  type: TransactionType;
+  amount: number;
+  currency: string;
+  status: string;
+  paymentMethod?: string;
+  phone?: string;
+  usdtAddress?: string;
+  itemId?: string;
+  operator?: string;
+  mode?: string;
+  metadata?: {
+    level?: number;
+    sourceItemId?: string;
+    sourceItemName?: string;
+    platformDate?: string;
+    subscriptionId?: string;
+    feeAmount?: number;
+    payoutAmount?: number;
+    feePercent?: number;
+    requestedAmount?: number;
+    externalReference?: string;
+  } & Record<string, any>;
+  balanceAppliedAt?: string;
+  timestamp: string;
 }
 
 export interface ReferralStat {

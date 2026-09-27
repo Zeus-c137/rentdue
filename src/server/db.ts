@@ -3,6 +3,9 @@ import path from "path";
 import { ensureDatabaseSchema, getDb, schema } from "../db/index";
 import { and, eq, desc, asc, isNull, inArray, sql } from "drizzle-orm";
 import { UserProfile, SubscriptionItem, SubscribedNode, ChatMessage, ReferralStat, NotificationItem, SiteConfig } from "../types";
+import { sanitizeSiteConfig } from "../utils/themeTokens";
+import { canonicalTypeOf } from "../utils/transactionMeta";
+import { dedupeCategories, normalizeVipTask } from "../utils/vip";
 
 
 export class DatabaseOperationError extends Error {
@@ -26,8 +29,21 @@ class SiteConfigValidationError extends Error {
   readonly statusCode = 400;
 }
 
+function rootCause(error: unknown): any {
+  // Drizzle wraps the driver error (mysql2 message/code live on `cause`).
+  // Walk the chain so logs show the real failure, not the wrapper.
+  let current = error as any;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (current.code || current.errno) return current;
+    current = current.cause;
+  }
+  return error as any;
+}
+
 function databaseFailure(operation: string, error: unknown): DatabaseOperationError {
-  const details = error as any;
+  const details = rootCause(error);
   console.error(`[Database] ${operation} failed`, {
     code: details?.code,
     errno: details?.errno,
@@ -35,6 +51,31 @@ function databaseFailure(operation: string, error: unknown): DatabaseOperationEr
     message: details?.message || String(error)
   });
   return new DatabaseOperationError(operation, error);
+}
+
+// MariaDB reports JSON columns as LONGTEXT, so the mysql2 driver hands back
+// raw strings where MySQL 8 would yield parsed values. Normalize at the read
+// boundary so the rest of the code can rely on objects/arrays on both.
+function parseJsonField<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value as T;
+  const text = value.trim();
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function readJsonRecord(value: unknown): Record<string, any> {
+  const parsed = parseJsonField<Record<string, any>>(value, {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+function readJsonStringArray(value: unknown): string[] {
+  const parsed = parseJsonField<string[]>(value, []);
+  return Array.isArray(parsed) ? parsed.filter((entry) => typeof entry === "string") : [];
 }
 
 function requireDatabase(operation: string) {
@@ -266,7 +307,7 @@ export async function seedDatabaseIfEmpty() {
           amount
         )) AS settled_withdrawals
       FROM transactions
-      WHERE type IN ('withdrawal', 'withdraw')
+      WHERE type = 'withdrawal'
         AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')
       GROUP BY user_id
     ) w ON w.user_id = u.phone
@@ -297,12 +338,13 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
           aiIncome: u.aiIncome,
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
-          claimedVipTasks: (u.claimedVipTasks as string[]) || [],
+          claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
+          claimedTierRewards: readJsonStringArray((u as any).claimedTierRewards),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
           checkinStreak: u.checkinStreak,
-          redeemedGiftCodes: (u.redeemedGiftCodes as string[]) || [],
+          redeemedGiftCodes: readJsonStringArray(u.redeemedGiftCodes),
           createdAt: u.createdAt
         };
         return user;
@@ -331,7 +373,7 @@ export async function registerUserProfile(data: any): Promise<any> {
 
   const newUser: UserProfile = {
     phone,
-    username: data.username || "User_" + phone.slice(-4),
+    username: String(data.username || "").trim().slice(0, 64) || "User_" + phone.slice(-4),
     password,
     inviteCode: personalInviteCode,
     referredByCode,
@@ -344,6 +386,7 @@ export async function registerUserProfile(data: any): Promise<any> {
     invitesCount: 0,
     referralRewardsEarned: 0,
     claimedVipTasks: [],
+    claimedTierRewards: [],
     locked: false,
     usdtAddress: "",
     lastCheckinDate: "",
@@ -372,6 +415,7 @@ export async function registerUserProfile(data: any): Promise<any> {
       invitesCount: newUser.invitesCount,
       referralRewardsEarned: newUser.referralRewardsEarned,
       claimedVipTasks: newUser.claimedVipTasks,
+      claimedTierRewards: (newUser as any).claimedTierRewards || [],
       locked: newUser.locked,
       usdtAddress: newUser.usdtAddress,
       lastCheckinDate: newUser.lastCheckinDate,
@@ -389,7 +433,7 @@ export async function registerUserProfile(data: any): Promise<any> {
     await saveTransaction({
       id: "reg_bonus_" + crypto.randomBytes(8).toString("hex"),
       userId: phone,
-      type: "gift",
+      type: "registration_bonus",
       amount: regBonus,
       currency: "UGX",
       status: "SUCCESSFUL",
@@ -434,7 +478,7 @@ export async function registerUserProfile(data: any): Promise<any> {
         await saveTransaction({
           id: "ref_bonus_" + crypto.randomBytes(8).toString("hex"),
           userId: referrer.phone,
-          type: "referral",
+          type: "referral_signup_bonus",
           amount: inviteBonusAmt,
           currency: "UGX",
           status: "SUCCESSFUL",
@@ -525,6 +569,7 @@ export async function updateUserProfile(
     invitesCount: 0,
     referralRewardsEarned: 0,
     claimedVipTasks: [],
+    claimedTierRewards: [],
     locked: false,
     usdtAddress: "",
     lastCheckinDate: "",
@@ -549,6 +594,7 @@ export async function updateUserProfile(
         invitesCount: updated.invitesCount,
         referralRewardsEarned: updated.referralRewardsEarned,
         claimedVipTasks: updated.claimedVipTasks,
+        claimedTierRewards: (updated as any).claimedTierRewards || [],
         locked: updated.locked,
         usdtAddress: updated.usdtAddress,
         lastCheckinDate: updated.lastCheckinDate,
@@ -623,7 +669,10 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
     userId: phone,
     itemId: item.id,
     itemName: item.name,
-    image: item.image,
+    // Store a renderable image URL on the node. `item.image` is historically
+    // a Tailwind gradient key (not a URL) — claims copy sub.image into the
+    // ledger, so a gradient here poisons every future daily_yield row.
+    image: item.imageUrl || item.image,
     amount: item.amount,
     duration: item.duration,
     dailyYield: item.dailyYield,
@@ -639,7 +688,7 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
   await saveTransaction({
     id: createTransactionId("RNT", now),
     userId: phone,
-    type: "gpu",
+    type: "product_activation",
     amount: item.amount,
     currency: "UGX",
     status: "SUCCESSFUL",
@@ -647,6 +696,7 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
     phone: phone,
     itemId: item.id,
     mode: "auto",
+    metadata: { sourceItemId: item.id, sourceItemName: item.name },
     timestamp: now.toISOString()
   });
 
@@ -655,7 +705,7 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
     await saveTransaction({
       id: "yield_init_" + crypto.randomBytes(8).toString("hex"),
       userId: phone,
-      type: "yield",
+      type: "daily_yield",
       amount: immediateYield,
       currency: "UGX",
       status: "SUCCESSFUL",
@@ -663,6 +713,7 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
       phone: phone,
       itemId: item.id,
       mode: "auto",
+      metadata: { sourceItemId: item.id, sourceItemName: item.name, sourceItemImage: item.imageUrl || item.image },
       timestamp: now.toISOString()
     });
   }
@@ -710,6 +761,13 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
     });
   }
 
+  await sendChatMessage({
+    roomId: "shared",
+    sender: "system",
+    senderName: "SYSTEM BROADCAST",
+    text: `User ${phone.slice(0, 4)}*** rented "${item.name}"!`
+  });
+
   return node;
 }
 
@@ -753,7 +811,7 @@ export async function distributeReferralBonus(
       await saveTransaction({
         id: "ref_income_" + crypto.randomBytes(8).toString("hex"),
         userId: current.phone,
-        type: "referral",
+        type: "referral_level_income",
         amount: bonus,
         currency: "UGX",
         status: "SUCCESSFUL",
@@ -830,6 +888,16 @@ export async function getUserTransactions(phone: string): Promise<any[]> {
   });
 }
 
+/**
+ * Browsers can only render URL-like image sources. Catalog `image` values
+ * are historically Tailwind gradient keys (e.g. "from-blue-600 ..."), so
+ * anything written into transaction metadata must pass this check first.
+ */
+function isUrlLikeImage(value: unknown): boolean {
+  const v = String(value || "").trim().toLowerCase();
+  return v.startsWith("http://") || v.startsWith("https://") || v.startsWith("data:") || v.startsWith("/") || v.startsWith("blob:");
+}
+
 export async function claimDailyReward(arg1: string, arg2: string): Promise<{ success: boolean; reward: number }> {
   let subId = arg1;
   let phone = arg2;
@@ -898,10 +966,25 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
       totalEarned: sql`${schema.subscribedNodes.totalEarned} + ${reward}`
     }).where(eq(schema.subscribedNodes.id, sub.id));
 
+    // Resolve a renderable image for the ledger row. sub.image historically
+    // holds a Tailwind gradient key, so prefer the live catalog imageUrl and
+    // only fall back to sub.image when it is URL-like. Never store a gradient.
+    let claimImage = "";
+    try {
+      const catalogRows = await tx.select().from(schema.catalogProducts)
+        .where(eq(schema.catalogProducts.id, sub.itemId))
+        .limit(1);
+      const catalogImage = String(catalogRows[0]?.imageUrl || catalogRows[0]?.image || "");
+      if (isUrlLikeImage(catalogImage)) claimImage = catalogImage;
+      else if (isUrlLikeImage(sub.image)) claimImage = String(sub.image);
+    } catch {
+      if (isUrlLikeImage(sub.image)) claimImage = String(sub.image);
+    }
+
     await tx.insert(schema.transactions).values({
       id: transactionId,
       userId: user.phone,
-      type: "yield",
+      type: "daily_yield",
       amount: reward,
       currency: "UGX",
       status: "SUCCESSFUL",
@@ -909,7 +992,7 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
       phone: user.phone,
       itemId: sub.itemId,
       mode: "auto",
-      metadata: { platformDate: today, subscriptionId: sub.id },
+      metadata: { platformDate: today, subscriptionId: sub.id, sourceItemId: sub.itemId, sourceItemName: itemName, sourceItemImage: claimImage },
       timestamp: creditedAt
     });
   });
@@ -961,6 +1044,11 @@ export function getMaximumWithdrawalAmount(config: SiteConfig): number {
   // Preserve the existing five-million-UGX UI ceiling unless an administrator
   // explicitly changes it. Setting zero clears the ceiling.
   return getConfiguredMaximum(config.maximumWithdrawal, 5_000_000);
+}
+
+function usdtLabel(ugxAmount: number, usdtRate?: number): string {
+  const rate = Number(usdtRate) > 0 ? Number(usdtRate) : 3700;
+  return `≈ $${(Number(ugxAmount) / rate).toFixed(2)} USDT`;
 }
 
 export async function requestCashout(phone: string, amount: number, paymentMethodOrTransId?: string, mode?: string, withdrawPhone?: string, operator?: string, extraMetadata?: any): Promise<any> {
@@ -1033,23 +1121,19 @@ export async function requestCashout(phone: string, amount: number, paymentMetho
   if (!updatedProfile) throw new Error("Withdrawal was recorded, but the account could not be reloaded.");
 
   const isAutomatic = currentWithdrawMode === "automatic";
+  const isUsdt = operator === "USDT";
+  const usdtRate = Number(siteConfig.usdtRate) > 0 ? Number(siteConfig.usdtRate) : 3700;
+  const requestedLabel = isUsdt
+    ? `${usdtLabel(payoutAmount, usdtRate)} (UGX ${amount.toLocaleString()} requested)`
+    : `UGX ${amount.toLocaleString()}`;
   await createNotification(
     phone,
     "Withdrawal Submitted",
     isAutomatic
-      ? `Your withdrawal request of UGX ${amount.toLocaleString()} (${paymentMethod}) was sent for automatic processing and is pending payment-provider confirmation.`
-      : `Your withdrawal request of UGX ${amount.toLocaleString()} (${paymentMethod}) was submitted and is currently pending admin approval.`,
+      ? `Your withdrawal request of UGX ${amount.toLocaleString()} (${paymentMethod}) was received and is pending confirmation.`
+      : `Your withdrawal request of ${requestedLabel} (${paymentMethod}) was received and is pending approval.`,
     "withdraw"
   );
-  await sendChatMessage({
-    roomId: "shared",
-    sender: "system",
-    senderName: "SYSTEM BROADCAST",
-    text: isAutomatic
-      ? `User ${phone.slice(0, 4)}*** submitted an automatic withdrawal of UGX ${amount.toLocaleString()} (${paymentMethod})!`
-      : `User ${phone.slice(0, 4)}*** submitted a manual withdrawal of UGX ${amount.toLocaleString()} (${paymentMethod})!`
-  });
-
   return {
     id: txId,
     userId: phone,
@@ -1120,10 +1204,9 @@ export async function getReferreeStatsList(phoneOrCode: string): Promise<Referra
   const referralTransactions = await drizzleDb.select().from(schema.transactions)
     .where(eq(schema.transactions.userId, user.phone));
   for (const transaction of referralTransactions) {
-    if (transaction.type !== "referral" || !["SUCCESSFUL", "COMPLETED"].includes(String(transaction.status).toUpperCase())) continue;
-    const metadata = transaction.metadata && typeof transaction.metadata === "object"
-      ? transaction.metadata as Record<string, any>
-      : {};
+    const canon = canonicalTypeOf(String(transaction.type), transaction.metadata) as string;
+    if (!["referral_signup_bonus", "referral_level_income"].includes(canon) || !["SUCCESSFUL", "COMPLETED"].includes(String(transaction.status).toUpperCase())) continue;
+    const metadata = readJsonRecord(transaction.metadata);
     const sourceUserPhone = String(metadata.sourceUserPhone || transaction.itemId || "").trim();
     const source = descendantByPhone.get(sourceUserPhone.toUpperCase());
     if (!source) continue;
@@ -1240,9 +1323,9 @@ export async function fetchSystemDashboardStats() {
       drizzleDb.select({ count: sql<number>`count(*)` }).from(schema.users),
       drizzleDb.select({ count: sql<number>`count(*)` }).from(schema.subscribedNodes).where(eq(schema.subscribedNodes.status, "active")),
       drizzleDb.select({ total: sql<number>`coalesce(sum(amount), 0)` }).from(schema.transactions)
-        .where(sql`type in ('deposit', 'balance') and upper(status) in ('SUCCESSFUL', 'COMPLETED')`),
+        .where(sql`type = 'deposit' and upper(status) in ('SUCCESSFUL', 'COMPLETED')`),
       drizzleDb.select({ total: sql<number>`coalesce(sum(amount), 0)` }).from(schema.transactions)
-        .where(sql`type in ('withdrawal', 'withdraw') and upper(status) in ('SUCCESSFUL', 'COMPLETED')`)
+        .where(sql`type = 'withdrawal' and upper(status) in ('SUCCESSFUL', 'COMPLETED')`)
     ]);
 
     return {
@@ -1381,11 +1464,22 @@ export async function saveTransaction(
   let tx: any;
   if (typeof txOrId === "object" && txOrId !== null) {
     tx = txOrId;
+    // Canonicalize legacy types on write (full migration, no users: always canonical)
+    try {
+      const { canonicalTypeOf } = await import("../utils/transactionMeta");
+      tx.type = canonicalTypeOf(String(tx.type || "deposit"), tx.metadata) as string;
+    } catch {}
   } else {
+    let canonType = String(type || "deposit");
+    try {
+      const { canonicalTypeOf: c } = await import("../utils/transactionMeta");
+      canonType = c(canonType, undefined) as string;
+      if (!canonType || typeof canonType !== "string") canonType = "deposit";
+    } catch {}
     tx = {
       id: txOrId,
       userId: phone || "",
-      type: type || "deposit",
+      type: canonType,
       amount: amount || 0,
       currency: "UGX",
       status: "pending",
@@ -1506,13 +1600,25 @@ export async function completeSuccessfulDeposit(
   const settledUser = await getUserProfile(settledTransaction?.userId || userIdOrTxId);
   if (!settledUser) throw new Error("Deposit was settled, but the account could not be reloaded.");
   if (settled && settledTransaction) {
+    const settledAmount = Number(settledTransaction.amount);
+    const isUsdtDeposit = String((settledTransaction as any).operator || "").toUpperCase() === "USDT";
+    const depConfig = isUsdtDeposit ? await getSiteConfig().catch(() => null) : null;
+    const depositLabel = isUsdtDeposit
+      ? `${usdtLabel(settledAmount, Number((depConfig as any)?.usdtRate) || 3700)} (UGX ${settledAmount.toLocaleString()})`
+      : `UGX ${settledAmount.toLocaleString()}`;
     await createNotification(
       settledTransaction.userId,
       "Deposit Successful",
-      `Your deposit of UGX ${Number(settledTransaction.amount).toLocaleString()} has been confirmed and credited to your recharge balance. Reference: ${transactionId}.`,
+      `Your deposit of ${depositLabel} has been confirmed and credited to your recharge balance. Reference: ${transactionId}.`,
       "deposit",
-      Number(settledTransaction.amount)
+      settledAmount
     );
+    await sendChatMessage({
+      roomId: "shared",
+      sender: "system",
+      senderName: "SYSTEM BROADCAST",
+      text: `User ${settledTransaction.userId.slice(0, 4)}*** topped up ${depositLabel}!`
+    });
   }
   return settledUser;
 }
@@ -1538,13 +1644,11 @@ export async function completeSuccessfulWithdrawal(txId: string): Promise<any> {
     if (currentStatus === "FAILED" || currentStatus === "REJECTED") {
       throw new Error("This withdrawal was already rejected.");
     }
-    if (transaction.type !== "withdrawal" && transaction.type !== "withdraw") {
+    if (transaction.type !== "withdrawal") {
       throw new Error("The transaction is not a withdrawal.");
     }
 
-    const metadata = transaction.metadata && typeof transaction.metadata === "object"
-      ? transaction.metadata as Record<string, any>
-      : {};
+    const metadata = readJsonRecord(transaction.metadata);
     const payoutAmount = Math.max(0, Number(metadata.payoutAmount ?? transaction.amount));
     settledPayoutAmount = payoutAmount;
     const userRows = await tx.select().from(schema.users)
@@ -1563,13 +1667,25 @@ export async function completeSuccessfulWithdrawal(txId: string): Promise<any> {
 
   const profile = await getUserProfile(userId);
   if (settled && profile) {
+    const settledTx = await getTransaction(txId);
+    const isUsdtSettle = String((settledTx as any)?.operator || "").toUpperCase() === "USDT";
+    const settleConfig = isUsdtSettle ? await getSiteConfig().catch(() => null) : null;
+    const settledLabel = isUsdtSettle
+      ? `${usdtLabel(settledPayoutAmount, Number((settleConfig as any)?.usdtRate) || 3700)}`
+      : `UGX ${settledPayoutAmount.toLocaleString()}`;
     await createNotification(
       userId,
       "Withdrawal Approved",
-      `Your withdrawal request has been approved and UGX ${settledPayoutAmount.toLocaleString()} is marked as settled. Reference: ${txId}.`,
+      `Your withdrawal request has been approved and ${settledLabel} is marked as settled. Reference: ${txId}.`,
       "withdraw",
       settledPayoutAmount
     );
+    await sendChatMessage({
+      roomId: "shared",
+      sender: "system",
+      senderName: "SYSTEM BROADCAST",
+      text: `User ${userId.slice(0, 4)}*** received ${settledLabel}!`
+    });
   }
   return { status: "SUCCESSFUL", profile };
 }
@@ -1613,7 +1729,7 @@ export async function completeFailedTransaction(txId: string) {
       throw new Error("This transaction was already completed.");
     }
 
-    if (transaction.type === "withdrawal" || transaction.type === "withdraw") {
+    if (transaction.type === "withdrawal") {
       const metadata = transaction.metadata && typeof transaction.metadata === "object"
         ? transaction.metadata as Record<string, any>
         : {};
@@ -1711,12 +1827,13 @@ export async function adminGetAllUsers(): Promise<UserProfile[]> {
           aiIncome: u.aiIncome,
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
-          claimedVipTasks: (u.claimedVipTasks as string[]) || [],
+          claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
+          claimedTierRewards: readJsonStringArray((u as any).claimedTierRewards),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
           checkinStreak: u.checkinStreak,
-          redeemedGiftCodes: (u.redeemedGiftCodes as string[]) || [],
+          redeemedGiftCodes: readJsonStringArray(u.redeemedGiftCodes),
           createdAt: u.createdAt
         }));
       }
@@ -1776,10 +1893,10 @@ export async function adminUpdateTransactionStatus(txId: string, status: string)
   const transaction = await getTransaction(txId);
   if (!transaction) throw new Error("Transaction was not found.");
 
-  const isWithdrawal = transaction.type === "withdrawal" || transaction.type === "withdraw";
+  const isWithdrawal = transaction.type === "withdrawal";
   const isAutomaticWithdrawal = isWithdrawal && String(transaction.mode || "").toLowerCase() === "automatic";
   if (isAutomaticWithdrawal && normalizedStatus !== "PENDING") {
-    throw new Error("Automatic withdrawals are settled only by the payment-provider webhook.");
+    throw new Error("This withdrawal is settled only by the payment-provider webhook.");
   }
 
   if (normalizedStatus === "SUCCESSFUL" || normalizedStatus === "COMPLETED") {
@@ -1944,9 +2061,11 @@ export async function redeemGiftCode(phone: string, code: string) {
     await drizzleDb.insert(schema.transactions).values({
       id: newTxId,
       userId: phone,
-      type: "voucher",
+      type: "gift_code",
       amount: gift.amount,
-      status: "completed",
+      status: "SUCCESSFUL",
+      currency: "UGX",
+      paymentMethod: "GIFT_CODE",
       mode: "auto",
       timestamp: new Date().toISOString()
     });
@@ -1968,7 +2087,13 @@ export async function dailyCheckin(phone: string) {
   const config = await getSiteConfig();
   const base = (config.checkinBaseBonus !== undefined && config.checkinBaseBonus !== null) ? config.checkinBaseBonus : 1000;
   const inc = (config.checkinIncrement !== undefined && config.checkinIncrement !== null) ? config.checkinIncrement : 100;
-  const currentStreak = (user.checkinStreak || 0) + 1;
+  // A streak is consecutive days only: claiming after a missed day restarts
+  // at 1 instead of inflating forever. The calendar UI renders this same
+  // rule, so previews and payouts can never disagree.
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const previousStreak = Number(user.checkinStreak || 0);
+  const streakKept = user.lastCheckinDate === yesterday;
+  const currentStreak = streakKept ? previousStreak + 1 : 1;
   const bonus = base + ((currentStreak - 1) * inc);
 
   // Credit directly to withdrawable balance (points)!
@@ -1981,7 +2106,7 @@ export async function dailyCheckin(phone: string) {
   await saveTransaction({
     id: "chk_" + crypto.randomBytes(8).toString("hex"),
     userId: phone,
-    type: "checkin",
+    type: "daily_checkin_bonus",
     amount: bonus,
     currency: "UGX",
     status: "SUCCESSFUL",
@@ -2000,7 +2125,7 @@ export async function dailyCheckin(phone: string) {
     "checkin"
   );
 
-  return { amount: bonus, bonus, streak: user.checkinStreak };
+  return { amount: bonus, bonus, streak: user.checkinStreak, reset: !streakKept && previousStreak > 1 };
 }
 
 export async function getVipTaskboard(phone: string) {
@@ -2019,36 +2144,134 @@ export async function getVipTaskboard(phone: string) {
   const legacyUnallocated = Math.max(0, reportedReferralIncome - reportedByLevel);
   const level1Bonus = rawLevel1Bonus + legacyUnallocated;
   const totalReferralBonus = Math.max(reportedReferralIncome, rawLevel1Bonus + level2Bonus + level3Bonus + level4Bonus);
-  // VIP tasks use the user's complete credited referral income across all
-  // four levels. Keep accumulatedBonus as the API field name for compatibility.
+  // Milestones qualify on operator lifetime points: gross credited ledger
+  // income across every type that pays withdrawable balance (yields,
+  // referrals, check-ins, gifts, milestones, registration). requiredBonus is
+  // the points threshold. Keep accumulatedBonus populated for compatibility.
   const accumulatedBonus = totalReferralBonus;
-  const claimed = user.claimedVipTasks || [];
+  const drizzleDb = requireDatabase("total operator points");
+  const opResult: any = await drizzleDb.execute(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = ${phone} AND type IN ('daily_yield', 'referral_signup_bonus', 'referral_level_income', 'daily_checkin_bonus', 'gift_code', 'vip_task', 'registration_bonus') AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')`);
+  const opRows = Array.isArray(opResult?.[0]) ? opResult[0] : [];
+  const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
+  const claimedTiers: string[] = Array.isArray((user as any).claimedTierRewards) ? (user as any).claimedTierRewards : [];
+  const rawTierRewards: Record<string, any> = readJsonRecord((config as any).vipTierRewards);
+  const rawTierMeta: Record<string, any> = readJsonRecord((config as any).vipTierMeta);
+  const invitesCount = Math.max(0, Number((user as any).invitesCount || 0));
+  const milestonesClaimed = claimedTiers.length;
 
+  // Per-milestone event metrics for the mockup one-shots (First Run,
+  // 7-Day Streak, First 100K, Clean Exit, Still Running). Tasks created
+  // before metrics existed carry no `metric` key and keep the legacy
+  // operator-points ladder behaviour, so existing rows keep working.
+  const streakDays = Math.max(0, Number((user as any).checkinStreak || 0));
+  let runsStarted = 0, activeRuns = 0, completedRuns = 0, lifetimeYield = 0;
+  try {
+    const statRows: any[] = await drizzleDb.select({
+      started: sql`count(*)`,
+      active: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) = 'ACTIVE' THEN 1 ELSE 0 END), 0)`,
+      completed: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) IN ('COMPLETED', 'EXPIRED') THEN 1 ELSE 0 END), 0)`,
+      earned: sql`COALESCE(SUM(${schema.subscribedNodes.totalEarned}), 0)`
+    }).from(schema.subscribedNodes).where(eq(schema.subscribedNodes.userId, phone));
+    const stats = statRows?.[0] || {};
+    runsStarted = Number(stats.started || 0);
+    activeRuns = Number(stats.active || 0);
+    completedRuns = Number(stats.completed || 0);
+    lifetimeYield = Math.max(0, Number(stats.earned || 0));
+  } catch {
+    // Metrics default to zero; the points ladder still works.
+  }
+  const metricValue = (metric: string): number => {
+    switch (metric) {
+      case "runs_started": return runsStarted;
+      case "active_runs": return activeRuns;
+      case "completed_runs": return completedRuns;
+      case "streak_days": return streakDays;
+      case "lifetime_yield": return lifetimeYield;
+      case "invites_count": return invitesCount;
+      case "milestones_claimed": return milestonesClaimed;
+      case "account_created": return 1;
+      default: return operatorPoints;
+    }
+  };
+
+  // Rewards live on the tier (stage), claimed once per stage via
+  // claimTierReward. Tasks are progress-only: no per-task claiming, so
+  // every task reports claimed:false and completion is pure progress.
+  // Admin order is the display order: older milestones on top, new ones
+  // below. Never re-sort by threshold — days, invites, runs and UGX are
+  // incomparable. Stages (= categories) unlock strictly in first-seen
+  // order: a stage opens only once the previous stage's reward is claimed.
+  // Progress still tracks live inside locked stages (e.g. 5/7 days).
+  const stageOrder: string[] = [];
+  for (const task of configuredTasks) {
+    if (!task || (task as any).active === false) continue;
+    const cat = String((task as any).category || "Milestone").trim() || "Milestone";
+    if (!stageOrder.includes(cat)) stageOrder.push(cat);
+  }
+  const stageOpen = stageOrder.map((_, idx) => idx === 0 || claimedTiers.includes(stageOrder[idx - 1]));
+  // Resolve rewards + meta against exact stage names, matching admin keys
+  // case-insensitively so "Rookie" rewards reach "ROOKIE" tasks.
+  const lowerRewards: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawTierRewards)) {
+    lowerRewards[String(key).trim().toLowerCase()] = Math.max(0, Number(value) || 0);
+  }
+  const tierRewards: Record<string, number> = {};
+  const tierMeta: Record<string, { description?: string; imageUrl?: string }> = {};
+  for (const stage of stageOrder) {
+    tierRewards[stage] = lowerRewards[stage.toLowerCase()] ?? 0;
+    const metaHit = Object.keys(rawTierMeta).find((key) => String(key).trim().toLowerCase() === stage.toLowerCase());
+    if (metaHit) {
+      const entry = (rawTierMeta[metaHit] ?? {}) as Record<string, unknown>;
+      const description = String(entry.description ?? "").trim().slice(0, 220);
+      const imageUrl = String(entry.imageUrl ?? "").trim();
+      if (description || imageUrl) {
+        tierMeta[stage] = { ...(description ? { description } : {}), ...(imageUrl ? { imageUrl } : {}) };
+      }
+    }
+  }
   const tasks = configuredTasks
     .filter((task: any) => task && task.active !== false)
-    .map((task: any) => ({
-      id: String(task.id),
-      title: String(task.title || "VIP Referral Task"),
-      description: String(task.description || "Unlock this reward with referral earnings."),
-      category: String(task.category || "VIP"),
-      requiredBonus: Math.max(0, Number(task.requiredBonus || 0)),
-      reward: Math.max(0, Number(task.reward || 0)),
-      progress: accumulatedBonus,
-      unlocked: accumulatedBonus >= Math.max(0, Number(task.requiredBonus || 0)),
-      claimed: claimed.includes(String(task.id))
-    }))
-    .sort((a, b) => a.requiredBonus - b.requiredBonus);
+    .map((task: any) => {
+      const threshold = Math.max(0, Number(task.requiredBonus || 0));
+      const metric = String(task.metric || "operator_points");
+      const progress = metricValue(metric);
+      const art = String(task.imageUrl || "").trim();
+      const category = String(task.category || "Milestone");
+      return {
+        id: String(task.id),
+        title: String(task.title || "Milestone Task"),
+        description: String(task.description || ""),
+        category,
+        metric,
+        requiredBonus: threshold,
+        reward: 0,
+        ...(art ? { imageUrl: art } : {}),
+        progress,
+        unlocked: progress >= threshold,
+        claimed: false as boolean,
+        stageIndex: Math.max(0, stageOrder.indexOf(category.trim() || "Milestone")),
+        stageLocked: false as boolean,
+      };
+    });
+  for (const task of tasks) {
+    const idx = Math.max(0, Number((task as any).stageIndex || 0));
+    const open = idx < stageOpen.length ? stageOpen[idx] : true;
+    (task as any).stageLocked = !open;
+    if (!open) task.unlocked = false;
+  }
 
-  // VIP rank follows the published task ladder, not referral-count guesses or
-  // task-id parsing. A user reaches the highest task that their server-side
-  // Combined Level 1–4 bonus has unlocked or that they have already claimed.
-  const vipLevel = tasks.reduce((highest, task, index) => (
-    task.unlocked || task.claimed ? index + 1 : highest
-  ), 0);
+  // Journey rank = number of claimed stage rewards.
+
+  // Journey rank = number of claimed stage rewards.
+  const vipLevel = claimedTiers.length;
 
   return {
     tasks,
     vipLevel,
+    stageOrder,
+    tierRewards,
+    tierMeta,
+    claimedTierRewards: claimedTiers,
     referralRates: {
       level1: Number(config.level1InviteIncomePct ?? 15),
       level2: Number(config.level2InviteIncomePct ?? 5),
@@ -2061,20 +2284,29 @@ export async function getVipTaskboard(phone: string) {
       level3Bonus,
       level4Bonus,
       accumulatedBonus,
-      totalReferralBonus
+      totalReferralBonus,
+      operatorPoints
     }
   };
 }
 
-export async function claimVipTask(phone: string, taskId: string) {
+export async function claimTierReward(phone: string, category: string) {
   const board = await getVipTaskboard(phone);
-  const task = board.tasks.find((candidate) => candidate.id === taskId);
-  if (!task) throw new Error("This VIP task is not currently available.");
-  if (!task.unlocked) throw new Error("Keep building your Level 1–4 referral bonus to unlock this task.");
-  if (task.claimed) throw new Error("VIP task reward already claimed.");
+  const stage = String(category || "").trim();
+  const inStage = board.tasks.filter((candidate) => candidate.category === stage);
+  if (!stage || inStage.length === 0) throw new Error("This journey stage is not currently available.");
+  if (board.claimedTierRewards?.includes(stage)) throw new Error("Stage reward already claimed.");
+  const idx = Math.max(0, (board.stageOrder || []).indexOf(stage));
+  if (idx > 0 && !board.claimedTierRewards?.includes((board.stageOrder || [])[idx - 1])) {
+    throw new Error("Complete the earlier journey stage first.");
+  }
+  const pending = inStage.filter((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0));
+  if (pending.length > 0) throw new Error(`Complete all ${stage} achievements first.`);
+  const reward = Math.max(0, Number(board.tierRewards?.[stage] || 0));
+  if (!(reward > 0)) throw new Error("No reward is set for this stage yet.");
 
-  const drizzleDb = requireDatabase("claim the VIP task");
-  let claimedVipTasks: string[] = [];
+  const drizzleDb = requireDatabase("claim the journey stage reward");
+  let claimedTierRewards: string[] = [];
   await drizzleDb.transaction(async (tx) => {
     const userRows = await tx.select().from(schema.users)
       .where(eq(schema.users.phone, phone))
@@ -2082,15 +2314,15 @@ export async function claimVipTask(phone: string, taskId: string) {
       .for("update");
     const user = userRows[0];
     if (!user) throw new Error("User not found");
-    claimedVipTasks = [...(user.claimedVipTasks || [])];
-    if (claimedVipTasks.includes(task.id)) throw new Error("VIP task reward already claimed.");
-    claimedVipTasks.push(task.id);
+    claimedTierRewards = readJsonStringArray((user as any).claimedTierRewards);
+    if (claimedTierRewards.includes(stage)) throw new Error("Stage reward already claimed.");
+    claimedTierRewards.push(stage);
 
-    // Credit directly to withdrawable balance (points)! The reward and
-    // requirement come from server-side site configuration, never the client.
+    // Credit directly to withdrawable balance (points)! The reward comes
+    // from server-side site configuration, never the client.
     await tx.update(schema.users).set({
-      points: sql`${schema.users.points} + ${task.reward}`,
-      claimedVipTasks
+      points: sql`${schema.users.points} + ${reward}`,
+      claimedTierRewards
     }).where(eq(schema.users.phone, phone));
   });
 
@@ -2099,12 +2331,12 @@ export async function claimVipTask(phone: string, taskId: string) {
     id: "vip_" + crypto.randomBytes(8).toString("hex"),
     userId: phone,
     type: "vip_task",
-    amount: task.reward,
+    amount: reward,
     currency: "UGX",
     status: "SUCCESSFUL",
     paymentMethod: "VIP_TASK",
     phone: phone,
-    itemId: taskId,
+    itemId: `tier:${stage}`,
     mode: "auto",
     timestamp: new Date().toISOString()
   });
@@ -2112,12 +2344,19 @@ export async function claimVipTask(phone: string, taskId: string) {
   // Create notification alert
   await createNotification(
     phone,
-    "VIP Task Reward Claimed",
-    `Successfully claimed VIP task reward of UGX ${task.reward.toLocaleString()} credited to your withdrawable balance!`,
+    "Stage Reward Claimed",
+    `Successfully claimed ${stage} stage reward of UGX ${reward.toLocaleString()} credited to your withdrawable balance!`,
     "rewards"
   );
 
-  return { bonus: task.reward, claimedVipTasks };
+  await sendChatMessage({
+    roomId: "shared",
+    sender: "system",
+    senderName: "SYSTEM BROADCAST",
+    text: `User ${phone.slice(0, 4)}*** claimed the ${stage} stage reward of UGX ${reward.toLocaleString()}!`
+  });
+
+  return { bonus: reward, claimedTierRewards };
 }
 
 export async function adminUpdateUserLockStatus(phone: string, locked: boolean) {
@@ -2194,7 +2433,17 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   const drizzleDb = requireDatabase("load site configuration");
   try {
     const rows = await drizzleDb.select().from(schema.siteConfig).where(eq(schema.siteConfig.id, "main")).limit(1);
-    if (rows.length > 0 && rows[0].configJson) return rows[0].configJson as SiteConfig;
+    if (rows.length > 0 && rows[0].configJson) {
+      const parsed = parseJsonField<Record<string, any>>(rows[0].configJson, {});
+      // Drop numeric keys left by a legacy string-spread write so a repaired
+      // config never carries char-index garbage alongside real settings.
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const key of Object.keys(parsed)) {
+          if (key !== "" && Number.isInteger(Number(key))) delete (parsed as any)[key];
+        }
+        return parsed as SiteConfig;
+      }
+    }
     return {};
   } catch (err) {
     throw databaseFailure("load site configuration", err);
@@ -2204,8 +2453,16 @@ export async function getSiteConfig(): Promise<SiteConfig> {
 export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<SiteConfig> {
   const drizzleDb = requireDatabase("save site configuration");
   try {
-    const current = await getSiteConfig().catch(() => ({}));
-    const updated = { ...current, ...newConfig } as SiteConfig & Record<string, any>;
+    const rawCurrent = await getSiteConfig().catch(() => ({}));
+    // Never spread a raw driver string: on MariaDB the JSON column reads back
+    // as text, and spreading it writes char-index garbage ("0","1",... keys).
+    const current = (rawCurrent && typeof rawCurrent === "object" && !Array.isArray(rawCurrent))
+      ? rawCurrent
+      : {};
+    // hut12 tokens — sanitize merged config to heal stale presets
+    const mergedRaw = { ...current, ...newConfig } as SiteConfig & Record<string, any>;
+    const sanitizedTokens = sanitizeSiteConfig(mergedRaw);
+    const updated = { ...mergedRaw, ...sanitizedTokens } as SiteConfig & Record<string, any>;
 
     if ("adminPass" in newConfig) {
       const incoming = (newConfig as any).adminPass;
@@ -2217,25 +2474,37 @@ export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<
     }
 
     if (Array.isArray(updated.vipTaskCategories)) {
-      updated.vipTaskCategories = Array.from(new Set(
-        updated.vipTaskCategories
-          .map((category) => String(category || "").trim())
-          .filter(Boolean)
-      ));
+      updated.vipTaskCategories = dedupeCategories(updated.vipTaskCategories);
+    }
+
+    if ((updated as any).vipTierRewards && typeof (updated as any).vipTierRewards === "object" && !Array.isArray((updated as any).vipTierRewards)) {
+      const clean: Record<string, number> = {};
+      for (const [key, value] of Object.entries((updated as any).vipTierRewards)) {
+        const name = String(key).trim();
+        if (name) clean[name] = Math.max(0, Number(value) || 0);
+      }
+      (updated as any).vipTierRewards = clean;
+    }
+
+    if ((updated as any).vipTierMeta && typeof (updated as any).vipTierMeta === "object" && !Array.isArray((updated as any).vipTierMeta)) {
+      const clean: Record<string, { description?: string; imageUrl?: string }> = {};
+      for (const [key, value] of Object.entries((updated as any).vipTierMeta)) {
+        const name = String(key).trim();
+        if (!name) continue;
+        const entry = (value ?? {}) as Record<string, unknown>;
+      const description = String(entry.description ?? "").trim().slice(0, 220);
+        const imageUrl = String(entry.imageUrl ?? "").trim();
+        if (description || imageUrl) {
+          clean[name] = { ...(description ? { description } : {}), ...(imageUrl ? { imageUrl } : {}) };
+        }
+      }
+      (updated as any).vipTierMeta = clean;
     }
 
     if (Array.isArray(updated.vipTasks)) {
       updated.vipTasks = updated.vipTasks
         .filter((task: any) => task && String(task.id || "").trim() && String(task.title || "").trim())
-        .map((task: any) => ({
-          id: String(task.id).trim(),
-          title: String(task.title).trim(),
-          description: String(task.description || "").trim(),
-          category: String(task.category || "").trim(),
-          requiredBonus: Math.max(0, Number(task.requiredBonus || 0)),
-          reward: Math.max(0, Number(task.reward || 0)),
-          active: task.active !== false
-        }));
+        .map((task: any) => normalizeVipTask(task));
     }
 
     updated.minimumDeposit = getMinimumDepositAmount(updated);

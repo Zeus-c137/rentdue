@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
-import * as XLSX from "xlsx";
+import React, { useState, useEffect, useRef } from "react";
+import { useGatedInterval } from "../hooks/useGatedInterval";
+import { fetchJsonWithSignal } from "../utils/abortableFetch";
+// XLSX lazy-loaded via dynamic import inside handlers
 import { 
   ShieldAlert, 
   Users, 
@@ -64,54 +66,41 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
-import ParticleBg from "./ParticleBg";
-import { UserProfile, SubscriptionItem, ThemePreset, ThemeMode, CardStyle, ButtonStyle, BorderRadiusStyle, VipTaskConfig } from "../types";
+import { UserProfile, SubscriptionItem, ThemePreset, ThemeMode, VipTaskConfig } from "../types";
 import AdminChatDesk from "./AdminChatDesk";
 import AdminChart from "./AdminChart";
 import { BrandLogo } from "./BrandLogo";
-import { useTheme, THEME_PRESETS, THEME_PRESET_OPTIONS } from "../context/ThemeContext";
+import { useTheme } from "../context/ThemeContext";
+import { HUT12_PRESETS, HUT12_PRESET_OPTIONS } from "../utils/themeTokens";
+import { migrateCardStyle, sanitizeSiteConfig } from "../utils/themeTokens";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 import { readApiJson } from "../utils/api";
+import { canonicalTypeOf, getWithdrawalDisplayAmounts } from "../utils/transactionMeta";
+import { normalizeVipTask, dedupeCategories, metricMeta, normalizeTierMeta, tierRewardFor, type TierMeta } from "@/src/utils/vip";
 
 function isSettledTransaction(transaction: any): boolean {
   const status = String(transaction?.status || "").toUpperCase();
   return status === "SUCCESSFUL" || status === "COMPLETED" || status === "APPROVED";
 }
 
+function getTimeLeft(expiryDate: string): string {
+  const difference = new Date(expiryDate).getTime() - Date.now();
+  if (difference <= 0) return "Expired";
+  const days = Math.floor(difference / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((difference / 1000 / 60) % 60);
+  const seconds = Math.floor((difference / 1000) % 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(" ");
+}
+
 function GiftCountdown({ expiryDate }: { expiryDate: string }) {
-  const [timeLeft, setTimeLeft] = useState("");
-
-  useEffect(() => {
-    const calculateTimeLeft = () => {
-      const difference = new Date(expiryDate).getTime() - Date.now();
-      if (difference <= 0) {
-        return "Expired";
-      }
-
-      const days = Math.floor(difference / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
-      const minutes = Math.floor((difference / 1000 / 60) % 60);
-      const seconds = Math.floor((difference / 1000) % 60);
-
-      const parts = [];
-      if (days > 0) parts.push(`${days}d`);
-      if (hours > 0 || days > 0) parts.push(`${hours}h`);
-      parts.push(`${minutes}m`);
-      parts.push(`${seconds}s`);
-
-      return parts.join(" ");
-    };
-
-    setTimeLeft(calculateTimeLeft());
-    const interval = setInterval(() => {
-      setTimeLeft(calculateTimeLeft());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [expiryDate]);
-
+  const timeLeft = getTimeLeft(expiryDate);
   const isExpired = timeLeft === "Expired";
-
   return (
     <span className={`font-mono text-xs ${isExpired ? "text-rose-500 font-semibold" : "text-blue-400 font-semibold"}`}>
       {timeLeft}
@@ -126,12 +115,18 @@ export default function AdminView() {
   const [seedMessage, setSeedMessage] = useState("Activating admin account...");
   const [seedError, setSeedError] = useState("");
   const [activatedAdminInfo, setActivatedAdminInfo] = useState<{ username?: string; phone?: string }>({});
+  // The activate route POSTs on mount; StrictMode double-invokes effects in
+  // dev, so guard against firing the seed request twice.
+  const seedFiredRef = useRef(false);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [uploadingField, setUploadingField] = useState<"logoUrl" | "authBgImage" | "dashboardBgImage" | null>(null);
 
   useEffect(() => {
     if (!isActivateRoute) return;
-    
+    if (seedFiredRef.current) return;
+    seedFiredRef.current = true;
+
     const triggerSeed = async () => {
       try {
         const res = await fetch("/api/admin/access/activate", {
@@ -269,20 +264,29 @@ export default function AdminView() {
   const [vipTaskTitle, setVipTaskTitle] = useState("");
   const [vipTaskDescription, setVipTaskDescription] = useState("");
   const [vipTaskCategory, setVipTaskCategory] = useState("");
+  const [vipTaskMetric, setVipTaskMetric] = useState("operator_points");
   const [vipTaskRequiredBonus, setVipTaskRequiredBonus] = useState(0);
   const [vipTaskReward, setVipTaskReward] = useState(0);
+  const [vipTaskImageUrl, setVipTaskImageUrl] = useState("");
   const [isVipTaskModalOpen, setIsVipTaskModalOpen] = useState(false);
   const [editingVipTaskId, setEditingVipTaskId] = useState<string | null>(null);
   const [openVipTaskMenuId, setOpenVipTaskMenuId] = useState<string | null>(null);
   const [isVipCategoryModalOpen, setIsVipCategoryModalOpen] = useState(false);
   const [newVipCategory, setNewVipCategory] = useState("");
+  const [newVipTierReward, setNewVipTierReward] = useState(0);
   const { updateLocalThemeConfig } = useTheme();
 
   const getVipTasks = (): VipTaskConfig[] => Array.isArray(siteConfig?.vipTasks) ? siteConfig.vipTasks : [];
-  const getVipTaskCategories = (): string[] => Array.from(new Set([
+  const getVipTierRewards = (): Record<string, number> => {
+    const raw = (siteConfig as any)?.vipTierRewards;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, number>;
+    return {};
+  };
+  const getVipTierMeta = (): Record<string, TierMeta> => normalizeTierMeta((siteConfig as any)?.vipTierMeta);
+  const getVipTaskCategories = (): string[] => dedupeCategories([
     ...(Array.isArray(siteConfig?.vipTaskCategories) ? siteConfig.vipTaskCategories : []),
-    ...getVipTasks().map((task) => task.category).filter(Boolean)
-  ]));
+    ...getVipTasks().map((task) => task.category)
+  ]);
   const currentWithdrawMode: "automatic" | "manual" = siteConfig?.allowAutoWithdraw === false ? "manual" : "automatic";
 
   const persistVipConfig = async (nextFields: Record<string, unknown>, successMessage: string) => {
@@ -300,7 +304,7 @@ export default function AdminView() {
       toast.success(successMessage);
       return true;
     } catch (err: any) {
-      toast.error(err.message || "Could not save VIP configuration.");
+      toast.error(err.message || "Could not save milestone configuration.");
       return false;
     } finally {
       setIsLoading(false);
@@ -311,37 +315,39 @@ export default function AdminView() {
     setVipTaskTitle("");
     setVipTaskDescription("");
     setVipTaskCategory("");
+    setVipTaskMetric("operator_points");
     setVipTaskRequiredBonus(0);
     setVipTaskReward(0);
+    setVipTaskImageUrl("");
   };
 
   const handleAddVipTask = async () => {
-    const title = vipTaskTitle.trim();
-    const category = vipTaskCategory.trim();
-    const requiredBonus = Number(vipTaskRequiredBonus);
-    const reward = Number(vipTaskReward);
-    if (!title || !category) {
-      toast.error("Enter a VIP task title and category.");
-      return;
-    }
-    if (!Number.isFinite(requiredBonus) || requiredBonus <= 0 || !Number.isFinite(reward) || reward <= 0) {
-      toast.error("Requirement and reward must both be greater than zero.");
+    const rawTask = {
+      id: editingVipTaskId || `vip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      title: vipTaskTitle,
+      description: vipTaskDescription,
+      category: vipTaskCategory,
+      metric: vipTaskMetric,
+      requiredBonus: vipTaskRequiredBonus,
+      reward: 0,
+      imageUrl: vipTaskImageUrl,
+      active: editingVipTaskId ? getVipTasks().find((task) => task.id === editingVipTaskId)?.active !== false : true
+    };
+    let task: VipTaskConfig;
+    try {
+      task = normalizeVipTask(rawTask);
+      if (!task.title || !task.category) throw new Error("Enter a milestone title and category.");
+      if (!Number.isFinite(task.requiredBonus) || task.requiredBonus <= 0) throw new Error("Requirement must be greater than zero.");
+      if (editingVipTaskId) task.id = editingVipTaskId;
+    } catch (err: any) {
+      toast.error(err.message || "Enter a milestone title and category.");
       return;
     }
     const existingTask = editingVipTaskId ? getVipTasks().find((task) => task.id === editingVipTaskId) : undefined;
-    const task: VipTaskConfig = {
-      id: existingTask?.id || `vip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      title,
-      description: vipTaskDescription.trim(),
-      category,
-      requiredBonus,
-      reward,
-      active: existingTask?.active !== false
-    };
     const nextTasks = existingTask
       ? getVipTasks().map((currentTask) => currentTask.id === existingTask.id ? task : currentTask)
       : [...getVipTasks(), task];
-    const saved = await persistVipConfig({ vipTasks: nextTasks }, existingTask ? "VIP task updated." : "VIP task published.");
+    const saved = await persistVipConfig({ vipTasks: nextTasks }, existingTask ? "Milestone updated." : "Milestone published.");
     if (saved) {
       resetVipTaskForm();
       setEditingVipTaskId(null);
@@ -354,49 +360,180 @@ export default function AdminView() {
     setVipTaskTitle(task.title);
     setVipTaskDescription(task.description || "");
     setVipTaskCategory(task.category || "");
+    setVipTaskMetric(task.metric || "operator_points");
     setVipTaskRequiredBonus(Number(task.requiredBonus || 0));
     setVipTaskReward(Number(task.reward || 0));
+    setVipTaskImageUrl(task.imageUrl || "");
     setOpenVipTaskMenuId(null);
     setIsVipTaskModalOpen(true);
   };
 
+  const handleVipTaskImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Only PNG, JPG or WebP images are allowed.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be smaller than 2 MB.");
+      return;
+    }
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "viptask", data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      setVipTaskImageUrl(body.url);
+      toast.success("Art uploaded — save the milestone to keep it.");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
+    }
+  };
+
   const handleRemoveVipTask = async (taskId: string) => {
-    await persistVipConfig({ vipTasks: getVipTasks().filter((task) => task.id !== taskId) }, "VIP task removed.");
+    await persistVipConfig({ vipTasks: getVipTasks().filter((task) => task.id !== taskId) }, "Milestone removed.");
   };
 
   const handleToggleVipTask = async (taskId: string) => {
     await persistVipConfig({
       vipTasks: getVipTasks().map((task) => task.id === taskId ? { ...task, active: task.active === false } : task)
-    }, "VIP task status updated.");
+    }, "Milestone status updated.");
   };
 
-  const handleAddVipCategory = async () => {
-    const category = newVipCategory.trim();
-    if (!category) return;
-    if (getVipTaskCategories().some((existing) => existing.toLowerCase() === category.toLowerCase())) {
-      toast.info("That VIP category already exists.");
+  // Tier editor works on a local draft so renames, rewards, descriptions,
+  // and art are reviewed together and saved once — independent of the main
+  // site-configuration Save button. Nothing persists until Save Tiers.
+  interface TierDraft { key: string; name: string; reward: string; description: string; imageUrl: string; }
+  const [tierDrafts, setTierDrafts] = useState<TierDraft[] | null>(null);
+  const [savingTiers, setSavingTiers] = useState(false);
+
+  const openTierEditor = () => {
+    const rewards = getVipTierRewards();
+    const meta = getVipTierMeta();
+    setTierDrafts(getVipTaskCategories().map((category) => ({
+      key: category,
+      name: category,
+      reward: rewards[category] ? String(rewards[category]) : "",
+      description: meta[category]?.description || "",
+      imageUrl: meta[category]?.imageUrl || "",
+    })));
+    setNewVipCategory("");
+    setNewVipTierReward(0);
+    setIsVipCategoryModalOpen(true);
+  };
+
+  const closeTierEditor = () => { setIsVipCategoryModalOpen(false); setTierDrafts(null); };
+
+  const patchTierDraft = (index: number, patch: Partial<TierDraft>) => {
+    setTierDrafts((prev) => (prev || []).map((draft, i) => (i === index ? { ...draft, ...patch } : draft)));
+  };
+
+  const addTierDraft = () => {
+    const name = newVipCategory.trim();
+    if (!name) return;
+    let duplicate = false;
+    setTierDrafts((prev) => {
+      const list = prev || [];
+      if (list.some((draft) => draft.name.trim().toLowerCase() === name.toLowerCase())) { duplicate = true; return list; }
+      return [...list, { key: "", name, reward: newVipTierReward ? String(newVipTierReward) : "", description: "", imageUrl: "" }];
+    });
+    if (duplicate) { toast.info("That tier already exists."); return; }
+    setNewVipCategory("");
+    setNewVipTierReward(0);
+    setVipTaskCategory(name);
+  };
+
+  const removeTierDraft = (index: number) => {
+    setTierDrafts((prev) => (prev || []).filter((_, i) => i !== index));
+  };
+
+  const handleTierDraftImageFile = async (index: number, file: File | undefined) => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Only PNG, JPG or WebP images are allowed.");
       return;
     }
-    const saved = await persistVipConfig({ vipTaskCategories: [...getVipTaskCategories(), category] }, "VIP category created.");
-    if (saved) {
-      setNewVipCategory("");
-      setVipTaskCategory(category);
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be smaller than 2 MB.");
+      return;
+    }
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "viptask", data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      patchTierDraft(index, { imageUrl: body.url });
+      toast.success("Tier art uploaded — save tiers to keep it.");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
     }
   };
 
-  const handleRemoveVipCategory = async (category: string) => {
-    const isUsed = getVipTasks().some((task) => task.category === category);
-    if (isUsed) {
-      toast.error("This category is used by a task. Move or remove that task first.");
-      return;
+  const handleSaveTiers = async () => {
+    const list = tierDrafts || [];
+    const names = list.map((draft) => draft.name.trim());
+    if (names.some((name) => !name)) { toast.error("Every tier needs a name."); return; }
+    if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) { toast.error("Tier names must be unique."); return; }
+    const renames = new Map<string, string>();
+    list.forEach((draft) => { if (draft.key && draft.key !== draft.name.trim()) renames.set(draft.key, draft.name.trim()); });
+    const tasks = getVipTasks();
+    for (const task of tasks) {
+      if (!names.includes(task.category) && !renames.has(task.category)) {
+        toast.error(`"${task.category}" still has tasks. Move or remove them first.`);
+        return;
+      }
     }
-    await persistVipConfig({ vipTaskCategories: getVipTaskCategories().filter((existing) => existing !== category) }, "VIP category removed.");
+    for (const [oldName] of renames) {
+      if (usersList.some((u) => (((u as any).claimedTierRewards || []) as string[]).includes(oldName))) {
+        toast.error(`Cannot rename "${oldName}" — users already claimed it.`);
+        return;
+      }
+    }
+    const rewards: Record<string, number> = {};
+    const meta: Record<string, TierMeta> = {};
+    list.forEach((draft) => {
+      const name = draft.name.trim();
+      const amount = Math.max(0, Number(draft.reward) || 0);
+      if (amount > 0) rewards[name] = amount;
+      const entry: TierMeta = {};
+      if (draft.description.trim()) entry.description = draft.description.trim().slice(0, 220);
+      if (draft.imageUrl.trim()) entry.imageUrl = draft.imageUrl.trim();
+      if (entry.description || entry.imageUrl) meta[name] = entry;
+    });
+    const nextTasks = tasks.map((task) => (renames.has(task.category) ? { ...task, category: renames.get(task.category) as string } : task));
+    setSavingTiers(true);
+    const saved = await persistVipConfig({ vipTaskCategories: names, vipTierRewards: rewards, vipTierMeta: meta, vipTasks: nextTasks }, "Tiers saved.");
+    setSavingTiers(false);
+    if (saved) closeTierEditor();
   };
 
   // Password override state
   const [userToOverride, setUserToOverride] = useState<UserProfile | null>(null);
   const [newOverridePassword, setNewOverridePassword] = useState("");
   const [giftCodesList, setGiftCodesList] = useState<any[]>([]);
+  const [giftTick, setGiftTick] = useState(0);
+  useGatedInterval(() => setGiftTick((v) => v + 1), 1000, { enabled: giftCodesList.length > 0, visibilityGate: true });
+  void giftTick;
   const [newGiftCode, setNewGiftCode] = useState("");
   const [newGiftCodeAmount, setNewGiftCodeAmount] = useState<number>(5000);
   const [newGiftCodeMax, setNewGiftCodeMax] = useState<number>(100);
@@ -453,48 +590,35 @@ export default function AdminView() {
   }, [isAdminLoggedIn]);
 
   const fetchAllAdminData = async () => {
+    const ctrl = new AbortController();
+    const signal = ctrl.signal;
     try {
       setIsLoading(true);
-      
-      const itemsRes = await fetch("/api/admin/catalog/nodes");
-      if (itemsRes.ok) {
-        const items = await itemsRes.json();
-        setCatalogItems(items);
-      }
-
-      const usersRes = await fetch("/api/admin/users");
+      const [itemsRes, usersRes, txRes, annRes, confRes, gcRes] = await Promise.all([
+        fetch("/api/admin/catalog/nodes", { signal }),
+        fetch("/api/admin/users", { signal }),
+        fetch("/api/admin/transactions", { signal }),
+        fetch("/api/admin/announcements", { signal }),
+        fetch("/api/admin/config", { signal }),
+        fetch(`/api/admin/gift_codes`, { signal }),
+      ]);
+      if (signal.aborted) return;
+      if (itemsRes.ok) setCatalogItems(await itemsRes.json());
       if (usersRes.ok) {
         let users: UserProfile[] = await usersRes.json();
-        // Remove admin user
         const adminPh = siteConfig?.adminPhone || "admin";
         users = users.filter((u) => u.phone !== adminPh);
         setUsersList(users);
       }
-
-      const txRes = await fetch("/api/admin/transactions");
-      if (txRes.ok) {
-        const txs = await txRes.json();
-        setTransactionsList(txs);
-      }
-      
-      const annRes = await fetch("/api/admin/announcements");
-      if (annRes.ok) {
-        setAnnouncements(await annRes.json());
-      }
-      
-      const confRes = await fetch("/api/admin/config");
-      if (confRes.ok) {
-        setSiteConfig(await confRes.json());
-      }
-      
-      const gcRes = await fetch(`/api/admin/gift_codes`);
-      if (gcRes.ok) {
-        setGiftCodesList(await gcRes.json());
-      }
-    } catch (err) {
+      if (txRes.ok) setTransactionsList(await txRes.json());
+      if (annRes.ok) setAnnouncements(await annRes.json());
+      if (confRes.ok) setSiteConfig(await confRes.json());
+      if (gcRes.ok) setGiftCodesList(await gcRes.json());
+    } catch (err: unknown) {
+      if ((err as Error)?.name === "AbortError") return;
       toast.error("Failed loading admin states");
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) setIsLoading(false);
     }
   };
 
@@ -645,7 +769,8 @@ export default function AdminView() {
   };
 
   // Download Sample Excel Template
-  const handleDownloadExcelSample = () => {
+  const handleDownloadExcelSample = async () => {
+    const XLSX = await import("xlsx");
     const sampleData = [
       {
         "Series/Category": "GS Series",
@@ -698,6 +823,7 @@ export default function AdminView() {
     if (!file) return;
 
     try {
+      const XLSX = await import("xlsx");
       setIsParsingExcel(true);
       setParsedExcelFileName(file.name);
       const arrayBuffer = await file.arrayBuffer();
@@ -1051,6 +1177,54 @@ export default function AdminView() {
     }
   };
 
+  const handleSiteImageFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    kind: "logo" | "authbg" | "dashboardbg",
+    field: "logoUrl" | "authBgImage" | "dashboardBgImage",
+    label: string
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const allowed = kind === "logo"
+      ? ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
+      : ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      toast.error(kind === "logo" ? "Only PNG, JPG, WebP or SVG images are allowed." : "Only PNG, JPG or WebP images are allowed.");
+      return;
+    }
+    const maxBytes = kind === "logo" ? 2 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast.error(`Image must be smaller than ${maxBytes / (1024 * 1024)} MB.`);
+      return;
+    }
+    setUploadingField(field);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      setSiteConfig({ ...siteConfig, [field]: body.url });
+      toast.success(`${label} uploaded. Save configuration to apply it.`);
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) =>
+    handleSiteImageFile(e, "logo", "logoUrl", "Logo");
+
   const handleSaveSiteConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^\d{9,10}$/.test(siteConfig.adminPhone)) {
@@ -1071,7 +1245,8 @@ export default function AdminView() {
     }
     try {
       setIsLoading(true);
-      const payload = { ...siteConfig, updatedAt: Date.now() };
+      const sanitized = sanitizeSiteConfig({ ...siteConfig, updatedAt: Date.now() });
+      const payload = sanitized as any;
       const res = await fetch("/api/admin/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1196,9 +1371,10 @@ export default function AdminView() {
   const totalUsersPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
   const filteredTransactions = transactionsList.filter(tx => {
-    const isWithdraw = tx.type === "withdrawal" || tx.type === "withdraw";
-    const isAccountDeposit = tx.type === "deposit" || tx.type === "balance" || tx.type === "manual";
-    const isRental = tx.type === "gpu" || tx.type === "gpu_activation" || tx.type === "subscription";
+    const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
+    const isWithdraw = canon === "withdrawal";
+    const isAccountDeposit = canon === "deposit";
+    const isRental = canon === "product_activation";
 
     // Keep account deposits, product-rental debits, and withdrawals together
     // in this ledger; yield and reward events belong elsewhere.
@@ -1288,7 +1464,6 @@ export default function AdminView() {
   if (isActivateRoute) {
     return (
       <div className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] flex flex-col items-center justify-center p-4 relative overflow-hidden transition-colors">
-        <ParticleBg />
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1380,53 +1555,53 @@ export default function AdminView() {
           backgroundPosition: 'center',
         }}
       >
-        {!authBg && <ParticleBg />}
-        
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="w-full max-w-sm sm:max-w-md bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] p-8 shadow-2xl z-10 relative overflow-hidden backdrop-blur-md"
+          className="w-full max-w-sm sm:max-w-md bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-8 shadow-2xl z-10 relative overflow-hidden"
         >
           <div className="text-center space-y-3 mb-6">
             <BrandLogo siteConfig={siteConfig} className="w-14 h-14 mx-auto block bg-transparent shadow-none" />
             <div>
-              <h2 className="font-display font-extrabold text-2xl tracking-tight text-[var(--theme-text)]">
+              <h2 className="font-display font-bold text-2xl tracking-tight text-[var(--theme-text)]">
                 {(siteConfig?.brandName || " ") + " Admin"}
               </h2>
-              <p className="text-xs text-[var(--theme-text)] opacity-65 mt-1">
-                Enter administrative credentials to log in
+              <p className="text-xs font-sans font-normal text-[var(--theme-text)] opacity-50 mt-1">
+                Administrative access only
               </p>
             </div>
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-80">Username / Phone</label>
+              <label className="text-[11px] font-sans font-semibold uppercase tracking-wide text-[var(--theme-text)] opacity-60">Username / Phone</label>
               <input
                 type="text"
                 required
+                autoComplete="username"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none transition-colors"
+                className="w-full px-4 py-2.5 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] rounded-[14px] text-[var(--theme-text)] text-sm font-sans font-medium outline-none transition-colors select-text"
                 placeholder="Enter identifier"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-80">Password</label>
+              <label className="text-[11px] font-sans font-semibold uppercase tracking-wide text-[var(--theme-text)] opacity-60">Password</label>
               <div className="relative">
                 <input
                   type={showLoginPassword ? "text" : "password"}
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none transition-colors pr-10"
-                  placeholder="• • • • • • • •"
+                  className="w-full px-4 py-2.5 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] rounded-[14px] text-[var(--theme-text)] text-sm font-sans font-medium outline-none transition-colors pr-10 select-text"
+                  placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-50 hover:opacity-100 transition-opacity"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity"
                 >
                   {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -1436,7 +1611,7 @@ export default function AdminView() {
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full py-3 mt-2 btn-3d-primary text-white text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 mt-2 btn-3d-primary text-white text-sm font-sans font-bold tracking-wide transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
             >
               {isLoggingIn ? (
                 <>
@@ -1603,7 +1778,7 @@ export default function AdminView() {
             {/* TAB: HOME */}
             {activeAdminTab === "home" && (() => {
               const totalWithdrawFees = transactionsList
-                .filter(tx => (tx.type === "withdrawal" || tx.type === "withdraw") && isSettledTransaction(tx))
+                .filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx))
                 .reduce((sum, tx) => sum + ((tx.feeAmount || tx.metadata?.feeAmount) || 0), 0);
 
               return (
@@ -1619,10 +1794,10 @@ export default function AdminView() {
                         <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-70 uppercase font-semibold tracking-wider block">Total Deposits</span>
                         <div>
                           <h4 className="text-2xl font-sans font-extrabold text-[var(--theme-text)] tracking-tight">
-                            {formatCurrency(transactionsList.filter(tx => (tx.type === "deposit" || tx.type === "balance") && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
+                            {formatCurrency(transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "deposit" && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
                           </h4>
                           <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-1">
-                            {transactionsList.filter(tx => (tx.type === "deposit" || tx.type === "balance") && isSettledTransaction(tx)).length} successful account deposits
+                            {transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "deposit" && isSettledTransaction(tx)).length} successful account deposits
                           </p>
                         </div>
                       </div>
@@ -1637,10 +1812,10 @@ export default function AdminView() {
                         <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-70 uppercase font-semibold tracking-wider block">Total Cashout</span>
                         <div>
                           <h4 className="text-2xl font-sans font-extrabold text-[var(--theme-text)] tracking-tight">
-                            {formatCurrency(transactionsList.filter(tx => (tx.type === "withdrawal" || tx.type === "withdraw") && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
+                            {formatCurrency(transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
                           </h4>
                           <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-1">
-                            {transactionsList.filter(tx => (tx.type === "withdrawal" || tx.type === "withdraw") && isSettledTransaction(tx)).length} paid requests
+                            {transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx)).length} paid requests
                           </p>
                         </div>
                       </div>
@@ -1929,7 +2104,7 @@ export default function AdminView() {
                           const nodesCount = (u as any).activeNodesCount || 0;
                           const isLocked = !!(u as any).locked;
                           const successWithdrawals = transactionsList
-                            .filter(tx => tx.userId === u.phone && (tx.type === "withdrawal" || tx.type === "withdraw") && isSettledTransaction(tx))
+                            .filter(tx => tx.userId === u.phone && canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx))
                             .reduce((sum, tx) => sum + (tx.amount || 0), 0);
                           return (
                             <tr key={u.phone} className={`hover:bg-[var(--theme-bg)]/50 transition-colors border-b border-[var(--theme-card-border)]/30 ${isLocked ? 'opacity-60' : ''}`}>
@@ -2086,7 +2261,7 @@ export default function AdminView() {
                       <thead>
                         <tr className="bg-[var(--theme-bg)] border-b border-[var(--theme-card-border)]">
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70">Ref ID / Time</th>
-                          <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70">Miner</th>
+                          <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70">User</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70">Type</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-center">Mode</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Amount</th>
@@ -2096,8 +2271,9 @@ export default function AdminView() {
                       </thead>
                       <tbody className="divide-y divide-[var(--theme-card-border)]/30">
                         {paginatedTransactions.map((tx) => {
-                          const isWithdraw = tx.type === "withdrawal" || tx.type === "withdraw";
-                          const isGpu = tx.type === "gpu" || tx.type === "gpu_activation" || tx.type === "subscription";
+                          const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
+                          const isWithdraw = canon === "withdrawal";
+                          const isGpu = canon === "product_activation";
                           const isManual = String(tx.mode || "").toLowerCase() === "manual";
                           const isAutomaticWithdrawal = isWithdraw && !isManual;
                           const txMetadata = tx.metadata && typeof tx.metadata === "object" ? tx.metadata : {};
@@ -2394,7 +2570,7 @@ export default function AdminView() {
                       configSubTab === "vipTasks" ? "border-[var(--theme-primary)] text-[var(--theme-text)]" : "border-transparent text-[var(--theme-text)] opacity-60 hover:opacity-100"
                     }`}
                   >
-                    VIP Tasks
+                    Milestones
                   </button>
                   
                   <button
@@ -2461,6 +2637,19 @@ export default function AdminView() {
                               <div className="w-12 h-12 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center p-2 shrink-0 shadow-sm" title="Logo Preview">
                                 <BrandLogo siteConfig={siteConfig} className="w-full h-full object-contain" />
                               </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-xs font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] ${uploadingField === "logoUrl" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                                  className="hidden"
+                                  disabled={uploadingField === "logoUrl"}
+                                  onChange={handleLogoFile}
+                                />
+                                {uploadingField === "logoUrl" ? "Uploading…" : "Upload logo from disk"}
+                              </label>
+                              <span className="text-[11px] text-[var(--theme-text)] opacity-60">PNG / JPG / WebP / SVG, max 2 MB. Saved on the server — then Save configuration.</span>
                             </div>
                           </div>
 
@@ -2558,467 +2747,206 @@ export default function AdminView() {
                     </div>
                   )}
 
-                  {/* SUBTAB: THEME & AESTHETIC */}
+                  {/* SUBTAB: THEME & AESTHETIC — hut12 minimal (2 presets, fixed tokens) */}
                   {configSubTab === "theme" && (
                     <div className="py-2 space-y-6">
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        
-                        {/* LEFT COLUMN: Clean Streamlined Settings Form */}
                         <div className="lg:col-span-7 space-y-5 text-[var(--theme-text)] font-sans">
-                          
-                          {/* 1. Theme Preset Engine */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider flex items-center gap-2">
-                              <span>Theme Preset</span>
-                            </label>
-                            <select
-                              value={siteConfig.themePreset || "duolingo-playful"}
-                              onChange={(e) => {
-                                const selectedId = e.target.value as ThemePreset;
-                                const presetObj = THEME_PRESET_OPTIONS.find(p => p.id === selectedId);
-                                const presetDetails = THEME_PRESETS[selectedId];
-                                if (presetObj && presetDetails) {
-                                  const updated = {
-                                    ...siteConfig,
-                                    themePreset: selectedId,
-                                    primaryColor: presetObj.primary,
-                                    accentColor: presetObj.accent,
-                                    secondaryColor: presetObj.secondary,
-                                    bgColor: presetDetails.bg,
-                                    cardBgColor: presetDetails.cardBg,
-                                    cardStyle: presetObj.cardStyle,
-                                    borderRadius: presetObj.radius,
-                                    themeMode: (presetDetails.isDark ? "dark" : "light") as any,
-                                    textColor: presetDetails.textColor || ""
-                                  };
-                                  setSiteConfig(updated);
-                                } else {
-                                  const updated = { ...siteConfig, themePreset: selectedId };
-                                  setSiteConfig(updated);
-                                }
-                              }}
-                              className="theme-input w-full px-3.5 py-2.5 text-xs font-bold cursor-pointer"
-                            >
-                              {THEME_PRESET_OPTIONS.map((preset) => {
-                                const isActive = (siteConfig.themePreset || "duolingo-playful") === preset.id;
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-wider">Theme Preset</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {HUT12_PRESET_OPTIONS.map((preset) => {
+                                const isActive = (siteConfig.themePreset || "hut12-light") === preset.id;
                                 return (
-                                  <option key={preset.id} value={preset.id} className="bg-[var(--theme-card-bg)] text-[var(--theme-text)] font-bold">
-                                    {preset.name} — {preset.description}{isActive ? " ✓" : ""}
-                                  </option>
+                                  <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const details = HUT12_PRESETS[preset.id];
+                                      setSiteConfig({
+                                        ...siteConfig,
+                                        themePreset: preset.id,
+                                        primaryColor: details.primary,
+                                        accentColor: details.accent,
+                                        secondaryColor: details.secondary,
+                                        bgColor: details.bg,
+                                        cardBgColor: details.cardBg,
+                                        cardStyle: preset.cardStyle,
+                                        borderRadius: preset.radius,
+                                        themeMode: details.isDark ? "dark" : "light",
+                                        textColor: details.textColor || "",
+                                      });
+                                    }}
+                                    className={`p-4 rounded-[var(--theme-radius)] border text-left transition-all ${isActive ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]/10" : "border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] hover:border-[var(--theme-primary)]/40"}`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-lg">{preset.icon}</span>
+                                      <div>
+                                        <div className="text-sm font-bold">{preset.name}</div>
+                                        <div className="text-xs opacity-60">{preset.description}</div>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-1.5 mt-3">
+                                      <span className="w-6 h-6 rounded-full border border-black/10" style={{ background: preset.primary }} />
+                                      <span className="w-6 h-6 rounded-full border border-black/10" style={{ background: preset.accent }} />
+                                      <span className="w-6 h-6 rounded-full border border-black/10" style={{ background: preset.secondary }} />
+                                    </div>
+                                  </button>
                                 );
                               })}
-                              <option value="custom" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)] font-bold">
-                                Custom Hex Colors & Style{siteConfig.themePreset === "custom" ? " ✓" : ""}
-                              </option>
-                            </select>
-                          </div>
-
-                          {/* 2. Font Family & Text Size Controls */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider flex items-center gap-2">
-                              <span>Typography & Scale</span>
-                            </label>
-                            
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <span className="text-[11px] font-bold text-[var(--theme-text)] opacity-70 block">Font Family</span>
-                                <select
-                                  value={siteConfig.fontFamily || "Fredoka"}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    const next = { ...siteConfig, fontFamily: val };
-                                    setSiteConfig(next);
-                                    updateLocalThemeConfig(next);
-                                  }}
-                                  className="theme-input w-full px-3 py-2 text-xs font-bold cursor-pointer"
-                                >
-                                  {(() => {
-                                    const f = siteConfig.fontFamily || "Fredoka";
-                                    return (
-                                      <>
-                                        <option value="Fredoka">Fredoka (Playful 3D Gamified){f === "Fredoka" ? " ✓" : ""}</option>
-                                        <option value="Plus Jakarta Sans">Plus Jakarta Sans (Crisp Modern){f === "Plus Jakarta Sans" ? " ✓" : ""}</option>
-                                        <option value="Outfit">Outfit (Geometric Clean){f === "Outfit" ? " ✓" : ""}</option>
-                                        <option value="Space Grotesk">Space Grotesk (Cyber Arcade){f === "Space Grotesk" ? " ✓" : ""}</option>
-                                        <option value="Comfortaa">Comfortaa (Soft Rounded){f === "Comfortaa" ? " ✓" : ""}</option>
-                                        <option value="Lexend">Lexend (Hyper Legible){f === "Lexend" ? " ✓" : ""}</option>
-                                        <option value="Playfair Display">Playfair Display (Editorial){f === "Playfair Display" ? " ✓" : ""}</option>
-                                        <option value="Inter">Inter (Standard Sans){f === "Inter" ? " ✓" : ""}</option>
-                                      </>
-                                    );
-                                  })()}
-                                </select>
-                              </div>
-
-                              <div className="space-y-1">
-                                <span className="text-[11px] font-bold text-[var(--theme-text)] opacity-70 block">Base Text Size</span>
-                                <select
-                                  value={siteConfig.fontSizeScale || "md"}
-                                  onChange={(e) => {
-                                    const val = e.target.value as any;
-                                    setSiteConfig({ ...siteConfig, fontSizeScale: val });
-                                  }}
-                                  className="theme-input w-full px-3 py-2 text-xs font-bold cursor-pointer"
-                                >
-                                  {(() => {
-                                    const fs = siteConfig.fontSizeScale || "md";
-                                    return (
-                                      <>
-                                        <option value="sm">Small Text (14px){fs === "sm" ? " ✓" : ""}</option>
-                                        <option value="md">Medium Standard (16px){fs === "md" ? " ✓" : ""}</option>
-                                        <option value="lg">Large Reading (18px){fs === "lg" ? " ✓" : ""}</option>
-                                        <option value="xl">Extra Large (20px){fs === "xl" ? " ✓" : ""}</option>
-                                      </>
-                                    );
-                                  })()}
-                                </select>
-                              </div>
+                            </div>
+                            <div className="flex gap-2 mt-3 items-center">
+                              <span className="text-[11px] font-bold opacity-60">Mode</span>
+                              <select
+                                value={siteConfig.themeMode || "light"}
+                                onChange={(e) => setSiteConfig({ ...siteConfig, themeMode: e.target.value as ThemeMode })}
+                                className="theme-input px-3 py-1.5 text-xs font-bold"
+                              >
+                                <option value="light">light</option>
+                                <option value="dark">dark</option>
+                                <option value="system">system</option>
+                              </select>
                             </div>
                           </div>
-
-                          {/* 3. Interactive Card Style */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider flex items-center gap-2">
-                              <span>Card Style & Shadows</span>
-                            </label>
-                            <select
-                              value={siteConfig.cardStyle || "playful-3d"}
-                              onChange={(e) => {
-                                const val = e.target.value as CardStyle;
-                                setSiteConfig({ ...siteConfig, cardStyle: val });
-                              }}
-                              className="theme-input w-full px-3.5 py-2 text-xs font-bold cursor-pointer"
-                            >
-                              {(() => {
-                                const cs = siteConfig.cardStyle || "playful-3d";
-                                return (
-                                  <>
-                                    <option value="playful-3d" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Playful 3D Extruded (Gamified bottom border shadows){cs === "playful-3d" ? " ✓" : ""}</option>
-                                    <option value="liquid-glass" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Liquid Glass (Ultra-transparent translucent glass & sheen){cs === "liquid-glass" ? " ✓" : ""}</option>
-                                    <option value="glass" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Soft Glassmorphism (Backdrop blur & ambient transparency){cs === "glass" ? " ✓" : ""}</option>
-                                    <option value="textured-wood" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Textured Wood (Organic woodgrain warm styling){cs === "textured-wood" ? " ✓" : ""}</option>
-                                    <option value="textured-metal" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Textured Metal (Brushed metallic industrial surface){cs === "textured-metal" ? " ✓" : ""}</option>
-                                    <option value="solid" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Clean Solid (Minimalist modern flat borders){cs === "solid" ? " ✓" : ""}</option>
-                                    <option value="neo-brutalist" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Neo-Brutalist (High contrast bold outline & solid shadow){cs === "neo-brutalist" ? " ✓" : ""}</option>
-                                    <option value="chunky-border" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Chunky Boarder (Double-bordered casual detailing){cs === "chunky-border" ? " ✓" : ""}</option>
-                                  </>
-                                );
-                              })()}
-                            </select>
-                          </div>
-
-                          {/* 4. Shapes & Corner Roundness */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider flex items-center gap-2">
-                              <span>Button Style Variations</span>
-                            </label>
-                            <select
-                              value={siteConfig.buttonStyle || "playful-3d"}
-                              onChange={(e) => {
-                                const val = e.target.value as ButtonStyle;
-                                setSiteConfig({ ...siteConfig, buttonStyle: val });
-                              }}
-                              className="theme-input w-full px-3.5 py-2 text-xs font-bold cursor-pointer"
-                            >
-                              {(() => {
-                                const bs = siteConfig.buttonStyle || "playful-3d";
-                                return (
-                                  <>
-                                    <option value="playful-3d" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Playful 3D Extruded (Tactile bottom shadow pressable button){bs === "playful-3d" ? " ✓" : ""}</option>
-                                    <option value="pill-gradient" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Pill Gradient Glow (Smooth rounded pill with vibrant gradient & glow){bs === "pill-gradient" ? " ✓" : ""}</option>
-                                    <option value="neo-brutalist" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Neo-Brutalist (Bold solid outline & block shadow){bs === "neo-brutalist" ? " ✓" : ""}</option>
-                                    <option value="glass" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Glassmorphic Sheen (Soft blur translucency & fine border){bs === "glass" ? " ✓" : ""}</option>
-                                    <option value="minimal-solid" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Minimal Modern Solid (Clean flat solid color with hover elevation){bs === "minimal-solid" ? " ✓" : ""}</option>
-                                  </>
-                                );
-                              })()}
-                            </select>
-                          </div>
-
-                          {/* 5. Shapes & Corner Roundness */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider flex items-center gap-2">
-                              <span>Corner Radius</span>
-                            </label>
-                            <select
-                              value={siteConfig.borderRadius || "rounded-2xl"}
-                              onChange={(e) => {
-                                const val = e.target.value as BorderRadiusStyle;
-                                setSiteConfig({ ...siteConfig, borderRadius: val });
-                              }}
-                              className="theme-input w-full px-3.5 py-2 text-xs font-bold cursor-pointer"
-                            >
-                              {(() => {
-                                const br = siteConfig.borderRadius || "rounded-2xl";
-                                return (
-                                  <>
-                                    <option value="rounded-xl" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Standard Corner Roundness (12px / rounded-xl){br === "rounded-xl" ? " ✓" : ""}</option>
-                                    <option value="rounded-2xl" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Playful Gamified Corner Roundness (20px / rounded-2xl){br === "rounded-2xl" ? " ✓" : ""}</option>
-                                    <option value="rounded-3xl" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Ultra Curved Pill Corner Roundness (28px / rounded-3xl){br === "rounded-3xl" ? " ✓" : ""}</option>
-                                  </>
-                                );
-                              })()}
-                            </select>
-                          </div>
-
-                          {/* 5. Custom Color Hex Pickers */}
-                          <div className="space-y-3">
-                            <label className="text-xs font-bold text-[var(--theme-text)] uppercase tracking-wider block">
-                              Custom Color Overrides
-                            </label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              {/* Primary Color */}
-                              <div className="space-y-1.5">
-                                <span className="text-[11px] font-bold text-[var(--theme-text)] opacity-80 block">Primary Color</span>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="color"
-                                    value={siteConfig.primaryColor || "#58cc02"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, primaryColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="w-10 h-10 rounded-xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] cursor-pointer p-1 transition-all"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={siteConfig.primaryColor || "#58cc02"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, primaryColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="theme-input flex-1 px-3 py-2 text-xs font-mono text-[var(--theme-text)] font-bold"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Accent Color */}
-                              <div className="space-y-1.5">
-                                <span className="text-[11px] font-bold text-[var(--theme-text)] opacity-80 block">Accent Color</span>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="color"
-                                    value={siteConfig.accentColor || "#ff4b4b"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, accentColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="w-10 h-10 rounded-xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] cursor-pointer p-1 transition-all"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={siteConfig.accentColor || "#ff4b4b"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, accentColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="theme-input flex-1 px-3 py-2 text-xs font-mono text-[var(--theme-text)] font-bold"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Secondary Color */}
-                              <div className="space-y-1.5">
-                                <span className="text-[11px] font-bold text-[var(--theme-text)] opacity-80 block">Secondary Color</span>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="color"
-                                    value={siteConfig.secondaryColor || "#1cb0f6"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, secondaryColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="w-10 h-10 rounded-xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] cursor-pointer p-1 transition-all"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={siteConfig.secondaryColor || "#1cb0f6"}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const updated = { ...siteConfig, secondaryColor: val, themePreset: "custom" as ThemePreset };
-                                      setSiteConfig(updated);
-                                    }}
-                                    className="theme-input flex-1 px-3 py-2 text-xs font-mono text-[var(--theme-text)] font-bold"
-                                  />
-                                </div>
-                              </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-3 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                              <div className="text-[11px] font-bold opacity-60 uppercase">Font</div>
+                              <div className="text-sm font-bold">Sora</div>
+                            </div>
+                            <div className="p-3 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                              <div className="text-[11px] font-bold opacity-60 uppercase">Card</div>
+                              <div className="text-sm font-bold">{migrateCardStyle(siteConfig.cardStyle)}</div>
+                            </div>
+                            <div className="p-3 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                              <div className="text-[11px] font-bold opacity-60 uppercase">Button</div>
+                              <div className="text-sm font-bold">pill-gradient</div>
+                            </div>
+                            <div className="p-3 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                              <div className="text-[11px] font-bold opacity-60 uppercase">Radius</div>
+                              <div className="text-sm font-bold">rounded-2xl</div>
                             </div>
                           </div>
-
-                          {/* 6. Custom Background Imagery */}
                           <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-[var(--theme-text)] block">
-                              Custom Wallpapers
-                            </label>
+                            <label className="text-xs font-semibold block">Custom Wallpapers</label>
                             <div className="space-y-2">
                               <div>
-                                <span className="text-[11px] font-medium text-[var(--theme-text)] opacity-70 block mb-1">Auth View Background Image URL</span>
+                                <span className="text-[11px] opacity-70 block mb-1">Auth View Background Image URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.authBgImage || ""}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setSiteConfig({ ...siteConfig, authBgImage: val });
-                                    }}
-                                    placeholder="https://images.unsplash.com/... or vector URL"
+                                    onChange={(e) => setSiteConfig({ ...siteConfig, authBgImage: e.target.value })}
+                                    placeholder="https://images.unsplash.com/..."
                                     className="theme-input flex-1 px-3.5 py-2 text-xs font-mono"
                                   />
-                                  <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+                                  <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
                                     {siteConfig.authBgImage ? (
                                       <img src={fixGitHubImageUrl(siteConfig.authBgImage)} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Auth Preview" />
                                     ) : (
-                                      <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[10px] text-slate-400">
-                                        N/A
-                                      </div>
+                                      <div className="w-full h-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-400">N/A</div>
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "authBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "authBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "authbg", "authBgImage", "Auth background")}
+                                  />
+                                  {uploadingField === "authBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                               <div>
-                                <span className="text-[11px] font-medium text-[var(--theme-text)] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
+                                <span className="text-[11px] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
-                                    type="url"
+                                    type="text"
                                     value={siteConfig.dashboardBgImage || ""}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setSiteConfig({ ...siteConfig, dashboardBgImage: val });
-                                    }}
-                                    placeholder="https://images.unsplash.com/... or pattern URL"
+                                    onChange={(e) => setSiteConfig({ ...siteConfig, dashboardBgImage: e.target.value })}
+                                    placeholder="https://images.unsplash.com/..."
                                     className="theme-input flex-1 px-3.5 py-2 text-xs font-mono"
                                   />
-                                  <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+                                  <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
                                     {siteConfig.dashboardBgImage ? (
                                       <img src={fixGitHubImageUrl(siteConfig.dashboardBgImage)} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Dashboard Preview" />
                                     ) : (
-                                      <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[10px] text-slate-400">
-                                        N/A
-                                      </div>
+                                      <div className="w-full h-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-400">N/A</div>
                                     )}
                                   </div>
                                 </div>
+                                <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit ${uploadingField === "dashboardBgImage" ? "opacity-60 pointer-events-none" : "cursor-pointer hover:border-[var(--theme-primary)]"}`}>
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    className="hidden"
+                                    disabled={uploadingField === "dashboardBgImage"}
+                                    onChange={(e) => handleSiteImageFile(e, "dashboardbg", "dashboardBgImage", "Dashboard wallpaper")}
+                                  />
+                                  {uploadingField === "dashboardBgImage" ? "Uploading…" : "Upload from disk (max 4 MB)"}
+                                </label>
                               </div>
                             </div>
                           </div>
-
                         </div>
-
-                        {/* RIGHT COLUMN: ONLY the Title "Preview" and the Inner Live Interactive Card */}
                         <div className="lg:col-span-5 lg:sticky lg:top-20 space-y-2">
                           <div className="flex items-center justify-between px-1">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-70 flex items-center gap-1.5">
-                              <Sparkles className="w-4 h-4 text-amber-500" />
-                              Preview
+                            <h4 className="text-xs font-bold uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-amber-500" /> Preview
                             </h4>
                             <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[var(--theme-card-bg)] text-[var(--theme-primary)] font-mono uppercase border border-[var(--theme-card-border)]">
-                              {siteConfig.themePreset || "duolingo-playful"}
+                              {siteConfig.themePreset || "hut12-light"}
                             </span>
                           </div>
-
-                          {/* Dynamic Helper Values for Live Render */}
                           {(() => {
-                            const activePresetKey = siteConfig.themePreset || "duolingo-playful";
-                            const presetDefaults = THEME_PRESETS[activePresetKey] || THEME_PRESETS["duolingo-playful"];
-
-                            const pPrimary = siteConfig.primaryColor || presetDefaults.primary;
-                            const pAccent = siteConfig.accentColor || presetDefaults.accent;
-
-                            const darkHex = (hex: string, pct = 22) => {
-                              let num = parseInt(hex.replace("#", ""), 16);
-                              if (isNaN(num)) return hex;
-                              let r = Math.max(0, (num >> 16) - Math.round(255 * (pct / 100)));
-                              let g = Math.max(0, ((num >> 8) & 0x00ff) - Math.round(255 * (pct / 100)));
-                              let b = Math.max(0, (num & 0x0000ff) - Math.round(255 * (pct / 100)));
-                              return `#${(g | (b << 8) | (r << 16)).toString(16).padStart(6, "0")}`;
-                            };
-
-                            const pPrimaryShadow = darkHex(pPrimary, 22);
-                            const pAccentShadow = darkHex(pAccent, 22);
+                            const activePresetKey = (siteConfig.themePreset || "hut12-light") as ThemePreset;
+                            const presetDefaults = HUT12_PRESETS[activePresetKey] || HUT12_PRESETS["hut12-light"];
+                            const pPrimary = presetDefaults.primary;
+                            const pAccent = presetDefaults.accent;
+                            const pPrimaryShadow = presetDefaults.primaryShadow;
+                            const pAccentShadow = presetDefaults.accentShadow;
                             const pCardBg = presetDefaults.cardBg;
                             const pCardBorder = presetDefaults.cardBorder;
                             const pBg = presetDefaults.bg;
-                            const pText = siteConfig.textColor || presetDefaults.textColor;
-                            const radiusMap: Record<string, string> = {
-                              'rounded-xl': '0.75rem',
-                              'rounded-2xl': '1.25rem',
-                              'rounded-3xl': '1.75rem'
-                            };
-                            const pRadius = radiusMap[siteConfig.borderRadius || 'rounded-2xl'] || '1.25rem';
-
-                            // 1. Live Card Style & Shadows
-                            const cStyle = siteConfig.cardStyle || 'playful-3d';
+                            const pText = presetDefaults.textColor || "#1c1917";
+                            const pRadius = "1.25rem";
+                            const cStyle = migrateCardStyle(siteConfig.cardStyle);
                             let cardBgStyle = pCardBg;
                             let cardBorderStyle = pCardBorder;
-                            let cardShadowStyle = `0 5px 0 ${presetDefaults.cardShadow || pCardBorder}`;
-                            let backdropBlurStyle: string | undefined = undefined;
-
-                            if (cStyle === 'glass') {
-                              cardBgStyle = presetDefaults.isDark ? 'rgba(21, 21, 42, 0.85)' : 'rgba(255, 255, 255, 0.82)';
-                              cardBorderStyle = presetDefaults.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(15, 23, 42, 0.12)';
-                              cardShadowStyle = '0 8px 32px 0 rgba(0, 0, 0, 0.18)';
-                              backdropBlurStyle = 'blur(16px)';
-                            } else if (cStyle === 'solid') {
-                              cardBgStyle = pCardBg;
-                              cardBorderStyle = pCardBorder;
-                              cardShadowStyle = '0 2px 8px 0 rgba(0, 0, 0, 0.08)';
-                            } else if (cStyle === 'neo-brutalist') {
-                              cardBgStyle = pCardBg;
-                              cardBorderStyle = pCardBorder;
-                              cardShadowStyle = `4px 4px 0 ${pCardBorder}`;
-                            } else if (cStyle === 'chunky-border') {
-                              cardBgStyle = pCardBg;
-                              cardBorderStyle = pCardBorder;
-                              cardShadowStyle = '0 2px 6px rgba(0, 0, 0, 0.08)';
-                            } else { // playful-3d
-                              cardBgStyle = pCardBg;
-                              cardBorderStyle = pCardBorder;
-                              cardShadowStyle = `0 5px 0 ${presetDefaults.cardShadow || pCardBorder}`;
+                            let cardShadowStyle = cStyle === "glass" ? "0 8px 32px 0 rgba(0,0,0,0.18)" : "0 2px 8px 0 rgba(0,0,0,0.08)";
+                            let backdropBlurStyle: string | undefined = cStyle === "glass" ? "blur(16px)" : undefined;
+                            if (cStyle === "glass") {
+                              cardBgStyle = presetDefaults.isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.82)";
+                              cardBorderStyle = presetDefaults.isDark ? "rgba(255,255,255,0.10)" : "rgba(15, 23, 42, 0.12)";
                             }
-
-                            // 2. Live Base Text Size Scale
-                            const fScale = siteConfig.fontSizeScale || 'md';
-                            const fontBasePxMap: Record<string, string> = {
-                              sm: '13px',
-                              md: '15px',
-                              lg: '17px',
-                              xl: '19px'
-                            };
-                            const pFontSize = fontBasePxMap[fScale] || '15px';
-
+                            const pFontSize = "15px";
                             return (
                               <div
-                                className={`theme-card p-5 space-y-4 relative transition-all overflow-hidden ${siteConfig.borderRadius || 'rounded-2xl'}`}
+                                className="theme-card p-5 space-y-4 relative transition-all overflow-hidden rounded-2xl"
                                 data-card-style={cStyle}
-                                style={{
-                                  backgroundColor: cardBgStyle,
-                                  borderColor: cardBorderStyle,
-                                  borderWidth: cStyle === 'chunky-border' ? '4px' : cStyle === 'neo-brutalist' ? '3px' : cStyle === 'playful-3d' ? '2px' : '1px',
-                                  borderStyle: cStyle === 'chunky-border' ? 'double' : 'solid',
-                                  boxShadow: cardShadowStyle,
-                                  backdropFilter: backdropBlurStyle,
-                                  WebkitBackdropFilter: backdropBlurStyle,
-                                  color: pText,
-                                  borderRadius: pRadius,
-                                  fontSize: pFontSize,
-                                  fontFamily: siteConfig.fontFamily ? `'${siteConfig.fontFamily}', sans-serif` : 'Fredoka, sans-serif',
-                                  backgroundImage: siteConfig.dashboardBgImage ? `linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.4)), url('${siteConfig.dashboardBgImage}')` : undefined,
-                                  backgroundSize: 'cover',
-                                  backgroundPosition: 'center',
-                                } as React.CSSProperties}
+                                style={
+                                  {
+                                    backgroundColor: cardBgStyle,
+                                    borderColor: cardBorderStyle,
+                                    borderWidth: "1px",
+                                    borderStyle: "solid",
+                                    boxShadow: cardShadowStyle,
+                                    backdropFilter: backdropBlurStyle,
+                                    WebkitBackdropFilter: backdropBlurStyle,
+                                    color: pText,
+                                    borderRadius: pRadius,
+                                    fontSize: pFontSize,
+                                    fontFamily: "'Sora', sans-serif",
+                                    backgroundImage: siteConfig.dashboardBgImage ? `linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.4)), url('${siteConfig.dashboardBgImage}')` : undefined,
+                                    backgroundSize: "cover",
+                                    backgroundPosition: "center",
+                                  } as React.CSSProperties
+                                }
                               >
-                                {/* Top row badge & title */}
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2.5">
-                                    <div
-                                      className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-sm transition-colors shrink-0"
-                                      style={{ backgroundColor: `${pPrimary}25` }}
-                                    >
+                                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-sm shrink-0" style={{ backgroundColor: `${pPrimary}25` }}>
                                       ⚡
                                     </div>
                                     <div>
@@ -3026,83 +2954,39 @@ export default function AdminView() {
                                         {siteConfig.brandName || "System"}
                                       </h5>
                                       <p className="text-[11px] opacity-70" style={{ color: pText }}>
-                                        {siteConfig.fontFamily || "Fredoka"} · {cStyle}
+                                        Sora · {cStyle}
                                       </p>
                                     </div>
                                   </div>
                                   <span
-                                    className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white transition-all shrink-0"
-                                    style={{
-                                      backgroundColor: pAccent,
-                                      borderRadius: pRadius,
-                                      boxShadow: `0 2px 0 ${pAccentShadow}`
-                                    }}
+                                    className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shrink-0"
+                                    style={{ backgroundColor: pAccent, borderRadius: pRadius, boxShadow: `0 2px 0 ${pAccentShadow}` }}
                                   >
                                     Live
                                   </span>
                                 </div>
-
-                                {/* Interactive Progress Bar */}
                                 <div className="space-y-1.5">
                                   <div className="flex justify-between text-xs font-bold">
-                                    {/* <span style={{ color: pText }}>Activity Meter</span> */}
                                     <span style={{ color: pPrimary }}>85%</span>
                                   </div>
-                                  <div
-                                    className="w-full h-2.5 rounded-full overflow-hidden p-0.5 border transition-all"
-                                    style={{ backgroundColor: pBg, borderColor: pCardBorder }}
-                                  >
-                                    <div
-                                      className="h-full rounded-full transition-all duration-300 shadow-sm"
-                                      style={{
-                                        width: '85%',
-                                        backgroundColor: pPrimary,
-                                        boxShadow: `0 2px 0 ${pPrimaryShadow}`
-                                      }}
-                                    />
+                                  <div className="w-full h-2.5 rounded-full overflow-hidden p-0.5 border" style={{ backgroundColor: pBg, borderColor: pCardBorder }}>
+                                    <div className="h-full rounded-full transition-all duration-300 shadow-sm" style={{ width: "85%", backgroundColor: pPrimary, boxShadow: `0 2px 0 ${pPrimaryShadow}` }} />
                                   </div>
                                 </div>
-
-                                {/* Sample Control Input */}
                                 <div className="space-y-1">
                                   <input
                                     type="text"
                                     readOnly
                                     value={`Active Preset: ${activePresetKey}`}
-                                    style={{
-                                      backgroundColor: pBg,
-                                      borderColor: pCardBorder,
-                                      color: pText,
-                                      borderRadius: pRadius
-                                    }}
+                                    style={{ backgroundColor: pBg, borderColor: pCardBorder, color: pText, borderRadius: pRadius }}
                                     className="w-full border px-3 py-1.5 text-xs outline-none font-mono transition-all"
                                   />
                                 </div>
-
-                                {/* Dynamic Action Buttons Grid */}
-                                <div className="grid grid-cols-2 gap-2.5 pt-1" data-button-style={siteConfig.buttonStyle || "playful-3d"}>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      backgroundColor: (siteConfig.buttonStyle || 'playful-3d') === 'pill-gradient' ? undefined : pPrimary,
-                                      boxShadow: (siteConfig.buttonStyle || 'playful-3d') === 'playful-3d' ? `0 3px 0 ${pPrimaryShadow}` : undefined,
-                                      borderRadius: pRadius,
-                                      color: '#ffffff'
-                                    }}
-                                    className="btn-3d-primary py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                                  >
+                                <div className="grid grid-cols-2 gap-2.5 pt-1" data-button-style="pill-gradient">
+                                  <button type="button" style={{ borderRadius: pRadius, color: "#ffffff" }} className="btn-3d-primary py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all">
                                     <span>Primary Action</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      backgroundColor: (siteConfig.buttonStyle || 'playful-3d') === 'pill-gradient' ? undefined : pAccent,
-                                      boxShadow: (siteConfig.buttonStyle || 'playful-3d') === 'playful-3d' ? `0 3px 0 ${pAccentShadow}` : undefined,
-                                      borderRadius: pRadius,
-                                      color: '#ffffff'
-                                    }}
-                                    className="btn-3d-accent py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                                  >
+                                  <button type="button" style={{ borderRadius: pRadius, color: "#ffffff" }} className="btn-3d-accent py-2 px-3 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all">
                                     <span>Secondary</span>
                                   </button>
                                 </div>
@@ -3110,17 +2994,17 @@ export default function AdminView() {
                             );
                           })()}
                         </div>
-
                       </div>
                     </div>
                   )}
 
                   {/* SUBTAB: REWARDS */}
+
                   {configSubTab === "rewards" && false && (
                     <div className="flex flex-col md:flex-row md:gap-12 py-4">
                       <div className="md:w-1/3 mb-6 md:mb-0 shrink-0">
                         <h3 className="text-sm font-extrabold text-[var(--theme-text)]">Rewards & Referral</h3>
-                        <p className="text-xs text-[var(--theme-text)] opacity-70 mt-2 leading-relaxed">Define welcome bonuses, four referral commission levels, and the admin-backed VIP taskboard.</p>
+                        <p className="text-xs text-[var(--theme-text)] opacity-70 mt-2 leading-relaxed">Define welcome bonuses, four referral commission levels, and the admin-backed milestone board.</p>
                       </div>
                       <div className="md:w-2/3 max-w-3xl space-y-8">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-6">
@@ -3209,7 +3093,7 @@ export default function AdminView() {
                           ) : (
                             <div className="space-y-2">
                               {getVipTasks().map((task) => (
-                                <div key={task.id} className="rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] p-3 flex items-center gap-3">
+                                <div key={task.id} className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 flex items-center gap-3">
                                   <div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]">{task.category}</span><span className="text-sm font-bold truncate">{task.title}</span></div><p className="text-[11px] opacity-60 mt-1">Unlock at {formatCurrency(task.requiredBonus)} · Reward {formatCurrency(task.reward)}</p></div>
                                   <button type="button" onClick={() => handleToggleVipTask(task.id)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-full border cursor-pointer ${task.active === false ? "opacity-50 border-[var(--theme-card-border)]" : "text-emerald-500 border-emerald-500/30 bg-emerald-500/10"}`}>{task.active === false ? "INACTIVE" : "ACTIVE"}</button>
                                   <button type="button" onClick={() => handleRemoveVipTask(task.id)} aria-label={`Remove ${task.title}`} className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
@@ -3279,7 +3163,7 @@ export default function AdminView() {
                         ) : (
                           <div className="space-y-2">
                             {getVipTasks().map((task) => (
-                              <div key={task.id} className="rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] p-3 flex items-center gap-3">
+                              <div key={task.id} className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 flex items-center gap-3">
                                 <div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]">{task.category}</span><span className="text-sm font-bold truncate">{task.title}</span></div><p className="text-[11px] opacity-60 mt-1">Unlock at {formatCurrency(task.requiredBonus)} · Reward {formatCurrency(task.reward)}</p></div>
                                 <button type="button" onClick={() => handleToggleVipTask(task.id)} className={`text-[10px] font-black px-2.5 py-1.5 rounded-full border cursor-pointer ${task.active === false ? "opacity-50 border-[var(--theme-card-border)]" : "text-emerald-500 border-emerald-500/30 bg-emerald-500/10"}`}>{task.active === false ? "INACTIVE" : "ACTIVE"}</button>
                                 <button type="button" onClick={() => handleRemoveVipTask(task.id)} aria-label={`Remove ${task.title}`} className="p-2 rounded-lg text-rose-500 hover:bg-rose-500/10 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
@@ -3297,13 +3181,13 @@ export default function AdminView() {
                         <div className="flex items-center gap-2">
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--theme-radius)] bg-[var(--theme-primary)]/12 text-[var(--theme-primary)]"><Tags className="w-4 h-4" /></span>
                           <div>
-                            <h3 className="text-base font-extrabold text-[var(--theme-text)]">VIP taskboard</h3>
-                            <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Tasks unlock from the user's server-calculated credited referral income across Levels 1–4.</p>
+                            <h3 className="text-base font-extrabold text-[var(--theme-text)]">Milestone board</h3>
+                            <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Tasks unlock from the user's server-calculated operator lifetime points.</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <button type="button" onClick={() => setIsVipCategoryModalOpen(true)} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage categories</button>
-                          <button type="button" onClick={() => { setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(getVipTaskCategories()[0] || ""); setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create VIP task</button>
+                          <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage tiers</button>
+                          <button type="button" onClick={() => { setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(getVipTaskCategories()[0] || ""); setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create milestone</button>
                         </div>
                       </div>
 
@@ -3314,22 +3198,44 @@ export default function AdminView() {
                               <tr className="bg-[var(--theme-bg)] border-b border-[var(--theme-card-border)]">
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65">Task</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65">Category</th>
-                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right"></th>
-                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Reward</th>
+                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Need</th>
+                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Tier reward</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-center">Users</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-center">Status</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[var(--theme-card-border)]/40">
-                              {getVipTasks().map((task) => {
-                                const claimedUsers = usersList.filter((user) => (user.claimedVipTasks || []).includes(task.id)).length;
+                              {(() => {
+                                const groups: string[] = [];
+                                for (const t of getVipTasks()) {
+                                  if (!groups.includes(t.category)) groups.push(t.category);
+                                }
+                                return groups.map((group) => {
+                                  const rows = getVipTasks().filter((t) => t.category === group);
+                                  const meta = getVipTierMeta()[group] || {};
+                                  return (
+                                    <React.Fragment key={group}>
+                                      <tr className="bg-[var(--theme-bg)]/60">
+                                        <td colSpan={7} className="px-4 py-2.5">
+                                          <div className="flex items-center gap-2.5 flex-wrap">
+                                            <span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{group}</span>
+                                            <span className="text-[11px] font-bold text-[var(--theme-primary)]">+{formatCurrency(tierRewardFor(getVipTierRewards(), group))}</span>
+                                            {meta.description && <span className="text-[11px] opacity-55">{meta.description}</span>}
+                                            <span className="text-[10px] opacity-45 font-bold ml-auto">{rows.length} task{rows.length === 1 ? "" : "s"}</span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      {rows.map((task) => {
+                                        const claimedUsers = usersList.filter((user) => ((user as any).claimedTierRewards || []).includes(task.category)).length;
+                                        const needMeta = metricMeta(task.metric);
+                                        const needText = needMeta.isMoney ? formatCurrency(task.requiredBonus) : `${Number(task.requiredBonus || 0).toLocaleString()}${needMeta.unit ? ` ${needMeta.unit}` : ""}`;
                                 return (
                                   <tr key={task.id} className="hover:bg-[var(--theme-bg)]/45 transition-colors">
-                                    <td className="px-4 py-4 min-w-[220px]"><div className="font-bold text-[var(--theme-text)]">{task.title}</div><div className="text-[11px] opacity-55 mt-1 max-w-[290px] truncate">{task.description || "No description"}</div></td>
-                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span></td>
-                                    <td className="px-4 py-4 text-right font-bold">{formatCurrency(task.requiredBonus)}</td>
-                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">+{formatCurrency(task.reward)}</td>
+                                    <td className="px-4 py-4 min-w-[220px]"><div className="flex items-center gap-2.5"><div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">{task.imageUrl ? <img src={fixGitHubImageUrl(task.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">{task.title.charAt(0).toUpperCase()}</span>}</div><div className="min-w-0"><div className="font-bold text-[var(--theme-text)] truncate">{task.title}</div><div className="text-[11px] opacity-55 mt-1 max-w-[290px] truncate">{task.description || "No description"}</div></div></div></td>
+                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{needMeta.source}</div></td>
+                                    <td className="px-4 py-4 text-right font-bold">{needText}</td>
+                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">+{formatCurrency(tierRewardFor(getVipTierRewards(), task.category))}</td>
                                     <td className="px-4 py-4 text-center font-bold">{claimedUsers}</td>
                                     <td className="px-4 py-4 text-center"><button type="button" onClick={() => void handleToggleVipTask(task.id)} className={`rounded-full border px-2.5 py-1 text-[10px] font-black cursor-pointer ${task.active === false ? "border-[var(--theme-card-border)] opacity-55" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"}`}>{task.active === false ? "INACTIVE" : "ACTIVE"}</button></td>
                                     <td className="px-4 py-4 text-right">
@@ -3361,10 +3267,14 @@ export default function AdminView() {
                                   </tr>
                                 );
                               })}
-                            </tbody>
+                            </React.Fragment>
+                          );
+                        })
+                      })()}
+                    </tbody>
                           </table>
                         </div>
-                        {getVipTasks().length === 0 && <div className="p-10 text-center text-xs opacity-60">No VIP tasks published. Create one to make it available to users.</div>}
+                        {getVipTasks().length === 0 && <div className="p-10 text-center text-xs opacity-60">No milestones published. Create one to make it available to users.</div>}
                       </div>
                     </div>
                   )}
@@ -3388,7 +3298,7 @@ export default function AdminView() {
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsVipTaskModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
                     <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-lg theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
                       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]">
-                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit VIP task" : "Create VIP task"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the reward, category, or referral-income threshold." : "Publish a reward that unlocks from credited Levels 1–4 referral income."}</p></div>
+                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit milestone" : "Create milestone"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the category, art, metric, or requirement." : "Publish a progress achievement inside a journey stage."}</p></div>
                         <button type="button" onClick={() => setIsVipTaskModalOpen(false)} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
                       </div>
                       <form onSubmit={(event) => { event.preventDefault(); void handleAddVipTask(); }} className="p-5 space-y-4">
@@ -3396,13 +3306,13 @@ export default function AdminView() {
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Task title
                             <input type="text" required value={vipTaskTitle} onChange={(event) => setVipTaskTitle(event.target.value)} placeholder="e.g. Bronze bonus run" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                           </label>
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">VIP category
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Milestone tier
                             <div className="flex gap-2 mt-1.5">
                               <select required value={vipTaskCategory} onChange={(event) => setVipTaskCategory(event.target.value)} className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm">
                                 <option value="" disabled>Select category</option>
                                 {getVipTaskCategories().map((category) => <option key={category} value={category}>{category}</option>)}
                               </select>
-                              <button type="button" onClick={() => setIsVipCategoryModalOpen(true)} className="btn-3d-secondary px-2.5 cursor-pointer" title="Create category"><Plus className="w-4 h-4" /></button>
+                              <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-2.5 cursor-pointer" title="Create category"><Plus className="w-4 h-4" /></button>
                             </div>
                           </label>
                         </div>
@@ -3410,11 +3320,49 @@ export default function AdminView() {
                           <textarea value={vipTaskDescription} onChange={(event) => setVipTaskDescription(event.target.value)} placeholder="Explain what this reward unlocks." rows={3} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 resize-none" />
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Referral target ({currency})
-                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder="500000" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Unlocks from
+                            <select value={vipTaskMetric} onChange={(event) => setVipTaskMetric(event.target.value)} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
+                              <option value="operator_points">Operator lifetime points</option>
+                              <option value="runs_started">Runs started</option>
+                              <option value="active_runs">Active runs</option>
+                              <option value="completed_runs">Completed runs</option>
+                              <option value="streak_days">Check-in streak (days)</option>
+                              <option value="lifetime_yield">Lifetime run yield ({currency})</option>
+                              <option value="invites_count">Invites (count)</option>
+                              <option value="milestones_claimed">Milestones claimed (count)</option>
+                              <option value="account_created">Account created (auto)</option>
+                            </select>
                           </label>
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Reward ({currency})
-                            <input type="text" inputMode="numeric" required value={vipTaskReward || ""} onChange={(event) => setVipTaskReward(Number(event.target.value) || 0)} placeholder="50000" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
+                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          </label>
+                        </div>
+                        <div className="space-y-1.5">
+                          <span className="text-xs font-bold uppercase tracking-wider opacity-75 block">Milestone art</span>
+                          <div className="flex gap-3 items-center">
+                            <input
+                              type="text"
+                              value={vipTaskImageUrl}
+                              onChange={(event) => setVipTaskImageUrl(event.target.value)}
+                              placeholder="https://… or /uploads/…"
+                              className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm font-mono"
+                            />
+                            <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
+                              {vipTaskImageUrl ? (
+                                <img src={fixGitHubImageUrl(vipTaskImageUrl)} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-[10px] text-slate-400">N/A</span>
+                              )}
+                            </div>
+                          </div>
+                          <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] transition-all active:scale-[0.97] w-fit cursor-pointer hover:border-[var(--theme-primary)]`}>
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={handleVipTaskImageFile}
+                            />
+                            Upload from disk (max 2 MB)
                           </label>
                         </div>
                         <div className="flex justify-end gap-2 pt-2">
@@ -3430,12 +3378,52 @@ export default function AdminView() {
               <AnimatePresence>
                 {isVipCategoryModalOpen && (
                   <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsVipCategoryModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
-                    <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-md theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
-                      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]"><div><h3 className="text-base font-black">VIP categories</h3><p className="text-xs opacity-60 mt-1">Create reusable labels for task tiers.</p></div><button type="button" onClick={() => setIsVipCategoryModalOpen(false)} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button></div>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeTierEditor} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
+                    <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-lg theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
+                      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]"><div><h3 className="text-base font-black">Milestone tiers</h3><p className="text-xs opacity-60 mt-1">Stages unlock in order. Edit names, rewards, descriptions, and art — then save once.</p></div><button type="button" onClick={closeTierEditor} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button></div>
                       <div className="p-5 space-y-4">
-                        <div className="flex gap-2"><input type="text" value={newVipCategory} onChange={(event) => setNewVipCategory(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void handleAddVipCategory(); } }} placeholder="e.g. Bronze" className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm" /><button type="button" onClick={() => void handleAddVipCategory()} disabled={isLoading} className="btn-3d-primary text-white px-3.5 text-xs font-black cursor-pointer disabled:opacity-50"><Plus className="w-4 h-4" /></button></div>
-                        <div className="space-y-2 max-h-56 overflow-y-auto">{getVipTaskCategories().length === 0 ? <p className="text-xs opacity-60 text-center py-5">No categories yet. Add your first tier above.</p> : getVipTaskCategories().map((category) => <div key={category} className="flex items-center justify-between gap-3 rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] px-3 py-2.5"><span className="text-sm font-bold">{category}</span><button type="button" onClick={() => void handleRemoveVipCategory(category)} className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button></div>)}</div>
+                        <div className="flex gap-2"><input type="text" value={newVipCategory} onChange={(event) => setNewVipCategory(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addTierDraft(); } }} placeholder="e.g. Bronze" className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm" /><input type="text" inputMode="numeric" value={newVipTierReward || ""} onChange={(event) => setNewVipTierReward(Number(event.target.value) || 0)} placeholder={`Reward (${currency})`} title="Stage reward" className="theme-input w-28 px-3 py-2.5 text-sm" /><button type="button" onClick={addTierDraft} disabled={isLoading} className="btn-3d-primary text-white px-3.5 text-xs font-black cursor-pointer disabled:opacity-50"><Plus className="w-4 h-4" /></button></div>
+                        <div className="space-y-3 max-h-[60vh] overflow-y-auto">{(tierDrafts || []).length === 0 ? <p className="text-xs opacity-60 text-center py-5">No tiers yet. Add your first tier above.</p> : (tierDrafts || []).map((draft, idx) => {
+                          const taskCount = getVipTasks().filter((t) => t.category === draft.name.trim() || (draft.key && t.category === draft.key)).length;
+                          const claimedCount = usersList.filter((u) => (((u as any).claimedTierRewards || []) as string[]).includes(draft.key || draft.name.trim())).length;
+                          return (
+                            <div key={`${draft.key || "new"}-${idx}`} className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-black opacity-40 shrink-0">{idx + 1}.</span>
+                                <input type="text" value={draft.name} onChange={(event) => patchTierDraft(idx, { name: event.target.value })} placeholder="Tier name" className="theme-input min-w-0 flex-1 px-2.5 py-2 text-sm font-black" />
+                                <span className="flex items-center gap-2 shrink-0">
+                                  {taskCount === 0 && <span className="text-[10px] font-black uppercase text-amber-500">No tasks</span>}
+                                  <span className="text-[10px] font-bold opacity-50">{taskCount} task{taskCount === 1 ? "" : "s"}</span>
+                                  {claimedCount > 0 && <span className="text-[10px] font-bold opacity-50">{claimedCount} claimed</span>}
+                                  <button type="button" onClick={() => removeTierDraft(idx)} className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="text-[11px] font-bold uppercase tracking-wider opacity-75">Reward ({currency})
+                                  <input type="text" inputMode="numeric" value={draft.reward} onChange={(event) => patchTierDraft(idx, { reward: event.target.value })} placeholder="19000" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
+                                </label>
+                                <div className="text-[11px] font-bold uppercase tracking-wider opacity-75">Stage art
+                                  <div className="flex gap-2 items-center mt-1">
+                                    <div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
+                                      {draft.imageUrl ? <img src={fixGitHubImageUrl(draft.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">N/A</span>}
+                                    </div>
+                                    <label className="theme-input flex-1 px-2.5 py-2 text-[11px] font-bold text-center cursor-pointer hover:border-[var(--theme-primary)]">Upload<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { void handleTierDraftImageFile(idx, event.target.files?.[0]); event.target.value = ""; }} /></label>
+                                  </div>
+                                </div>
+                              </div>
+                              <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Description
+                                <input type="text" value={draft.description} maxLength={220} onChange={(event) => patchTierDraft(idx, { description: event.target.value })} placeholder="e.g. Getting started" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
+                              </label>
+                              <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Art URL
+                                <input type="text" value={draft.imageUrl} onChange={(event) => patchTierDraft(idx, { imageUrl: event.target.value })} placeholder="https://… or /uploads/…" className="theme-input w-full px-2.5 py-2 text-sm mt-1 font-mono" />
+                              </label>
+                            </div>
+                          );
+                        })}</div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button type="button" onClick={closeTierEditor} className="btn-3d-secondary px-5 py-2.5 text-xs font-black cursor-pointer">Cancel</button>
+                          <button type="button" onClick={() => void handleSaveTiers()} disabled={savingTiers || isLoading} className="btn-3d-primary text-white px-5 py-2.5 text-xs font-black cursor-pointer disabled:opacity-50 flex items-center gap-2">{savingTiers ? "Saving…" : "Save Tiers"}</button>
+                        </div>
                       </div>
                     </motion.div>
                   </div>
@@ -3497,7 +3485,7 @@ export default function AdminView() {
                                 <div className="absolute -top-[1px] left-4 h-[3px] w-12 bg-amber-500 rounded-b-md shadow-sm group-hover:bg-amber-400 transition-colors" />
                                 
                                 <div className="flex justify-between items-start">
-                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] group-hover:border-[var(--theme-primary)] transition-colors">
+                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] group-hover:border-[var(--theme-primary)] transition-colors">
                                     <Gift className={`w-4 h-4 ${isActive ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text)] opacity-40'}`} />
                                   </div>
                                   <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
@@ -3547,7 +3535,7 @@ export default function AdminView() {
                               {/* Header */}
                               <div className="flex justify-between items-start mb-6">
                                 <div className="flex items-center gap-2.5">
-                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] text-[var(--theme-primary)]">
+                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-primary)]">
                                     <Gift className="w-5 h-5" />
                                   </div>
                                   <div>
@@ -3576,7 +3564,7 @@ export default function AdminView() {
                                     placeholder="e.g. SPECIAL777"
                                     required
                                     disabled={isCreatingGiftCode}
-                                    className="w-full bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors uppercase font-mono"
+                                    className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors uppercase font-mono"
                                   />
                                 </div>
 
@@ -3591,7 +3579,7 @@ export default function AdminView() {
                                       min={1}
                                       required
                                       disabled={isCreatingGiftCode}
-                                      className="w-full bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                                      className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
                                     />
                                   </div>
                                   <div>
@@ -3604,7 +3592,7 @@ export default function AdminView() {
                                       min={1}
                                       required
                                       disabled={isCreatingGiftCode}
-                                      className="w-full bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                                      className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
                                     />
                                   </div>
                                 </div>
@@ -3620,7 +3608,7 @@ export default function AdminView() {
                                     onChange={(e) => setNewGiftCodeExpiryDateTime(e.target.value)}
                                     required
                                     disabled={isCreatingGiftCode}
-                                    className="w-full bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                                    className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
                                   />
                                 </div>
 
@@ -3681,7 +3669,7 @@ export default function AdminView() {
                               {/* Header */}
                               <div className="flex justify-between items-start mb-5">
                                 <div className="flex items-center gap-2.5">
-                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)] text-[var(--theme-primary)]">
+                                  <div className="p-2 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-primary)]">
                                     <Folder className="w-5 h-5 fill-[var(--theme-primary)]/10" />
                                   </div>
                                   <div>
@@ -3703,7 +3691,7 @@ export default function AdminView() {
                               {/* Inner Content */}
                               <div className="space-y-4">
                                 {/* Code Copy Row */}
-                                <div className="flex items-center justify-between p-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-[var(--theme-card-border)]/55">
+                                <div className="flex items-center justify-between p-2.5 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)]/55">
                                   <span className="text-xs font-mono font-bold text-[var(--theme-text)] pl-1">{selectedGiftCode.code}</span>
                                   <button
                                     type="button"
@@ -3720,11 +3708,11 @@ export default function AdminView() {
 
                                 {/* Information stats list */}
                                 <div className="grid grid-cols-2 gap-3">
-                                  <div className="p-3 bg-[var(--theme-bg)] border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)]">
+                                  <div className="p-3 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)]">
                                     <span className="text-[12px] text-[var(--theme-text)] opacity-60 block mb-0.5">Bonus Amount</span>
                                     <span className="text-sm font-bold text-[var(--theme-text)]">{formatCurrency(selectedGiftCode.amount)}</span>
                                   </div>
-                                  <div className="p-3 bg-[var(--theme-bg)] border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)]">
+                                  <div className="p-3 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)]">
                                     <span className="text-[12px] text-[var(--theme-text)] opacity-60 block mb-0.5">Folder Status</span>
                                     <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 uppercase ${
                                       selectedGiftCode.status === 'active' && new Date(selectedGiftCode.expiryDate).getTime() > Date.now()
@@ -3745,7 +3733,7 @@ export default function AdminView() {
                                 </div>
 
                                 {/* Claims progress bar */}
-                                <div className="p-3.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)] space-y-2">
+                                <div className="p-3.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)]/30 rounded-[var(--theme-radius)] space-y-2">
                                   <div className="flex justify-between items-center text-xs">
                                     <span className="text-[var(--theme-text)] opacity-70 font-medium">Claims Redeemed</span>
                                     <span className="font-mono font-semibold text-[var(--theme-text)]">
@@ -4279,15 +4267,15 @@ export default function AdminView() {
                 <form id="ann-form" onSubmit={handleSaveAnnouncement} className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Title</label>
-                    <input type="text" required value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="e.g. System Maintenance" />
+                    <input type="text" required value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="e.g. System Maintenance" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Message</label>
-                    <textarea required value={annMessage} onChange={(e) => setAnnMessage(e.target.value)} rows={4} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors resize-none" placeholder="Details of the announcement..." />
+                    <textarea required value={annMessage} onChange={(e) => setAnnMessage(e.target.value)} rows={4} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors resize-none" placeholder="Details of the announcement..." />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Category</label>
-                    <select value={annCategory} onChange={(e) => setAnnCategory(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors">
+                    <select value={annCategory} onChange={(e) => setAnnCategory(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors">
                       <option value="announcement">Announcement (Alerts)</option>
                       <option value="news">News (Dashboard Carousel)</option>
                     </select>
@@ -4296,11 +4284,11 @@ export default function AdminView() {
                     <>
                       <div className="space-y-1.5">
                         <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Image URL (For News)</label>
-                        <input type="url" value={annImageUrl} onChange={(e) => setAnnImageUrl(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="https://images.unsplash.com/..." />
+                        <input type="url" value={annImageUrl} onChange={(e) => setAnnImageUrl(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="https://images.unsplash.com/..." />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Tag (For News)</label>
-                        <input type="text" value={annTag} onChange={(e) => setAnnTag(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="e.g. GRID OPTIMIZATION" />
+                        <input type="text" value={annTag} onChange={(e) => setAnnTag(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="e.g. GRID OPTIMIZATION" />
                       </div>
                       <div className="flex items-center gap-2 pt-1 pb-1">
                         <input
@@ -4318,7 +4306,7 @@ export default function AdminView() {
                   )}
                   <div className="space-y-1.5">
                     <label className="text-xs text-[var(--theme-text)] opacity-80 font-bold uppercase tracking-wider block">Read More URL (optional)</label>
-                    <input type="url" value={annLink} onChange={(e) => setAnnLink(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="https://..." />
+                    <input type="url" value={annLink} onChange={(e) => setAnnLink(e.target.value)} className="w-full px-3.5 py-2.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)] transition-colors" placeholder="https://..." />
                   </div>
                 </form>
               </div>
@@ -4363,7 +4351,7 @@ export default function AdminView() {
                   <div className="flex flex-col sm:flex-row gap-5">
                     {/* Left Column: Image Preview + URL */}
                     <div className="sm:w-1/3 flex flex-col gap-3">
-                      <div className="w-full aspect-square bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] flex items-center justify-center overflow-hidden relative group">
+                      <div className="w-full aspect-square bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] flex items-center justify-center overflow-hidden relative group">
                         {nodeImageUrl ? (
                           <img src={nodeImageUrl} alt="Product Preview" className="w-full h-full object-cover" />
                         ) : (
@@ -4373,7 +4361,7 @@ export default function AdminView() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Image URL</label>
-                        <input type="text" placeholder="https://..." value={nodeImageUrl} onChange={(e) => setNodeImageUrl(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
+                        <input type="text" placeholder="https://..." value={nodeImageUrl} onChange={(e) => setNodeImageUrl(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
                       </div>
                     </div>
 
@@ -4382,11 +4370,11 @@ export default function AdminView() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Product ID</label>
-                          <input type="text" required disabled={!isCreatingNode} value={nodeId} onChange={(e) => setNodeId(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm disabled:opacity-50" />
+                          <input type="text" required disabled={!isCreatingNode} value={nodeId} onChange={(e) => setNodeId(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm disabled:opacity-50" />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Name</label>
-                          <input type="text" required value={nodeName} onChange={(e) => setNodeName(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
+                          <input type="text" required value={nodeName} onChange={(e) => setNodeName(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -4404,7 +4392,7 @@ export default function AdminView() {
                           <select 
                             value={nodeCategory} 
                             onChange={(e) => setNodeCategory(e.target.value)} 
-                            className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]"
+                            className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]"
                           >
                             {Array.from(new Set([
                               ...(siteConfig?.categories || []),
@@ -4417,17 +4405,17 @@ export default function AdminView() {
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Cost</label>
-                          <input type="text" inputMode="numeric" required value={nodeAmount} onChange={(e) => setNodeAmount(parseInt(e.target.value, 10) || 0)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
+                          <input type="text" inputMode="numeric" required value={nodeAmount} onChange={(e) => setNodeAmount(parseInt(e.target.value, 10) || 0)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Daily Profits (%)</label>
-                          <input type="text" inputMode="decimal" required value={nodeDailyProfitPct} onChange={(e) => setNodeDailyProfitPct(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
+                          <input type="text" inputMode="decimal" required value={nodeDailyProfitPct} onChange={(e) => setNodeDailyProfitPct(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Duration (Days)</label>
-                          <input type="text" inputMode="numeric" required value={nodeDuration} onChange={(e) => setNodeDuration(parseInt(e.target.value, 10) || 0)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
+                          <input type="text" inputMode="numeric" required value={nodeDuration} onChange={(e) => setNodeDuration(parseInt(e.target.value, 10) || 0)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm focus:border-[var(--theme-primary)] outline-none" />
                         </div>
                       </div>
                       
@@ -4500,7 +4488,7 @@ export default function AdminView() {
                 <form id="pass-form" onSubmit={handleOverrideUserPassword} className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">New Password</label>
-                    <input type="text" required value={newOverridePassword} onChange={(e) => setNewOverridePassword(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]" placeholder="e.g. 123456" />
+                    <input type="text" required value={newOverridePassword} onChange={(e) => setNewOverridePassword(e.target.value)} className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]" placeholder="e.g. 123456" />
                   </div>
                 </form>
               </div>
@@ -4589,7 +4577,7 @@ export default function AdminView() {
                     placeholder="e.g. GS Series, AS Series, U Series"
                     value={newCategoryInput}
                     onChange={(e) => setNewCategoryInput(e.target.value)}
-                    className="flex-1 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-4 py-2.5 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                    className="flex-1 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-4 py-2.5 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
                   />
                   <button
                     onClick={handleAddCategory}
@@ -4609,7 +4597,7 @@ export default function AdminView() {
                       return (
                         <div
                           key={cat}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-xs font-bold text-[var(--theme-text)] group"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-xs font-bold text-[var(--theme-text)] group"
                         >
                           <span className="font-mono text-[var(--theme-primary)] uppercase">{cat}</span>
                           <button

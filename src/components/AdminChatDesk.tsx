@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useGatedInterval } from "../hooks/useGatedInterval";
+import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, ChatMessage } from "../types";
 import { useCurrency } from "../currency";
 import {
@@ -67,57 +69,42 @@ export default function AdminChatDesk({ usersList }: AdminChatDeskProps) {
   const seenRef = useRef<Record<string, string>>(loadSeen(SEEN_KEY));
   const [, forceSeen] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    const fetchConversations = async () => {
-      try {
-        const res = await fetch("/api/admin/chat/conversations");
-        if (res.ok && active) {
-          const list = (await res.json()) as Conversation[];
-          const sorted = [...list].sort(
-            (a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
-          );
-          setConversations((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
-          setIsLoadingConversations(false);
-        }
-      } catch (err) {
-        console.error("Failed to load active direct conversations:", err);
-      }
-    };
-
-    fetchConversations();
-    const interval = setInterval(fetchConversations, 5000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
+  const fetchConversations = useCallback(async (signal?: AbortSignal) => {
+    const s = signal ?? new AbortController().signal;
+    try {
+      const list = await fetchJsonWithSignal<Conversation[]>("/api/admin/chat/conversations", s);
+      const sorted = [...list].sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime());
+      setConversations((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
+      setIsLoadingConversations(false);
+    } catch (err: unknown) {
+      if ((err as Error)?.name === "AbortError") return;
+      console.error("Failed to load active direct conversations:", err);
+    }
   }, []);
 
+  useEffect(() => { void fetchConversations(); }, [fetchConversations]);
+  useGatedInterval(() => { if (!document.hidden) void fetchConversations(); }, 5000, { enabled: true, visibilityGate: true });
+
+  const fetchMessages = useCallback(async (signal?: AbortSignal) => {
+    const s = signal ?? new AbortController().signal;
+    if (document.hidden) return;
+    try {
+      const list = await fetchJsonWithSignal<ChatMessage[]>(`/api/chat/room/${selectedRoomId}`, s);
+      setMessages((prev) => (sameChatList(prev, list) ? prev : dedupeChat(list)));
+      setIsLoadingMessages(false);
+    } catch (err: unknown) {
+      if ((err as Error)?.name === "AbortError") return;
+      console.error("Failed to fetch chat room messages:", err);
+    }
+  }, [selectedRoomId]);
+
   useEffect(() => {
-    let active = true;
     setIsLoadingMessages(true);
     setReplyTo(null);
+    void fetchMessages();
+  }, [selectedRoomId, fetchMessages]);
 
-    const fetchMessages = async () => {
-      try {
-        const res = await fetch(`/api/chat/room/${selectedRoomId}`);
-        if (res.ok && active) {
-          const list = (await res.json()) as ChatMessage[];
-          setMessages((prev) => (sameChatList(prev, list) ? prev : dedupeChat(list)));
-          setIsLoadingMessages(false);
-        }
-      } catch (err) {
-        console.error("Failed to fetch chat room messages:", err);
-      }
-    };
-
-    fetchMessages();
-    const interval = setInterval(fetchMessages, 5000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [selectedRoomId]);
+  useGatedInterval(() => { void fetchMessages(); }, 5000, { enabled: !!selectedRoomId, visibilityGate: true });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -476,7 +463,7 @@ export default function AdminChatDesk({ usersList }: AdminChatDeskProps) {
             grouped.map((group) => (
               <div key={group.day} className="space-y-1">
                 <div className="text-center">
-                  <span className="inline-block px-3 py-1 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] opacity-70 rounded-full">
+                  <span className="inline-block px-3 py-1 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[11px] font-bold text-[var(--theme-text)] opacity-70 rounded-full">
                     {group.day}
                   </span>
                 </div>

@@ -1,6 +1,6 @@
 export async function readApiJson<T>(response: Response): Promise<T> {
   const body = await response.text();
-  let data: any = null;
+  let data: unknown = null;
 
   try {
     data = body ? JSON.parse(body) : null;
@@ -12,8 +12,14 @@ export async function readApiJson<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || data?.message || `Request failed (HTTP ${response.status}).`);
+    throw new Error((data as { error?: string; message?: string })?.error || (data as { message?: string })?.message || `Request failed (HTTP ${response.status}).`);
   }
 
   return data as T;
+}
+
+export async function fetchJsonWithSignal<T>(url: string, signal: AbortSignal, init?: RequestInit): Promise<T> {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  const res = await fetch(url, { ...init, signal });
+  return readApiJson<T>(res);
 }

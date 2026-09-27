@@ -4,26 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title></title>
-    <script>
-      fetch('/api/config/site')
-        .then(res => res.json())
-        .then(data => {
-          if (data.brandName) document.title = data.brandName;
-          if (data.logoUrl) {
-            let link = document.querySelector("link[rel*='icon']");
-            if (link) {
-              const url = data.logoUrl.trim();
-              const isSvg = url.toLowerCase().includes("<svg") || url.startsWith("<");
-              if (isSvg) {
-                link.href = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(url)));
-              } else {
-                link.href = url;
-              }
-            }
-          }
-        }).catch(e => console.error(e));
-    </script>
+    <title>Loading</title>
     <link rel="manifest" href="/api/manifest.json" />
   </head>
   <body>

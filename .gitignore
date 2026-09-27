@@ -8,3 +8,8 @@ coverage/
 !.env.example
 dist.zip
 node_modules.zip
+.hermes/
+rentdue/scratch/
+.zeta/
+uploads/
+.agents

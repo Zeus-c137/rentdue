@@ -1,0 +1,185 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Shared Run helpers: progress estimates, maturity countdowns, greetings.
+ * Home and Income share this math so both screens agree.
+ */
+import type { SubscribedNode, SubscriptionItem } from "../types";
+
+export interface RunProgress {
+  elapsed: number;
+  total: number;
+  percent: number;
+}
+
+/**
+ * Catalog-aware totals: the live catalog item wins over the purchase-time
+ * snapshot, so admin duration/yield edits apply to running runs on every
+ * screen. Falls back to the node snapshot, then 15 days.
+ */
+export function getRunCatalogMatch(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): SubscriptionItem | undefined {
+  if (!items) return undefined;
+  return items.find((item) => item.id === node.itemId || item.name === node.itemName);
+}
+
+export function getRunTotalDays(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): number {
+  const mapped = getRunCatalogMatch(node, items);
+  return Math.max(1, Math.floor(Number(mapped?.duration ?? node.duration) || 0) || 15);
+}
+
+export function getRunDailyRate(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): number {
+  const mapped = getRunCatalogMatch(node, items);
+  const rate = mapped?.dailyYield !== undefined ? mapped.dailyYield : node.dailyYield;
+  return Number(rate) || 0;
+}
+
+/**
+ * Day-count estimate from credited earnings. Shared by Home and Income so
+ * both screens agree, including after admin duration edits.
+ */
+export function getRunElapsedDays(node: SubscribedNode, items?: SubscriptionItem[]): number {
+  const total = getRunTotalDays(node, items);
+  const daily = getRunDailyRate(node, items);
+  if (daily <= 0) return 1;
+  const earned = Number(node.totalEarned) || 0;
+  return Math.min(total, Math.max(1, Math.floor(earned / daily)));
+}
+
+export function getRunProgress(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): RunProgress {
+  const total = getRunTotalDays(node, items);
+  const elapsed = getRunElapsedDays(node, items);
+  return { elapsed, total, percent: Math.min(100, Math.max(0, (elapsed / total) * 100)) };
+}
+
+/**
+ * One definition of "done" shared by progress bars, pills, and filters:
+ * expired always; otherwise done when the bar itself reads complete
+ * (elapsed >= total) or the status already left active. This keeps the
+ * Completed tab in sync with what the bars show, regardless of whether
+ * the payout cron has flipped the row's status yet.
+ */
+export function getRunState(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): "active" | "done" | "expired" {
+  const status = String(node.status || "").toLowerCase();
+  if (status === "expired") return "expired";
+  if (status !== "active") return "done";
+  const { elapsed, total } = getRunProgress(node, items);
+  return elapsed >= total ? "done" : "active";
+}
+
+export function getRunEndMs(node: SubscribedNode): number | null {
+  const ms = new Date(node.endDate).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Nearest-maturing active run — the Rent Clock target. */
+export function getNextMaturingRun(nodes: SubscribedNode[]): SubscribedNode | null {
+  let best: SubscribedNode | null = null;
+  let bestMs = Infinity;
+  for (const node of nodes) {
+    if (node.status !== "active") continue;
+    const ms = getRunEndMs(node);
+    if (ms === null) continue;
+    if (ms < bestMs) {
+      bestMs = ms;
+      best = node;
+    }
+  }
+  return best;
+}
+
+/** "06D 14:22:08" — days + clock, zero-padded. Clamps at zero. */
+export function formatCountdown(remainingMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${String(days).padStart(2, "0")}D ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/** Ms until the next Africa/Nairobi midnight — the daily-credit heartbeat. */
+export function msToNairobiMidnight(now = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
+  // Nairobi is UTC+3 with no DST: Nairobi midnight starting date D == 21:00
+  // UTC on date D itself (00:00+03:00). Next midnight from date D is 21:00 UTC
+  // on date D — NOT D+1, which overshoots by a full day.
+  const utcMidnight = Date.UTC(
+    Number(get("year")),
+    Number(get("month")) - 1,
+    Number(get("day")),
+    21,
+    0,
+    0
+  );
+  let remaining = utcMidnight - now.getTime();
+  // Exactly at/after midnight UTC artificats: roll to the next one.
+  if (remaining <= 0) remaining += 24 * 3600 * 1000;
+  return remaining;
+}
+
+/** Clock "07:12:44" for the sub-24h daily countdown. */
+export function formatClock(remainingMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/** Compact "12D 04:00:11" for run rows — seconds included so rows visibly tick. */
+export function formatCountdownShort(remainingMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${days}D ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/** Time-of-day greeting on platform time (Africa/Nairobi). */
+export function getDaypartGreeting(now = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Nairobi",
+      hour: "numeric",
+      hour12: false,
+    }).format(now)
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+/** UTC day key — matches dailyCheckin and ProfileView's todayStr. */
+export function getTodayKey(date = new Date()): string {
+  return date.toISOString().split("T")[0];
+}

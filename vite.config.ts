@@ -14,12 +14,15 @@ export default defineConfig(() => {
         injectRegister: 'auto', // We let vite-plugin-pwa handle registration and manifest injection
         manifest: false,
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,woff,woff2}'],
+          globIgnores: ['**/3dicons-*', '**/*.map'],
           cleanupOutdatedCaches: true,
           // prompt mode: new SW must stay waiting so onNeedRefresh fires.
           // skipWaiting:true would activate silently and the banner would never show.
           skipWaiting: false,
           clientsClaim: false,
+          navigateFallbackDenylist: [/^\/api\/.*/],
+          dontCacheBustURLsMatching: /\.\w{8}\./,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
@@ -34,12 +37,12 @@ export default defineConfig(() => {
             },
             {
               urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
-              handler: 'CacheFirst',
+              handler: 'StaleWhileRevalidate',
               options: {
-                cacheName: 'images',
+                cacheName: 'images-lazy',
                 expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
                 }
               }
             },
@@ -65,6 +68,22 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      chunkSizeWarningLimit: 650,
+      cssCodeSplit: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            motion: ['motion'],
+            charts: ['recharts'],
+            shaders: ['@paper-design/shaders', '@paper-design/shaders-react', 'three'],
+            confetti: ['canvas-confetti'],
+            admin: ['xlsx'],
+          },
+        },
+      },
     },
   };
 });

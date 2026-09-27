@@ -1,12 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Lexend:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Outfit:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--theme-font-family), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--theme-font-family), "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--theme-font-family), "Sora", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Slightly increased font sizes for better readability */
   --text-xs: 0.8625rem;
   --text-xs--line-height: 1.125rem;
   --text-sm: 0.9875rem;
@@ -19,59 +18,55 @@
   --text-xl--line-height: 2rem;
 }
 
-/* Dynamic Theme CSS Variables Defaults */
+/* Dynamic Theme CSS Variables Defaults — operator light */
 :root {
-  --theme-font-family: 'Fredoka', 'Plus Jakarta Sans', sans-serif;
+  color-scheme: light dark;
+  --theme-font-family: 'Sora', 'Outfit', sans-serif;
   --theme-font-base: 16px;
-  --theme-primary: #58cc02;
-  --theme-primary-shadow: #46a302;
-  --theme-accent: #ff4b4b;
-  --theme-accent-shadow: #ea2b2b;
-  --theme-bg: #f7f9fa;
-  --theme-card-bg: #ffffff;
-  --theme-card-border: #e5e5e5;
-  --theme-card-shadow: #e5e5e5;
+  --theme-primary: #65A30D;
+  --theme-primary-shadow: #3F6212;
+  --theme-accent: #4D7C0F;
+  --theme-accent-shadow: #365314;
+  --theme-secondary: #84CC16;
+  --theme-secondary-shadow: #4D7C0F;
+  --theme-on-primary: #FFFFFF;
+  --theme-bg: #F7FEE7;
+  --theme-card-bg: rgba(255,255,255,0.9);
+  --theme-card-border: rgba(26,46,5,0.1);
+  --theme-card-shadow: #E3E8CF;
   --theme-radius: 1.25rem;
-  --theme-text: #3c3c3c;
-  --theme-text-muted: #777777;
+  --theme-text: #1A2E05;
+  --theme-text-muted: #5B6B4C;
 }
 
-/* Fix browser autofill yellow/cream background color on input elements */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-textarea:-webkit-autofill,
-select:-webkit-autofill {
-  -webkit-text-fill-color: var(--theme-text) !important;
-  -webkit-box-shadow: 0 0 0px 1000px var(--theme-card-bg) inset !important;
-  box-shadow: 0 0 0px 1000px var(--theme-card-bg) inset !important;
-  transition: background-color 5000s ease-in-out 0s;
-}
+/* (Browser autofill is handled by the single consolidated block below —
+   one rule per context so the cascade can't split text vs background.) */
 
 html {
   font-size: var(--theme-font-base);
 }
 
 body {
-  font-family: var(--theme-font-family), 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--theme-font-family), 'Outfit', sans-serif;
   background-color: var(--theme-bg);
   color: var(--theme-text);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .dark {
-  --theme-bg: #0f172a;
-  --theme-card-bg: #1e293b;
-  --theme-card-border: #334155;
-  --theme-card-shadow: #0f172a;
-  --theme-text: #f8fafc;
-  --theme-text-muted: #94a3b8;
+  --theme-bg: #000000;
+  --theme-card-bg: rgba(255,255,255,0.06);
+  --theme-card-border: rgba(198,255,0,0.14);
+  --theme-card-shadow: #000000;
+  --theme-text: #F7FEE7;
+  --theme-text-muted: #A3B18A;
+  --theme-on-primary: #1A2E05;
 }
 
 /* 3D Extruded & Dynamic Button Controls */
 .btn-3d-primary {
   background-color: var(--theme-primary);
-  color: #ffffff;
+  color: var(--theme-on-primary);
   box-shadow: 0 4px 0 var(--theme-primary-shadow);
   border-radius: var(--theme-radius);
   transition: all 0.15s ease-in-out;
@@ -85,7 +80,7 @@ body {
 
 .btn-3d-accent {
   background-color: var(--theme-accent);
-  color: #ffffff;
+  color: var(--theme-on-primary);
   box-shadow: 0 4px 0 var(--theme-accent-shadow);
   border-radius: var(--theme-radius);
   transition: all 0.15s ease-in-out;
@@ -142,7 +137,7 @@ body {
   box-shadow: 0 1px 0 var(--theme-primary);
 }
 
-/* Button Variations Driven by data-button-style */
+/* Button Variations — single hut12 pill-gradient */
 [data-button-style="pill-gradient"] .btn-3d-primary,
 [data-button-style="pill-gradient"] .theme-btn-primary {
   background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary)) !important;
@@ -174,157 +169,93 @@ body {
   box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.08) !important;
 }
 
-[data-button-style="neo-brutalist"] .btn-3d-primary,
-[data-button-style="neo-brutalist"] .theme-btn-primary {
-  border: 3px solid var(--theme-card-border) !important;
-  box-shadow: 4px 4px 0 var(--theme-card-border) !important;
-  border-radius: var(--theme-radius) !important;
-}
-[data-button-style="neo-brutalist"] .btn-3d-primary:active:not(:disabled),
-[data-button-style="neo-brutalist"] .theme-btn-primary:active:not(:disabled) {
-  transform: translate(2px, 2px) !important;
-  box-shadow: 2px 2px 0 var(--theme-card-border) !important;
-}
-
-[data-button-style="neo-brutalist"] .btn-3d-accent {
-  border: 3px solid var(--theme-card-border) !important;
-  box-shadow: 4px 4px 0 var(--theme-card-border) !important;
-  border-radius: var(--theme-radius) !important;
-}
-[data-button-style="neo-brutalist"] .btn-3d-secondary,
-[data-button-style="neo-brutalist"] .theme-btn-secondary {
-  border: 3px solid var(--theme-card-border) !important;
-  box-shadow: 4px 4px 0 var(--theme-card-border) !important;
-  border-radius: var(--theme-radius) !important;
-}
-
-[data-button-style="glass"] .btn-3d-primary,
-[data-button-style="glass"] .theme-btn-primary {
-  background: var(--theme-primary) !important;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
-  border-radius: var(--theme-radius) !important;
-}
-[data-button-style="glass"] .btn-3d-primary:active:not(:disabled),
-[data-button-style="glass"] .theme-btn-primary:active:not(:disabled) {
-  transform: scale(0.98) !important;
-}
-
-[data-button-style="glass"] .btn-3d-accent {
-  background: var(--theme-accent) !important;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
-  border-radius: var(--theme-radius) !important;
-}
-
-[data-button-style="solid"] .btn-3d-primary,
-[data-button-style="solid"] .theme-btn-primary,
-[data-button-style="minimal-solid"] .btn-3d-primary,
-[data-button-style="minimal-solid"] .theme-btn-primary {
-  border-radius: var(--theme-radius) !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
-  border: none !important;
-}
-[data-button-style="solid"] .btn-3d-primary:hover:not(:disabled),
-[data-button-style="solid"] .theme-btn-primary:hover:not(:disabled),
-[data-button-style="minimal-solid"] .btn-3d-primary:hover:not(:disabled),
-[data-button-style="minimal-solid"] .theme-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16) !important;
-}
-[data-button-style="solid"] .btn-3d-primary:active:not(:disabled),
-[data-button-style="solid"] .theme-btn-primary:active:not(:disabled),
-[data-button-style="minimal-solid"] .btn-3d-primary:active:not(:disabled),
-[data-button-style="minimal-solid"] .theme-btn-primary:active:not(:disabled) {
-  transform: scale(0.98) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-}
-
-[data-button-style="solid"] .btn-3d-accent,
-[data-button-style="minimal-solid"] .btn-3d-accent {
-  border-radius: var(--theme-radius) !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
-  border: none !important;
-}
-[data-button-style="solid"] .btn-3d-accent:active:not(:disabled),
-[data-button-style="minimal-solid"] .btn-3d-accent:active:not(:disabled) {
-  transform: scale(0.98) !important;
-}
-
-[data-button-style="solid"] .btn-3d-secondary,
-[data-button-style="solid"] .theme-btn-secondary,
-[data-button-style="minimal-solid"] .btn-3d-secondary,
-[data-button-style="minimal-solid"] .theme-btn-secondary {
-  border-radius: var(--theme-radius) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
-}
-[data-button-style="solid"] .btn-3d-secondary:active:not(:disabled),
-[data-button-style="minimal-solid"] .btn-3d-secondary:active:not(:disabled) {
-  transform: scale(0.98) !important;
-}
-
-/* Universal Form Input Styling - Respects Preset Color Borders */
+/* Universal Form Input Styling — hut12 light/dark aware + apple frost */
 .theme-input,
 input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
 select,
 textarea {
-  border-color: var(--theme-input-border, var(--theme-card-border));
+  background-color: color-mix(in srgb, var(--theme-card-bg) 92%, var(--theme-bg));
+  border: 1px solid var(--theme-card-border);
+  color: var(--theme-text);
+  border-radius: var(--theme-radius);
 }
-
+.theme-input::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--theme-text-muted);
+  opacity: 0.9;
+}
 .theme-input:focus,
 input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):focus,
 select:focus,
 textarea:focus {
   border-color: var(--theme-primary) !important;
-  box-shadow: 0 0 0 2px var(--theme-primary-shadow);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 20%, transparent);
+  outline: none;
 }
+/* Autofill — consolidated single source. Light + dark resolve through the
+   same vars, so both presets share one rule and the cascade can never paint
+   theme text over a native background (the inversion). Covers three paths:
+   1. :-webkit-autofill — classic Chromium/Edge autofill. Inset shadow AND
+      background-color are both set so neither paint layer leaks native gray.
+   2. :autofill — the standard pseudo (Firefox / future Chromium).
+   3. :-internal-autofill-selected — Edge Wallet fills often populate values
+      without matching (1); this keeps those on-theme instead of browser gray.
+   (textarea/select folded in so nothing regresses from the old split block.) */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+input:autofill,
+input:autofill:hover,
+input:autofill:focus,
+input:autofill:active,
+input:-internal-autofill-selected,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--theme-text) !important;
+  color: var(--theme-text) !important;
+  caret-color: var(--theme-text) !important;
+  background-color: color-mix(in srgb, var(--theme-card-bg) 92%, var(--theme-bg)) !important;
+  -webkit-box-shadow: 0 0 0px 1000px color-mix(in srgb, var(--theme-card-bg) 92%, var(--theme-bg)) inset !important;
+  box-shadow: 0 0 0px 1000px color-mix(in srgb, var(--theme-card-bg) 92%, var(--theme-bg)) inset !important;
+  border-color: var(--theme-card-border) !important;
+  transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s;
+}
+
+/* Frosted inputs (auth + admin login, bg-[var(--theme-bg)]/60 + backdrop-blur-xl):
+   cover matches their own 60% bg layer exactly, so an autofilled input looks
+   identical to its unfocused frosted siblings — blur and translucency intact.
+   Class selector outranks the generic input rule above. */
+.input-frosted:-webkit-autofill,
+.input-frosted:-webkit-autofill:hover,
+.input-frosted:-webkit-autofill:focus,
+.input-frosted:-webkit-autofill:active,
+.input-frosted:autofill,
+.input-frosted:autofill:hover,
+.input-frosted:autofill:focus,
+.input-frosted:autofill:active,
+.input-frosted:-internal-autofill-selected {
+  -webkit-text-fill-color: var(--theme-text) !important;
+  color: var(--theme-text) !important;
+  caret-color: var(--theme-text) !important;
+  -webkit-box-shadow: 0 0 0px 1000px color-mix(in srgb, var(--theme-bg) 60%, transparent) inset !important;
+  box-shadow: 0 0 0px 1000px color-mix(in srgb, var(--theme-bg) 60%, transparent) inset !important;
+  border-color: var(--theme-card-border) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+input:-webkit-autofill::first-line { font-size: 14px; }
+
 
 /* Dynamic Adaptive Card Utilities */
 .theme-card,
 .card-playful-3d {
   background-color: var(--theme-card-bg);
   border-radius: var(--theme-radius);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* 1. Playful 3D Extruded Card Style */
-[data-card-style="playful-3d"] .theme-card,
-[data-card-style="playful-3d"] .card-playful-3d,
-.card-style-playful-3d {
-  background-color: var(--theme-card-bg);
-  border: 2px solid var(--theme-card-border);
-  box-shadow: 0 5px 0 var(--theme-card-shadow);
-}
-
-/* 2. Glass Card Style */
-[data-card-style="glass"] .theme-card,
-[data-card-style="glass"] .card-playful-3d,
-[data-card-style="glass"] .card-style-glass {
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid var(--theme-card-border);
-}
-
-/* Chat bubbles — flat translucent tint, identical for every sender */
-.chat-bubble-flat {
-  background: var(--theme-card-bg);
-  background: color-mix(in srgb, var(--theme-card-bg) 38%, transparent);
-  border: 1px solid var(--theme-card-border);
-}
-
-/* 2b. Liquid Glass Card Style (Ultra Translucent Blur & Sheen) */
-[data-card-style="liquid-glass"] .theme-card,
-[data-card-style="liquid-glass"] .card-playful-3d,
-[data-card-style="liquid-glass"] .card-style-glass {
-  backdrop-filter: blur(12px) saturate(220%);
-  -webkit-backdrop-filter: blur(12px) saturate(220%);
-  border: 1px solid var(--theme-card-border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25), inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-/* 3. Solid Clean Card Style */
+/* 1. Solid Clean Card Style */
 [data-card-style="solid"] .theme-card,
 [data-card-style="solid"] .card-playful-3d,
 .card-style-solid {
@@ -333,42 +264,19 @@ textarea:focus {
   box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.08);
 }
 
-/* 4. Neo-Brutalist Card Style */
-[data-card-style="neo-brutalist"] .theme-card,
-[data-card-style="neo-brutalist"] .card-playful-3d,
-.card-style-neo-brutalist {
+/* 2. Glass Card Style */
+[data-card-style="glass"] .theme-card,
+[data-card-style="glass"] .card-playful-3d,
+[data-card-style="glass"] .card-style-glass {
+  border: 1px solid var(--theme-card-border);
   background-color: var(--theme-card-bg);
-  border: 3px solid var(--theme-card-border);
-  box-shadow: 5px 5px 0 var(--theme-card-border);
 }
 
-/* 5. Chunky Boarder Card Style */
-[data-card-style="chunky-border"] .theme-card,
-[data-card-style="chunky-border"] .card-playful-3d,
-.card-style-chunky-border {
-  background-color: var(--theme-card-bg);
-  border: 4px double var(--theme-card-border);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-}
-
-/* 6. Textured Wood Card Style */
-[data-card-style="textured-wood"] .theme-card,
-[data-card-style="textured-wood"] .card-playful-3d,
-.card-style-textured-wood {
-  background-color: var(--theme-card-bg);
-  background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.02) 0px, rgba(0,0,0,0.02) 2px, transparent 2px, transparent 4px), linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(0,0,0,0.05));
-  border: 2px solid var(--theme-card-border);
-  box-shadow: 0 4px 12px var(--theme-card-shadow);
-}
-
-/* 7. Textured Metal Card Style */
-[data-card-style="textured-metal"] .theme-card,
-[data-card-style="textured-metal"] .card-playful-3d,
-.card-style-textured-metal {
-  background-color: var(--theme-card-bg);
-  background-image: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.1) 100%), repeating-linear-gradient(90deg, transparent 0px, transparent 3px, rgba(255,255,255,0.03) 3px, rgba(255,255,255,0.03) 6px);
-  border: 2px solid var(--theme-card-border);
-  box-shadow: 0 4px 12px var(--theme-card-shadow), inset 0 1px 0 rgba(255,255,255,0.2);
+/* Chat bubbles — flat translucent tint, identical for every sender */
+.chat-bubble-flat {
+  background: var(--theme-card-bg);
+  background: color-mix(in srgb, var(--theme-card-bg) 38%, transparent);
+  border: 1px solid var(--theme-card-border);
 }
 
 .card-playful-3d-pressable {
@@ -390,20 +298,14 @@ textarea:focus {
   box-shadow: 0 2px 0 var(--theme-card-shadow);
 }
 
-/* Custom overlay or styling elements for glassy design */
+/* Custom overlay */
 .glass-panel {
   background-color: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.glass-panel-light {
-  background-color: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-}
-
-/* Nice scrollbar styling for modern browsers */
+/* Nice scrollbar */
 ::-webkit-scrollbar {
   width: 1px;
   height: 1px;
@@ -436,31 +338,33 @@ textarea:focus {
   outline: none;
 }
 
-/* 1. Playful 3D Button Style */
-[data-card-style="playful-3d"] .theme-btn-primary,
-.btn-style-playful-3d-primary {
+/* 1. Solid Clean Button Style */
+[data-card-style="solid"] .theme-btn-primary,
+.btn-style-solid-primary {
   background-color: var(--theme-primary);
   color: #ffffff;
-  box-shadow: 0 4px 0 var(--theme-primary-shadow);
-  border: none;
+  border: 1px solid var(--theme-primary-shadow);
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.05);
 }
-[data-card-style="playful-3d"] .theme-btn-primary:active,
-.btn-style-playful-3d-primary:active {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--theme-primary-shadow);
+[data-card-style="solid"] .theme-btn-primary:hover {
+  filter: brightness(1.05);
+}
+[data-card-style="solid"] .theme-btn-primary:active {
+  transform: translateY(1px);
 }
 
-[data-card-style="playful-3d"] .theme-btn-secondary,
-.btn-style-playful-3d-secondary {
+[data-card-style="solid"] .theme-btn-secondary,
+.btn-style-solid-secondary {
   background-color: var(--theme-card-bg);
   color: var(--theme-text);
-  border: 2px solid var(--theme-card-border);
-  box-shadow: 0 4px 0 var(--theme-card-border);
+  border: 1px solid var(--theme-card-border);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
-[data-card-style="playful-3d"] .theme-btn-secondary:active,
-.btn-style-playful-3d-secondary:active {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--theme-card-border);
+[data-card-style="solid"] .theme-btn-secondary:hover {
+  background-color: var(--theme-bg);
+}
+[data-card-style="solid"] .theme-btn-secondary:active {
+  transform: translateY(1px);
 }
 
 /* 2. Glass Button Style */
@@ -500,88 +404,6 @@ textarea:focus {
   transform: scale(0.98);
 }
 
-/* 3. Solid Clean Button Style */
-[data-card-style="solid"] .theme-btn-primary,
-.btn-style-solid-primary {
-  background-color: var(--theme-primary);
-  color: #ffffff;
-  border: 1px solid var(--theme-primary-shadow);
-  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.05);
-}
-[data-card-style="solid"] .theme-btn-primary:hover {
-  filter: brightness(1.05);
-}
-[data-card-style="solid"] .theme-btn-primary:active {
-  transform: translateY(1px);
-}
-
-[data-card-style="solid"] .theme-btn-secondary,
-.btn-style-solid-secondary {
-  background-color: var(--theme-card-bg);
-  color: var(--theme-text);
-  border: 1px solid var(--theme-card-border);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-}
-[data-card-style="solid"] .theme-btn-secondary:hover {
-  background-color: var(--theme-bg);
-}
-[data-card-style="solid"] .theme-btn-secondary:active {
-  transform: translateY(1px);
-}
-
-/* 4. Neo-Brutalist Button Style */
-[data-card-style="neo-brutalist"] .theme-btn-primary,
-.btn-style-neo-brutalist-primary {
-  background-color: var(--theme-primary);
-  color: #ffffff;
-  border: 3px solid #0f172a;
-  box-shadow: 3px 3px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-primary {
-  border: 3px solid #f8fafc;
-  box-shadow: 3px 3px 0 #f8fafc;
-}
-[data-card-style="neo-brutalist"] .theme-btn-primary:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-primary:hover {
-  box-shadow: 4px 4px 0 #f8fafc;
-}
-[data-card-style="neo-brutalist"] .theme-btn-primary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-primary:active {
-  box-shadow: 1px 1px 0 #f8fafc;
-}
-
-[data-card-style="neo-brutalist"] .theme-btn-secondary,
-.btn-style-neo-brutalist-secondary {
-  background-color: var(--theme-card-bg);
-  color: var(--theme-text);
-  border: 3px solid #0f172a;
-  box-shadow: 3px 3px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-secondary {
-  border: 3px solid #f8fafc;
-  box-shadow: 3px 3px 0 #f8fafc;
-}
-[data-card-style="neo-brutalist"] .theme-btn-secondary:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-secondary:hover {
-  box-shadow: 4px 4px 0 #f8fafc;
-}
-[data-card-style="neo-brutalist"] .theme-btn-secondary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 #0f172a;
-}
-:root.dark [data-card-style="neo-brutalist"] .theme-btn-secondary:active {
-  box-shadow: 1px 1px 0 #f8fafc;
-}
-
 /* Dynamic Adaptive Input Utilities */
 .theme-input {
   background-color: var(--theme-card-bg);
@@ -592,12 +414,13 @@ textarea:focus {
   transition: all 0.15s ease-in-out;
 }
 
-[data-card-style="playful-3d"] .theme-input {
-  border: 2px solid var(--theme-card-border);
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.03);
+[data-card-style="solid"] .theme-input {
+  border: 1px solid var(--theme-card-border);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
-[data-card-style="playful-3d"] .theme-input:focus {
+[data-card-style="solid"] .theme-input:focus {
   border-color: var(--theme-primary);
+  box-shadow: 0 0 0 2px rgba(var(--theme-primary), 0.1);
 }
 
 [data-card-style="glass"] .theme-input {
@@ -614,44 +437,17 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(var(--theme-primary), 0.15);
 }
 
-[data-card-style="solid"] .theme-input {
-  border: 1px solid var(--theme-card-border);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-}
-[data-card-style="solid"] .theme-input:focus {
-  border-color: var(--theme-primary);
-  box-shadow: 0 0 0 2px rgba(var(--theme-primary), 0.1);
-}
-
-[data-card-style="neo-brutalist"] .theme-input {
-  border: 3px solid var(--theme-card-border);
-  box-shadow: 2px 2px 0 var(--theme-card-border);
-  background-color: var(--theme-card-bg);
-  color: var(--theme-text);
-}
-[data-card-style="neo-brutalist"] .theme-input:focus {
-  transform: translate(-1px, -1px);
-  border-color: var(--theme-primary);
-  box-shadow: 3px 3px 0 var(--theme-primary);
-}
-
-[data-card-style="chunky-border"] .theme-input {
-  border: 3px double var(--theme-card-border);
-  background-color: var(--theme-card-bg);
-  color: var(--theme-text);
-}
-[data-card-style="chunky-border"] .theme-input:focus {
-  border-color: var(--theme-primary);
-}
-
-/* Sonner Toast Theme Preset Integration */
+/* Sonner Toast Theme Preset Integration — frosted (raw --theme-card-bg is
+   ~6% white in dark mode, i.e. invisible without blur + weight) */
 [data-sonner-toaster] [data-sonner-toast] {
-  background-color: var(--theme-card-bg) !important;
+  background-color: color-mix(in srgb, var(--theme-card-bg) 60%, var(--theme-bg)) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
   color: var(--theme-text) !important;
-  border: 2px solid var(--theme-card-border) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: var(--theme-radius) !important;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2), 0 4px 0 var(--theme-card-shadow) !important;
-  font-family: var(--theme-font-family), 'Plus Jakarta Sans', sans-serif !important;
+  font-family: var(--theme-font-family), 'Outfit', sans-serif !important;
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-type="success"] {
@@ -672,3 +468,230 @@ textarea:focus {
   opacity: 0.85 !important;
 }
 
+/* — Operator 3D Lime Button — neon-lime ramp (var names kept for compat) — */
+:root {
+  --hut-gold-highlight: #FFFFFF;
+  --hut-gold-100: #ECFCCB;
+  --hut-gold-300-matte: #A3E635;
+  --hut-gold-300-glossy: #C6FF00;
+  --hut-gold-500: #84CC16;
+  --hut-gold-700: #4D7C0F;
+  --hut-gold-900: #1A2E05;
+  --hut-gold-text: #1A2E05;
+  --hut-glow-opacity-matte: 0.2;
+  --hut-glow-opacity-glossy: 0.28;
+}
+.dark {
+  --hut-glow-opacity-matte: 0.45;
+  --hut-glow-opacity-glossy: 0.6;
+}
+.hut-btn-3d {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 8px;
+}
+.hut-btn-3d.hut-xs { padding-bottom: 4px; }
+.hut-btn-3d.hut-xs .hut-btn-base { top: 4px; }
+.hut-btn-3d.hut-xs .hut-btn-face:active { transform: translateY(4px); }
+.hut-btn-3d.hut-xs .hut-btn-face { gap: 6px; }
+.hut-btn-3d.hut-full { display: block; width: 100%; }
+.hut-btn-3d.hut-full .hut-btn-face { width: 100%; }
+.hut-btn-base {
+  position: absolute;
+  left: 0; right: 0; top: 8px; bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--hut-gold-700), var(--hut-gold-900));
+}
+.hut-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(132,204,22, var(--hut-glow-opacity-matte)), transparent 68%);
+  filter: blur(18px);
+  pointer-events: none;
+}
+.hut-btn-3d:has(.hut-gold-glossy) .hut-glow,
+.hut-gold-glossy ~ .hut-glow {
+  background: radial-gradient(ellipse at center, rgba(198,255,0, var(--hut-glow-opacity-glossy)), transparent 68%);
+}
+.hut-btn-pulse {
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid var(--hut-gold-300-glossy);
+  opacity: 0;
+  pointer-events: none;
+}
+.hut-btn-3d.success .hut-btn-pulse { animation: hut-pulse-ring 0.7s ease-out; }
+.hut-btn-face {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--hut-gold-text);
+  transform: translateY(0);
+  transition: transform 0.12s cubic-bezier(.2,.8,.2,1), box-shadow 0.12s ease, filter 0.2s ease;
+  cursor: pointer;
+  overflow: hidden;
+}
+.hut-btn-face:disabled { opacity: 0.6; cursor: not-allowed; }
+.hut-gold-matte {
+  background: linear-gradient(180deg, var(--hut-gold-300-matte) 0%, var(--hut-gold-500) 55%, var(--hut-gold-700) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -4px 8px rgba(101,75,16,0.4), 0 10px 16px rgba(0,0,0,0.2);
+}
+.hut-gold-glossy {
+  background: linear-gradient(180deg, var(--hut-gold-highlight) 0%, var(--hut-gold-100) 22%, var(--hut-gold-300-glossy) 48%, var(--hut-gold-500) 76%, var(--hut-gold-700) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 -3px 6px rgba(110,79,14,0.35), 0 12px 18px rgba(0,0,0,0.22);
+}
+.hut-btn-face:hover { filter: brightness(1.04); }
+.hut-gold-glossy:hover { filter: brightness(1.05); }
+.hut-btn-face:active { transform: translateY(8px); }
+.hut-gold-matte:active {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -2px 4px rgba(101,75,16,0.45), 0 2px 4px rgba(0,0,0,0.18);
+}
+.hut-gold-glossy:active {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -2px 4px rgba(110,79,14,0.45), 0 2px 4px rgba(0,0,0,0.18);
+}
+.hut-btn-face:focus-visible { outline: 2px solid var(--theme-text); outline-offset: 4px; }
+.hut-gloss {
+  position: absolute;
+  left: 6%; right: 6%; top: 8%; height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0));
+  pointer-events: none;
+}
+.hut-shine {
+  position: absolute;
+  top: 0; left: -60%; width: 35%; height: 100%;
+  background: linear-gradient(115deg, transparent, rgba(255,255,255,0.65), transparent);
+  transform: skewX(-20deg);
+  opacity: 0;
+  pointer-events: none;
+}
+.hut-shine.sweep { animation: hut-shine-sweep 0.7s ease forwards; }
+.hut-btn-content { display: inline-flex; align-items: center; gap: 8px; position: relative; z-index: 1; }
+.hut-sparkle {
+  position: absolute;
+  width: 6px; height: 6px; left: 50%; top: 50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--hut-gold-highlight), var(--hut-gold-300-glossy) 60%, transparent 70%);
+  pointer-events: none;
+  animation: hut-sparkle-fly 0.7s ease-out forwards;
+}
+@keyframes hut-shine-sweep { 0%{left:-60%;opacity:0}15%{opacity:1}100%{left:130%;opacity:0} }
+@keyframes hut-pulse-ring { 0%{transform:scale(0.9);opacity:0.7}100%{transform:scale(1.3);opacity:0} }
+@keyframes hut-sparkle-fly { 0%{transform:translate(-50%,-50%) scale(1);opacity:1}100%{transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0);opacity:0} }
+@media (prefers-reduced-motion: reduce) {
+  .hut-btn-face, .hut-glow, .hut-btn-pulse, .hut-shine, .hut-sparkle { transition: none !important; animation: none !important; }
+}
+
+/* Run progress fill — inherits the Deposit/Withdraw glossy-3D treatment.
+   Uses fixed hut-* vars (never theme-*) so the bar matches the buttons in
+   both presets. Labels on the fill must use --hut-gold-text. */
+.run-progress-fill {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--hut-gold-highlight) 0%, var(--hut-gold-100) 22%, var(--hut-gold-300-glossy) 48%, var(--hut-gold-500) 76%, var(--hut-gold-700) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), inset 0 -3px 6px rgba(110,79,14,0.35);
+}
+.run-progress-fill::before {
+  content: "";
+  position: absolute;
+  left: 6%; right: 6%; top: 8%; height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0));
+  pointer-events: none;
+}
+
+/* Week sparkline draw-on — line traces itself on mount, dot pops in after. */
+.spark-draw {
+  stroke-dasharray: 400;
+  stroke-dashoffset: 400;
+  animation: spark-draw-x 1.2s ease-out forwards;
+}
+.spark-dot {
+  opacity: 0;
+  animation: spark-dot-in 0.3s ease-out 1s forwards;
+}
+@keyframes spark-draw-x {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes spark-dot-in {
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spark-draw, .spark-dot { animation: none; }
+  .spark-draw { stroke-dashoffset: 0; }
+  .spark-dot { opacity: 1; }
+}
+
+/* Tile/button sheen — light sweep for actionable surfaces. */
+.tile-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.tile-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  animation: tile-shimmer-x 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tile-shimmer-x {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-shimmer::after { animation: none; display: none; }
+}
+
+/* AI thinking shimmer — gradient sweep across text (apple-design: calm, non-vestibular feedback) */
+.animate-shimmer {
+  background: linear-gradient(100deg, var(--theme-primary) 20%, color-mix(in srgb, var(--theme-primary) 35%, white) 40%, var(--theme-primary) 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: hut-shimmer-x 2.2s linear infinite;
+}
+@keyframes hut-shimmer-x { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Round countdown: compositor-only scaleX drain, duration set inline per
+   difficulty. onAnimationEnd is the timeout signal — no JS ticking. */
+@keyframes hut-round-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.round-timer-fill {
+  transform-origin: left center;
+  animation-name: hut-round-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+/* Slow balance shimmer — single drifting sweep per pulse, toggled from
+   useShimmerPulse on a gated interval (not infinite: background-position
+   repaints every frame, so a perpetual sweep would cost paint forever for
+   barely-visible motion). Page-gating is by mount: tab views unmount
+   off-page. */
+.animate-shimmer-slow {
+  background: linear-gradient(100deg, var(--theme-primary) 20%, color-mix(in srgb, var(--theme-primary) 35%, white) 40%, var(--theme-primary) 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: hut-shimmer-x 5s linear 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Neutralize the transparent-text clipping too — with no animation the
+     gradient never paints, so the text must fall back to its normal color. */
+  .animate-shimmer { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
+  .animate-shimmer-slow { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
+}

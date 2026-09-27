@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useCurrency } from "../currency";
+import { canonicalTypeOf } from "../utils/transactionMeta";
 
 interface AdminChartProps {
   transactionsList: any[];
@@ -48,8 +49,9 @@ export default function AdminChart({ transactionsList }: AdminChartProps) {
       }
 
       const amount = Number(tx.amount) || 0;
-      const isWithdraw = tx.type === "withdrawal" || tx.type === "withdraw";
-      const isDeposit = tx.type === "deposit" || tx.type === "balance";
+      const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
+      const isWithdraw = canon === "withdrawal";
+      const isDeposit = canon === "deposit";
 
       if (isWithdraw) {
         dailyData[dateStr].withdraw += amount;

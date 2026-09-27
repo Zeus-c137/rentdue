@@ -84,6 +84,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       invites_count INT NOT NULL DEFAULT 0,
       referral_rewards_earned DOUBLE NOT NULL DEFAULT 0,
       claimed_vip_tasks JSON NOT NULL,
+      claimed_tier_rewards JSON NULL,
       locked BOOLEAN NOT NULL DEFAULT FALSE,
       usdt_address VARCHAR(255) DEFAULT '',
       last_checkin_date VARCHAR(32) DEFAULT '',
@@ -202,6 +203,112 @@ export async function ensureDatabaseSchema(): Promise<void> {
     await connection.query("ALTER TABLE transactions ADD COLUMN balance_applied_at VARCHAR(64) NULL");
   } catch (error: any) {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
+      throw error;
+    }
+  }
+
+  // Journey stage rewards: one claim per tier, tracked per user.
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN claimed_tier_rewards JSON NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
+      throw error;
+    }
+  }
+
+  // Full tx-type migration to canonical names (no users: full migrate).
+  try {
+    await connection.query(`UPDATE transactions SET type = CASE
+      WHEN LOWER(type) IN ('balance','manual') THEN 'deposit'
+      WHEN LOWER(type) = 'deposit' THEN 'deposit'
+      WHEN LOWER(type) IN ('withdraw','withdrawal') THEN 'withdrawal'
+      WHEN LOWER(type) IN ('gift','register','bonus','reward') THEN 'registration_bonus'
+      WHEN LOWER(type) IN ('checkin','checkin_bonus') THEN 'daily_checkin_bonus'
+      WHEN LOWER(type) = 'voucher' THEN 'gift_code'
+      WHEN LOWER(type) = 'referral' AND JSON_EXTRACT(metadata, '$.level') IS NOT NULL AND JSON_EXTRACT(metadata, '$.level') != 'null' THEN 'referral_level_income'
+      WHEN LOWER(type) = 'referral' THEN 'referral_signup_bonus'
+      WHEN LOWER(type) = 'vip_task' THEN 'vip_task'
+      WHEN LOWER(type) IN ('gpu','gpu_activation','subscription') THEN 'product_activation'
+      WHEN LOWER(type) IN ('yield','daily','daily accumulation') THEN 'daily_yield'
+      ELSE type
+    END WHERE LOWER(type) IN (
+      'balance','manual','withdraw','gift','register','bonus','reward',
+      'checkin','checkin_bonus','voucher','referral','gpu','gpu_activation','subscription','yield','daily','daily accumulation'
+    ) OR type IN ('withdrawal','deposit','vip_task')`);
+  } catch (error: any) {
+    if (String(error?.code || "").includes("ER_NO_SUCH_TABLE")) {
+      // table just created above; nothing to migrate
+    } else {
+      throw error;
+    }
+  }
+
+  // Backfill product_activation metadata.sourceItemName/sourceItemId from catalog/out-of-band.
+  try {
+    await connection.query(`UPDATE transactions t
+      LEFT JOIN subscribed_nodes sn ON JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.subscriptionId')) = sn.id
+      LEFT JOIN catalog_products cp ON cp.id = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemId')), t.item_id, sn.item_id)
+      SET t.metadata = JSON_SET(
+        COALESCE(t.metadata, JSON_OBJECT()),
+        '$.sourceItemName', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemName')), cp.name, sn.item_name, t.item_id),
+        '$.sourceItemId', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemId')), t.item_id, sn.item_id, cp.id)
+      )
+      WHERE LOWER(t.type) = 'product_activation'
+        AND (JSON_EXTRACT(t.metadata, '$.sourceItemName') IS NULL OR JSON_EXTRACT(t.metadata, '$.sourceItemId') IS NULL)`);
+  } catch (error: any) {
+    // best-effort backfill; ignore if catalog/subscribed_nodes missing or metadata not JSON
+    if (!String(error?.code || "").includes("ER_NO_SUCH_TABLE") && !String(error?.message || "").includes("JSON")) {
+      throw error;
+    }
+  }
+
+  // Backfill daily_yield (Income) metadata for history product name/image without catalog fetch.
+  try {
+    await connection.query(`UPDATE transactions t
+      LEFT JOIN subscribed_nodes sn ON JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.subscriptionId')) = sn.id
+      LEFT JOIN catalog_products cp ON cp.id = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemId')), t.item_id, sn.item_id)
+      SET t.metadata = JSON_SET(
+        COALESCE(t.metadata, JSON_OBJECT()),
+        '$.sourceItemName', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemName')), cp.name, sn.item_name),
+        '$.sourceItemId', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemId')), t.item_id, sn.item_id, cp.id),
+        '$.sourceItemImage', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemImage')), cp.image_url, cp.image, sn.image)
+      )
+      WHERE LOWER(t.type) = 'daily_yield'
+        AND (JSON_EXTRACT(t.metadata, '$.sourceItemName') IS NULL OR JSON_EXTRACT(t.metadata, '$.sourceItemId') IS NULL OR JSON_EXTRACT(t.metadata, '$.sourceItemImage') IS NULL)`);
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("ER_NO_SUCH_TABLE") && !String(error?.message || "").includes("JSON")) {
+      throw error;
+    }
+  }
+
+  // Repair daily_yield rows whose sourceItemImage is a non-URL value (legacy
+  // catalog `image` fields hold Tailwind gradient keys, not URLs). The
+  // backfill above only covers NULLs; these rows carry an explicit gradient
+  // string that browsers cannot render, so resolve them from the catalog.
+  try {
+    await connection.query(`UPDATE transactions t
+      LEFT JOIN catalog_products cp ON cp.id = COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemId')), t.item_id)
+      SET t.metadata = JSON_SET(
+        t.metadata,
+        '$.sourceItemImage', COALESCE(cp.image_url, cp.image)
+      )
+      WHERE LOWER(t.type) = 'daily_yield'
+        AND JSON_EXTRACT(t.metadata, '$.sourceItemImage') IS NOT NULL
+        AND JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemImage')) NOT LIKE 'http%'
+        AND JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.sourceItemImage')) NOT LIKE 'data:%'
+        AND COALESCE(cp.image_url, cp.image) LIKE 'http%'`);
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("ER_NO_SUCH_TABLE") && !String(error?.message || "").includes("JSON")) {
+      throw error;
+    }
+  }
+
+  try {
+    await connection.query("UPDATE transactions SET status = UPPER(status) WHERE LOWER(status) IN ('completed','successful','pending','failed') AND status != UPPER(status)");
+  } catch (error: any) {
+    if (String(error?.code || "").includes("ER_NO_SUCH_TABLE")) {
+      // table just created above; nothing to normalize
+    } else {
       throw error;
     }
   }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { SubscribedNode, SubscriptionItem, UserProfile } from "../types";
 import {
   Lock,
@@ -8,11 +8,13 @@ import {
   Loader,
   ShoppingCartIcon,
   Zap,
-  Coins
+  Coins,
+  SlidersHorizontal
 } from "lucide-react";
 import MetricCard from "./MetricCard";
-import VisaMetricCard from "./VisaMetricCard";
+import { Button } from "./ui/button";
 import { useCurrency } from "../currency";
+import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 
@@ -36,22 +38,24 @@ export default function IncomeView({
   const { formatCurrency } = useCurrency();
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+  // Re-run bar fill-ins whenever the filter flips.
+  const [barsIn, setBarsIn] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setBarsIn(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const shownNodes = showCompleted
+    ? activeNodes.filter((n) => getRunState(n, items) !== "active")
+    : activeNodes.filter((n) => getRunState(n, items) === "active");
 
-  // Calculate Cumulative total earnings
-  const sumCollected = activeNodes.reduce((acc, node) => acc + (node.totalEarned || 0), 0);
-  const totalDailyYield = activeNodes.filter(n => n.status === "active").reduce((acc, node) => acc + (node.dailyYield || 0), 0);
-
-  const getElapsedDays = (node: any, totalDays: number, dailyYield: number): number => {
-    try {
-      if (node.totalEarned > 0 && dailyYield > 0) {
-        const days = Math.floor(node.totalEarned / dailyYield);
-        return Math.min(totalDays, Math.max(1, days));
-      }
-      return 1;
-    } catch (err) {
-      return 1;
-    }
+  // Calculate Cumulative total earnings — resolve daily rate from catalog so every product counts
+  const rateOf = (node: SubscribedNode) => {
+    const mapped = items.find((item) => item.id === node.itemId || item.name === node.itemName);
+    return mapped?.dailyYield !== undefined ? mapped.dailyYield : (node.dailyYield || 0);
   };
+  const nodeStatus = (node: SubscribedNode): string => String(node.status || "").toLowerCase();
+  const totalDailyYield = activeNodes.filter(n => nodeStatus(n) === "active").reduce((acc, node) => acc + rateOf(node), 0);
 
   const handleClaim = async (subId: string) => {
     setClaimingId(subId);
@@ -88,73 +92,92 @@ export default function IncomeView({
   return (
     <div className="space-y-5 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-[var(--theme-radius)] relative">
       
-      {/* Aggregate Stats — Visa prototype (unified with Products) */}
-      <VisaMetricCard
-        leftValue={formatCurrency(totalDailyYield)}
-        leftLabel="Total Daily"
-        leftSub="/ day"
-        rightValue={formatCurrency(sumCollected)}
-        rightLabel="Income Collected"
-      />
+      <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)] px-1">My Active Runs</h1>
+      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] px-1">Your runs are working. Watch your returns grow daily and move to your withdrawable balance.</p>
 
-      {/* Active Subscriptions Miner Nodes list section */}
+      {/* Aggregate Stats — sticky so run list scrolls below */}
+      <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
+        <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 grid grid-cols-2 gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">Today&apos;s Returns</p>
+            <p className="font-display font-black text-[18px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(totalDailyYield)}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">Withdrawable</p>
+            <p className="font-display font-black text-[18px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{formatCurrency(Number(profile.points) || 0)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Active runs list section */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between border-b border-[var(--theme-card-border)] pb-2">
-          <h3 className="font-display font-black text-xs text-[var(--theme-text)] flex items-center gap-2 uppercase tracking-wider">
-            <ShoppingCartIcon className="w-4 h-4 text-[var(--theme-primary)] fill-current" />
-            My products  ({activeNodes.length})
+        <div className="flex items-center justify-between pb-2">
+          <h3 className="font-display font-black text-[15px] text-[var(--theme-text)]">
+            {showCompleted ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownNodes.length}</span>
           </h3>
+          <button
+            type="button"
+            onClick={() => { setShowCompleted((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+            aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
+            className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
         </div>
 
-        {activeNodes.length === 0 ? (
+        {shownNodes.length === 0 ? (
           <div className="text-center py-12 px-4 max-w-xl mx-auto space-y-4">
             <Clock className="w-10 h-10 text-[var(--theme-text)] opacity-40 mx-auto animate-pulse" />
             <div className="space-y-1">
-              <h4 className="font-bold text-[var(--theme-text)] opacity-60 text-xs uppercase font-sans">No Active Products </h4>
+              <h4 className="font-bold text-[var(--theme-text)] opacity-60 text-xs uppercase font-sans">{showCompleted ? "No Completed Runs" : "No Active Runs"}</h4>
             </div>
-            <button
-              onClick={onNavigateToCatalog}
-              className="px-4.5 py-2.5 btn-3d-primary text-white rounded-[var(--theme-radius)] text-xs font-sans font-bold flex items-center gap-1.5 mx-auto outline-none transition-colors cursor-pointer active:scale-95 shadow-md"
-            >
-              <Plus className="w-4 h-4" />
-              Rent
-            </button>
+            {!showCompleted && (
+              <button
+                type="button"
+                onClick={onNavigateToCatalog}
+                className="mx-auto inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.97] transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                Explore Runs
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3.5">
-            {activeNodes.map((node) => {
+            {shownNodes.map((node) => {
               // Find the mapped item from catalog
               const mappedItem = items.find(
                 (item) => item.id === node.itemId || item.name === node.itemName
               );
               const imageUrl = mappedItem?.imageUrl;
               const itemName = mappedItem?.name || node.itemName;
-              const totalDays = mappedItem?.duration || node.duration || 15;
-              const dailyYield = mappedItem?.dailyYield !== undefined ? mappedItem.dailyYield : (node.dailyYield || 0);
+              const totalDays = getRunTotalDays(node, items);
+              const dailyYield = getRunDailyRate(node, items);
 
-              const elapsedDays = getElapsedDays(node, totalDays, dailyYield);
-              const isExpired = node.status === "expired";
-              const isReadyToClaim = node.status === "active" && elapsedDays >= totalDays;
+              const elapsedDays = getRunElapsedDays(node, items);
+              const runState = getRunState(node, items);
+              const isExpired = runState === "expired";
+              const isReadyToClaim = nodeStatus(node) === "active" && elapsedDays >= totalDays;
               const totalIncome = dailyYield * totalDays;
               const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
 
               return (
                 <div
                   key={node.id}
-                  className="group flex flex-row theme-card card-playful-3d border-2 border-[var(--theme-card-border)] rounded-[var(--theme-radius)] p-3 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30"
+                  className="group flex flex-row bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-3 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30"
                 >
-                  {/* Left portion: Hardware Image full height */}
-                  <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-36 h-36 md:w-44 md:h-44 relative overflow-hidden rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border-2 border-[var(--theme-card-border)] shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors">
+                  {/* Left portion: Hardware Image full height — transparent bg like income, contain */}
+                  <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-28 h-28 sm:w-32 sm:h-32 md:w-44 md:h-44 relative overflow-hidden rounded-[var(--theme-radius)] bg-transparent border-0 shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors p-2 flex items-center justify-center">
                     {imageUrl ? (
                       <img
                         src={imageUrl}
                         alt=""
                         loading="lazy"
                         referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
+                        className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-[var(--theme-bg)] text-[var(--theme-text)] opacity-40">
+                      <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
                         <Cpu className="w-8 h-8" />
                       </div>
                     )}
@@ -163,41 +186,49 @@ export default function IncomeView({
                   {/* Right portion details */}
                   <div className="flex-1 pl-3 flex flex-col justify-between min-w-0 font-sans">
                     <div>
-                      {/* Name in theme primary color */}
-                      <h4 className="font-display font-black text-[var(--theme-primary)] text-sm uppercase leading-tight pb-1">
-                        {itemName}
-                      </h4>
-
-                      <div className="space-y-0.5 text-xs text-[var(--theme-text)]">
-                        <p className="flex items-baseline gap-1.5">
-                          <span className="text-[11px] text-[var(--theme-text)] opacity-60 font-semibold shrink-0">Duration:</span>
-                          <span className="font-bold">{elapsedDays}/{totalDays} Days</span>
-                        </p>
-                        <p className="flex items-baseline gap-1.5">
-                          <span className="text-[11px] text-[var(--theme-text)] opacity-60 font-semibold shrink-0">Daily income:</span>
-                          <span className="font-bold">{formatCurrency(dailyYield)}</span>
-                        </p>
-                        <p className="flex items-baseline gap-1.5">
-                          <span className="text-[11px] text-[var(--theme-text)] opacity-60 font-semibold shrink-0">Collected:</span>
-                          <span className="font-bold">{formatCurrency(node.totalEarned || (dailyYield * elapsedDays))}</span>
-                        </p>
+                      <div className="flex items-start justify-between gap-2">
+                        {/* Name in theme text */}
+                        <h4 className="font-display font-black text-[var(--theme-text)] text-sm leading-tight pb-1 min-w-0 flex-1">
+                          {itemName}
+                        </h4>
+                        {runState !== "active" && (
+                          <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black bg-[var(--theme-text)]/10 text-[var(--theme-text)] opacity-60">
+                            {isExpired ? "Expired" : "Completed"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between gap-3 mt-2">
+                        <div className="space-y-2 min-w-0">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Daily Return</p>
+                            <p className="font-display font-black text-[13px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield)}</p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Earned (to date)</p>
+                            <p className="font-display font-black text-[13px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(node.totalEarned || (dailyYield * elapsedDays))}</p>
+                          </div>
+                        </div>
+                        <div className="min-w-0 text-right shrink-0">
+                          <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Cycle</p>
+                          <p className="font-display font-black text-[13px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{elapsedDays}/{totalDays} days</p>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Progress Bar & Status Indicator */}
-                    <div className="pt-1.5 space-y-1">
-                      {/* Progress Bar */}
-                      <div className="w-full bg-[var(--theme-bg)] h-2 rounded-full overflow-hidden border border-[var(--theme-card-border)] p-0.5">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isExpired ? 'bg-gray-400' : 'btn-3d-primary'
-                          }`}
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between text-[10.5px] font-sans font-semibold text-[var(--theme-text)] opacity-70 px-0.5">
-                        <span>{isExpired ? "Completed" : "Auto-Credited Daily"}</span>
-                        <span>{elapsedDays}/{totalDays} Days</span>
+                    {/* Progress Bar with percentage at the end */}
+                    <div className="pt-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0 bg-[var(--theme-text)]/10 h-2.5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full run-progress-fill transition-all duration-500 ${
+                              isExpired ? "opacity-30 saturate-50" : ""
+                            }`}
+                            style={{ width: barsIn ? `${progressPercent}%` : "0%" }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-70 tabular-nums shrink-0">
+                          {isExpired ? "Completed" : `${Math.round(progressPercent)}%`}
+                        </span>
                       </div>
                     </div>
                   </div>

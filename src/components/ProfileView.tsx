@@ -4,7 +4,9 @@
  */
 
 import React, { useState, useEffect } from "react";
+import { useGatedInterval } from "../hooks/useGatedInterval";
 import { UserProfile, SubscribedNode } from "../types";
+import { canonicalTypeOf, getTransactionDisplayMeta, isPositiveTransaction, getWithdrawalDisplayAmounts } from "../utils/transactionMeta";
 import { usePwaInstall } from "../hooks/usePwaInstall";
 import {
   Phone,
@@ -26,24 +28,29 @@ import {
   Settings,
   LogOut,
   X,
+  ExternalLink,
   Loader2,
   CheckCircle2,
   Crown,
   Flame,
   Check,
   Info,
+  Plus,
   Coins,
   Cpu,
-  Trophy
+  Trophy,
+  ChevronRight,
+  FlaskConical
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
+import gift3d2 from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
+import { Button } from "./ui/button";
 import confetti from "canvas-confetti";
-import ParticleBg from "./ParticleBg";
 import NewsCarousel from "./NewsCarousel";
-import VipTasksSheet from "./VipTasksSheet";
 import VisaMetricCard from "./VisaMetricCard";
+import CommunitySheet from "./CommunitySheet";
 
 interface ProfileViewProps {
   userProfile: UserProfile;
@@ -53,7 +60,7 @@ interface ProfileViewProps {
   onProfileUpdate: (newProfile: UserProfile) => void;
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw?: () => void;
-  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "deposit" | "withdraw" | "alerts", chatRoom?: "shared" | "admin") => void;
+  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade" | "streaks", chatRoom?: "shared" | "admin") => void;
   onLogout: () => void;
   autoOpenWithdraw?: boolean;
   onCloseAutoWithdraw?: () => void;
@@ -79,10 +86,6 @@ export default function ProfileView({
   const [giftCodeValue, setGiftCodeValue] = useState("");
   const [isRedeemingGiftCode, setIsRedeemingGiftCode] = useState(false);
 
-  const [showCheckinSheet, setShowCheckinSheet] = useState(false);
-  const [isCheckingIn, setIsCheckingIn] = useState(false);
-  const [spinningIndex, setSpinningIndex] = useState<number | null>(null);
-
   useEffect(() => {
     if (autoOpenWithdraw) {
       setShowWithdrawSheet(true);
@@ -98,14 +101,8 @@ export default function ProfileView({
     install,
   } = usePwaInstall();
 
-  // Manual app-update check (pairs with the auto UpdateBanner).
+  // Manual app-update apply (pairs with the auto UpdateBanner + header pill).
   const [updateState, setUpdateState] = useState<"idle" | "checking" | "ready" | "uptodate" | "unsupported">("idle");
-  const [updateCheckedAt, setUpdateCheckedAt] = useState<number | null>(() => {
-    try {
-      const raw = localStorage.getItem("app_update_last_checked");
-      return raw ? Number(raw) : null;
-    } catch { return null; }
-  });
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) { setUpdateState("unsupported"); return; }
@@ -114,39 +111,6 @@ export default function ProfileView({
       if (reg.waiting) setUpdateState("ready");
     }).catch(() => {});
   }, []);
-
-  const checkForAppUpdate = async () => {
-    if (!("serviceWorker" in navigator)) {
-      setUpdateState("unsupported");
-      toast.info("Update checks need the installed production build.");
-      return;
-    }
-    setUpdateState("checking");
-    try {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        setUpdateState("unsupported");
-        toast.info("Open the installed app to check.");
-        return;
-      }
-      await reg.update().catch(() => {});
-      await new Promise((r) => setTimeout(r, 1200));
-      const fresh = await navigator.serviceWorker.getRegistration();
-      const at = Date.now();
-      try { localStorage.setItem("app_update_last_checked", String(at)); } catch {}
-      setUpdateCheckedAt(at);
-      if (fresh?.waiting) {
-        setUpdateState("ready");
-        toast.success("A new version is ready. Tap Apply to update.");
-      } else {
-        setUpdateState("uptodate");
-        toast.success("You're on the latest version.");
-      }
-    } catch {
-      setUpdateState("idle");
-      toast.error("Could not check for updates. Try again.");
-    }
-  };
 
   const applyAppUpdate = () => {
     navigator.serviceWorker.getRegistration().then((reg) => {
@@ -171,53 +135,24 @@ export default function ProfileView({
   const checkedInToday = userProfile.lastCheckinDate === todayStr;
   const currentStreak = userProfile.checkinStreak || 0;
 
-  useEffect(() => {
-    if (!checkedInToday) {
-      const timer = setTimeout(() => {
-        setShowCheckinSheet(true);
-      }, 5 * 60 * 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [checkedInToday]);
-
-  const baseBonus = (siteConfig?.checkinBaseBonus !== undefined && siteConfig?.checkinBaseBonus !== null) ? siteConfig.checkinBaseBonus : 100;
-  const increment = (siteConfig?.checkinIncrement !== undefined && siteConfig?.checkinIncrement !== null) ? siteConfig.checkinIncrement : 50;
+  // Canonical check-in economics — mirrors the server fallbacks in
+  // dailyCheckin (base 1000 / increment 100). One pair everywhere so sheet
+  // previews and actual payouts can never disagree.
+  const baseBonus = (siteConfig?.checkinBaseBonus !== undefined && siteConfig?.checkinBaseBonus !== null) ? siteConfig.checkinBaseBonus : 1000;
+  const increment = (siteConfig?.checkinIncrement !== undefined && siteConfig?.checkinIncrement !== null) ? siteConfig.checkinIncrement : 100;
   const withdrawalMode: "automatic" | "manual" = siteConfig?.allowAutoWithdraw === false ? "manual" : "automatic";
   const minimumWithdrawal = Number(siteConfig?.minimumWithdrawal) > 0 ? Math.floor(Number(siteConfig.minimumWithdrawal)) : 10_000;
   const maximumWithdrawal = siteConfig?.maximumWithdrawal === undefined || siteConfig?.maximumWithdrawal === null
     ? 5_000_000
     : (Number(siteConfig.maximumWithdrawal) > 0 ? Math.floor(Number(siteConfig.maximumWithdrawal)) : 0);
 
-  const cycleStartStreak = checkedInToday
-    ? currentStreak - ((currentStreak - 1) % 7)
-    : currentStreak - (currentStreak % 7) + 1;
-
-  const isDayChecked = (idx: number) => {
-    if (checkedInToday) {
-      const cyclePosition = (currentStreak - 1) % 7;
-      return idx <= cyclePosition;
-    } else {
-      const nextActiveIdx = currentStreak % 7;
-      return idx < nextActiveIdx;
-    }
-  };
-
-  const isDayActive = (idx: number) => {
-    if (checkedInToday) {
-      return false;
-    } else {
-      const nextActiveIdx = currentStreak % 7;
-      return idx === nextActiveIdx;
-    }
-  };
-
-  const totalEarnedThisWeek = [...Array(7)].map((_, idx) => {
-    if (isDayChecked(idx)) {
-      const dayStreakVal = cycleStartStreak + idx;
-      return baseBonus + (dayStreakVal - 1) * increment;
-    }
-    return 0;
-  }).reduce((sum, val) => sum + val, 0);
+  // Month-run math. The server keeps streaks consecutive (a missed day
+  // restarts at 1), so the current run is exactly: streak days ending today
+  // (claimed) or yesterday (claimable). The shared sheet derives tiles.
+  const calTodayDay = new Date().getDate();
+  const calTodayStreak = checkedInToday ? currentStreak : currentStreak + 1;
+  const calTodayAmount = baseBonus + (calTodayStreak - 1) * increment;
+  const compactUgx = (n: number) => n >= 1000 ? `${parseFloat((n / 1000).toFixed(1))}k` : `${n}`;
 
   const handleRedeemGiftCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,75 +198,15 @@ export default function ProfileView({
     }
   };
 
-  const handleCheckin = async () => {
-    if (isCheckingIn) return;
-    setIsCheckingIn(true);
-    const activeIdx = currentStreak % 7;
-    setSpinningIndex(activeIdx);
-    const startTime = Date.now();
-    try {
-      const res = await fetch("/api/user/checkin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: userProfile.phone })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to check in.");
-
-      // Ensure spinner runs for at least 1500ms for a premium feel
-      const elapsedTime = Date.now() - startTime;
-      const minSpinTime = 1500;
-      if (elapsedTime < minSpinTime) {
-        await new Promise((resolve) => setTimeout(resolve, minSpinTime - elapsedTime));
-      }
-
-      const formattedAmount = formatCurrency(data.amount);
-      const formattedNewBalance = formatCurrency(userProfile.points + data.amount);
-      
-      toast.success(`Checked in! You've claimed ${formattedAmount} for Day ${data.streak}! New balance: ${formattedNewBalance}`);
-      
-      // Trigger Confetti!
-      try {
-        confetti({
-          particleCount: 150,
-          spread: 85,
-          origin: { y: 0.6 }
-        });
-      } catch (confettiErr) {
-        console.error("Confetti failed", confettiErr);
-      }
-
-      // Update profile locally
-      onProfileUpdate({
-        ...userProfile,
-        points: userProfile.points + data.amount,
-        lastCheckinDate: new Date().toISOString().split("T")[0],
-        checkinStreak: data.streak
-      });
-      setTimeout(() => setShowCheckinSheet(false), 3500);
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setIsCheckingIn(false);
-      setSpinningIndex(null);
-    }
-  };
-
   // States to trigger minimal sheets
   const [showWithdrawSheet, setShowWithdrawSheet] = useState(false);
-  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
-  const [showHistorySheet, setShowHistorySheet] = useState(false);
-  const [showVipTasksSheet, setShowVipTasksSheet] = useState(false);
 
-  // Edit Profile form fields
-  const [username, setUsername] = useState(userProfile.username || "");
-  const [operator, setOperator] = useState<"MTN" | "Airtel">(userProfile.operator || "MTN");
+  const [showHistorySheet, setShowHistorySheet] = useState(false);
+  const [showCommunitySheet, setShowCommunitySheet] = useState(false);
+
+  // Withdraw form fields (bind-account settings moved to BindAccountView page)
   const [usdtAddress, setUsdtAddress] = useState(userProfile.usdtAddress || "");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [withdrawalPhone, setWithdrawalPhone] = useState(userProfile.phone || "");
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [successUpdate, setSuccessUpdate] = useState(false);
 
   // Cashout request form fields
   const [pointsToWithdraw, setPointsToWithdraw] = useState<number>(0);
@@ -346,13 +221,11 @@ export default function ProfileView({
   // Sync profile details when userProfile changes
   useEffect(() => {
     if (userProfile) {
-      setUsername(userProfile.username || "");
-      setOperator(userProfile.operator || "MTN");
       setUsdtAddress(userProfile.usdtAddress || "");
       setWithdrawalPhone(userProfile.phone || "");
       setWithdrawOperator(userProfile.operator || "MTN");
     }
-  }, [userProfile, showSettingsSheet, showWithdrawSheet]);
+  }, [userProfile, showWithdrawSheet]);
 
   // Fetch non-simulated user transaction logs
   const fetchTxHistory = async () => {
@@ -367,60 +240,6 @@ export default function ProfileView({
       console.error("Failed to fetch transaction histories:", err);
     } finally {
       setTxLoading(false);
-    }
-  };
-
-  // Profile Save
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSuccessUpdate(false);
-    
-    if (newPassword && newPassword !== confirmPassword) {
-      toast.error("Passwords do not match.");
-      return;
-    }
-
-    if (!/^\d{9,10}$/.test(withdrawalPhone)) {
-      toast.error("Withdrawal phone number must be 9 or 10 digits.");
-      return;
-    }
-
-    setIsSavingProfile(true);
-    try {
-      const res = await fetch("/api/auth/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: userProfile.phone,
-          username,
-          operator,
-          customPhone: withdrawalPhone,
-          usdtAddress,
-          newPassword: newPassword || undefined
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Profile ledger update failed.");
-      }
-
-      onProfileUpdate(data.profile);
-      setSuccessUpdate(true);
-      toast.success("Account preferences updated successfully.");
-      if (newPassword) {
-        setNewPassword("");
-        setConfirmPassword("");
-        toast.info("Password saved.");
-      }
-      setTimeout(() => {
-        setSuccessUpdate(false);
-        setShowSettingsSheet(false);
-      }, 1500);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to edit user settings.");
-    } finally {
-      setIsSavingProfile(false);
     }
   };
 
@@ -499,9 +318,6 @@ export default function ProfileView({
 
   return (
     <div className="space-y-6 select-none bg-transparent text-slate-100 p-1 rounded-2xl relative">
-      
-      
-      
       {/* News Grid */}
       <NewsCarousel phone={userProfile.phone} dynamicNews={notifications.filter((n:any)=> n.category==="news")} fullWidth />
 
@@ -509,172 +325,142 @@ export default function ProfileView({
       <VisaMetricCard
         leftLabel="Recharge balance"
         leftValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.rechargeBalance || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.rechargeBalance || 0).toLocaleString()}`}
-        rightLabel="Withdrawable"
+        rightLabel="Withdrawable balance"
         rightValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.points || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.points || 0).toLocaleString()}`}
       />
-      <div className="flex gap-2">
-        <button
-          onClick={onNavigateToDeposit}
-          className="flex-1 py-2.5 rounded-full bg-[var(--theme-primary)] text-white font-black text-xs uppercase tracking-wider shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <ArrowDownLeft className="w-4 h-4" /> Deposit
+      <div className="grid grid-cols-2 gap-2 bg-transparent border-0 p-0">
+        <button onClick={onNavigateToDeposit} className="w-full py-3 px-4 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-sm font-sans font-extrabold flex items-center justify-center gap-1.5 shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer">
+          <Plus className="w-4 h-4" strokeWidth={3} /> Recharge
         </button>
-        <button
-          onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))}
-          className="flex-1 py-2.5 rounded-full bg-[var(--theme-card-bg)] border-2 border-[var(--theme-card-border)] text-[var(--theme-text)] font-black text-xs uppercase tracking-wider hover:border-[var(--theme-primary)]/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <ArrowUpRight className="w-4 h-4 text-[var(--theme-primary)]" /> Withdraw
+        <button onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))} className="w-full py-3 px-4 rounded-2xl bg-transparent border border-[var(--theme-primary)]/40 text-[var(--theme-primary)] text-sm font-sans font-extrabold flex items-center justify-center gap-2 hover:bg-[var(--theme-primary)]/10 active:scale-[0.98] transition-all cursor-pointer">
+          <ArrowUpRight className="w-4 h-4" /> Withdraw
         </button>
       </div>
 
-        {/* More Actions Section Header */}
-        <h4 className="font-display font-black text-xs uppercase tracking-wider text-[var(--theme-text)] opacity-70 font-extrabold pt-2">
-          More Actions
-        </h4>
-
-        {/* Integrated Squircle Icon Menu Grid */}
-        <div id="quick-action-menu-grid" className="grid grid-cols-4 gap-x-2 gap-y-5 pt-1">
-          {/* History — now a page */}
-          <button
-            onClick={() => onNavigate("history")}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center rounded-2xl border-2 bg-[var(--theme-bg)] border-[var(--theme-card-border)] text-[var(--theme-text)] shadow-sm active:scale-95 group-active:border-[var(--theme-primary)] transition-all">
-              <History className="w-5 h-5 text-[var(--theme-primary)]" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">History</span>
-          </button>
-
-          {/* Invite */}
-          <button
-            onClick={() => onNavigate("referral")}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center btn-3d-primary rounded-[var(--theme-radius)] aspect-square text-white shadow-md active:scale-95 transition-all cursor-pointer">
-              <UserPlus className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Invite</span>
-          </button>
-
-          {/* VIP Tasks */}
-          <button
-            onClick={() => setShowVipTasksSheet(true)}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center btn-3d-primary rounded-[var(--theme-radius)] aspect-square text-white shadow-md active:scale-95 transition-all cursor-pointer">
-              <Crown className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">VIP Tasks</span>
-          </button>
-
-          {/* Gift Code */}
-          <button
-            onClick={() => setShowGiftCodeSheet(true)}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center btn-3d-primary rounded-[var(--theme-radius)] aspect-square text-white shadow-md active:scale-95 transition-all cursor-pointer">
-              <Gift className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Gift Code</span>
-          </button>
-
-          {/* Check-in */}
-          <button
-            onClick={() => setShowCheckinSheet(true)}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center btn-3d-primary rounded-[var(--theme-radius)] aspect-square text-white shadow-md active:scale-95 transition-all cursor-pointer">
-              <CalendarCheck className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Check-in</span>
-          </button>
-
-          {/* Download App */}
-          <button
-            onClick={async () => {
-              if (isInstalled) {
-                toast.success("App is already installed and running!");
-              } else if (canInstall) {
-                const accepted = await install();
-                if (!accepted) {
-                  toast.info("Installation was cancelled. You can retry from your browser's install menu.");
-                }
-              } else {
-                const instructions = platform === "Safari iOS"
-                  ? "Tap Share, then choose Add to Home Screen."
-                  : platform === "Safari macOS"
-                    ? "Choose Add to Dock from Safari's File menu."
-                    : platform === "Firefox"
-                      ? "Firefox does not expose an automatic install prompt here. Use Chrome or Edge, or add this page to your bookmarks."
-                      : "Open this page in a normal browser tab over HTTPS, then use the install icon in the address bar or browser menu.";
-                toast.info(`Automatic install is unavailable in this browser context. ${instructions}`);
-              }
-            }}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className={`w-12 h-12 flex items-center justify-center rounded-[var(--theme-radius)] aspect-square text-white shadow-md active:scale-95 transition-all cursor-pointer ${
-              isInstalled 
-                ? "bg-emerald-600 shadow-emerald-600/10" 
-                : "btn-3d-primary"
-            }`}>
-              {isInstalled ? (
-                <CheckCircle2 className="w-5 h-5 text-white" />
-              ) : (
-                <Download className="w-5 h-5 text-white animate-bounce" />
-              )}
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">
-              {isInstalled ? "Installed" : "Install App"}
-            </span>
-          </button>
-
-          {/* Settings / Account Settings */}
-          <button
-            onClick={() => {
-              setSuccessUpdate(false);
-              setShowSettingsSheet(true);
-            }}
-            className="flex flex-col items-center gap-1.5 focus:outline-none group"
-          >
-            <div className="w-12 h-12 flex items-center justify-center btn-3d-secondary rounded-[var(--theme-radius)] aspect-square text-[var(--theme-text)] shadow-md active:scale-95 transition-all cursor-pointer border border-[var(--theme-card-border)]">
-              <Wallet className="w-5 h-5 text-[var(--theme-text)]" />
-            </div>
-            <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Bank Account</span>
-          </button>
-        </div>
-
-        {/* App updates — manual check + status */}
-        <div className="border border-[var(--theme-card-border)]  rounded-[var(--theme-radius)] p-3.5 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 flex items-center justify-center shrink-0">
-            <RefreshCw className={`w-5 h-5 text-[var(--theme-primary)] ${updateState === "checking" ? "animate-spin" : ""}`} />
+        {/* More Actions — flat-icon vertical list */}
+        <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-2">
+          <div className="flex items-center justify-between pl-3 pr-1 pt-2 pb-1">
+            <h4 className="font-display font-black text-xs uppercase tracking-wider text-[var(--theme-text)] opacity-70">More Actions</h4>
+            {updateState === "ready" ? (
+              <button
+                onClick={applyAppUpdate}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Update
+              </button>
+            ) : !isInstalled ? (
+              <button
+                onClick={async () => {
+                  if (canInstall) { const accepted = await install(); if (!accepted) toast.info("Installation was cancelled."); }
+                  else { toast.info("Automatic install is unavailable. Use browser install menu."); }
+                }}
+                aria-label="Install app"
+                className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/25 text-[var(--theme-primary)] text-[11px] font-sans font-black uppercase tracking-wide hover:bg-[var(--theme-primary)]/20 cursor-pointer active:scale-95 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" /> Install
+              </button>
+            ) : null}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-display font-black text-[var(--theme-text)] leading-none">App updates</p>
-            <p className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-60 leading-none mt-1.5 truncate">
-              {updateState === "checking" ? "Checking…" :
-               updateState === "ready" ? "New version available" :
-               updateState === "uptodate" ? "Up to date" :
-               updateState === "unsupported" ? "Install the app to enable updates" :
-               isInstalled ? "Installed" : "Not installed"}
-              {updateCheckedAt ? ` • checked ${new Date(updateCheckedAt).toLocaleDateString()} ${new Date(updateCheckedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
-            </p>
+          <div className="flex flex-col">
+            <button onClick={() => onNavigate("history")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-sky-500/15 text-sky-500 shrink-0">
+                <History className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Transaction history</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Transactions & activity</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("vip")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/15 text-amber-500 shrink-0">
+                <Trophy className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Milestones</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Journey stages & rewards</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("streaks")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-orange-500/15 text-orange-500 shrink-0">
+                <CalendarCheck className="w-5 h-5" />
+                {!checkedInToday && (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--theme-primary)] opacity-60"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--theme-primary)] border-2 border-[var(--theme-bg)]"></span>
+                  </span>
+                )}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Check-in</span>
+                <span className="block text-[13px] font-sans font-medium leading-none mt-1.5 text-[var(--theme-primary)]">
+                  {checkedInToday ? `Day ${currentStreak} claimed` : `Day ${calTodayStreak} ready • UGX ${compactUgx(calTodayAmount)}`}
+                </span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => setShowGiftCodeSheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-pink-500/15 text-pink-500 shrink-0">
+                <Gift className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Gift Code</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Redeem a voucher code</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("referral")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500/15 text-violet-500 shrink-0">
+                <UserPlus className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Team Invite</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Invite & earn commissions</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("account")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-slate-400 shrink-0">
+                <CreditCard className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Bank Account</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Payout details</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => setShowCommunitySheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-500 shrink-0">
+                <MessageSquare className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Community</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Groups & announcements</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("guide")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/15 text-blue-500 shrink-0">
+                <Info className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Guide</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">How Rentdue works</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("arcade")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-500/15 text-purple-500 shrink-0">
+                <FlaskConical className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Experimental</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Labs & mini games</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
           </div>
-          {updateState === "ready" ? (
-            <button
-              onClick={applyAppUpdate}
-              className="shrink-0 px-4 py-2 rounded-xl bg-[var(--theme-primary)] text-white text-[11px] font-black uppercase tracking-wide shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-            >
-              Apply
-            </button>
-          ) : (
-            <button
-              onClick={checkForAppUpdate}
-              disabled={updateState === "checking"}
-              className="shrink-0 px-4 py-2 rounded-xl bg-[var(--theme-bg)] border-2 border-[var(--theme-card-border)] text-[var(--theme-text)] text-[11px] font-black uppercase tracking-wide hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer active:scale-95 disabled:opacity-50"
-            >
-              {updateState === "checking" ? "…" : "Check"}
-            </button>
-          )}
         </div>
 
         {/* Defined Logout Button */}
@@ -698,9 +484,7 @@ export default function ProfileView({
                       <X className="w-4 h-4" />
                     </button>
                     <div className="flex flex-col items-center justify-center mb-5 mt-1">
-                      <div className="w-14 h-14 btn-3d-primary text-white rounded-2xl flex items-center justify-center mb-3 shadow-md">
-                        <Gift className="w-7 h-7" />
-                      </div>
+                      <img src={gift3d2} alt="" className="w-14 h-14 object-contain drop-shadow-sm mb-3" loading="lazy" decoding="async" />
                       <h3 className="text-lg font-display font-black text-[var(--theme-text)] tracking-tight">Gift code</h3>
                       <p className="text-[12px] text-[var(--theme-text)] opacity-70 mt-1 text-center font-sans">Enter your code below</p>
                     </div>
@@ -712,16 +496,20 @@ export default function ProfileView({
                           value={giftCodeValue}
                           onChange={e => setGiftCodeValue(e.target.value.toUpperCase())}
                           placeholder="ENTER CODE"
-                          className="w-full px-4 py-3 bg-[var(--theme-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-sm font-display font-black text-center tracking-[0.2em] text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] uppercase transition-all shadow-inner placeholder-[var(--theme-text)]/40"
+                          className="w-full px-4 py-3 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-sm font-display font-black text-center tracking-[0.2em] text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] uppercase transition-all shadow-inner placeholder-[var(--theme-text)]/40"
                         />
                       </div>
-                      <button
-                        type="submit"
-                        disabled={isRedeemingGiftCode || !giftCodeValue}
-                        className="w-full py-3.5 btn-3d-primary text-white text-xs font-display font-black uppercase tracking-wider rounded-[var(--theme-radius)] transition-all shadow-md flex items-center justify-center cursor-pointer active:scale-95 disabled:opacity-50"
-                      >
-                        {isRedeemingGiftCode ? <Loader2 className="w-5 h-5 animate-spin mx-auto text-white" /> : "get gift"}
-                      </button>
+                    <Button
+                      variant="gold-glossy"
+                      size="sm"
+                      type="submit"
+                      loading={isRedeemingGiftCode}
+                      disabled={!giftCodeValue}
+                      className="w-full"
+                      glow={false}
+                    >
+                      get gift
+                    </Button>
                     </form>
                   </motion.div>
                 </div>
@@ -730,318 +518,13 @@ export default function ProfileView({
 
 
 
-            {/* Daily Check-in Modal (30-Day Calendar matching inspiration screenshot) */}
-            <AnimatePresence>
-              {showCheckinSheet && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
-                  <motion.div 
-                    initial={{ opacity: 0 }} 
-                    animate={{ opacity: 1 }} 
-                    exit={{ opacity: 0 }} 
-                    className="absolute inset-0 bg-black/75 backdrop-blur-xs" 
-                    onClick={() => setShowCheckinSheet(false)} 
-                  />
-                  <motion.div 
-                    initial={{ scale: 0.94, y: 15, opacity: 0 }} 
-                    animate={{ scale: 1, y: 0, opacity: 1 }} 
-                    exit={{ scale: 0.94, y: 15, opacity: 0 }} 
-                    transition={{ type: "spring", damping: 26, stiffness: 360 }} 
-                    className="relative w-full max-w-[440px] max-h-[90vh] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-left flex flex-col overflow-hidden backdrop-blur-xl"
-                  >
-                    {/* Top Banner - Theme Aware */}
-                    <div className=" relative border-b border-[var(--theme-card-border)] px-5 py-4 text-[var(--theme-text)] flex flex-col gap-3 shrink-0">
-                      <button 
-                        onClick={() => setShowCheckinSheet(false)} 
-                        className="absolute right-4 top-4 text-[var(--theme-text)] opacity-60 hover:opacity-100 p-2 rounded-full hover:bg-[var(--theme-bg)] transition-colors cursor-pointer"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                      <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 flex items-center justify-center">
-                          <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[10px] uppercase tracking-[0.35em] text-[var(--theme-primary)] opacity-80 font-semibold">Daily check-in</p>
-                          <h3 className="font-display font-black text-xl tracking-tight text-[var(--theme-text)]">Keep your streak rolling</h3>
-                        </div>
-                      </div>
-                      <p className="text-sm text-[var(--theme-text)] opacity-70 max-w-[32rem] leading-6">
-                        Claim a bonus once every 24 hours and return tomorrow to grow your streak and rewards.
-                      </p>
-                    </div>
-
-                    <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-5 scrollbar-none">
-                      {/* Hero Reward Badge */}
-
-
-                      {/* Month & Count Header */}
-                      {(() => {
-                        const now = new Date();
-                        const monthName = now.toLocaleString("default", { month: "long" });
-                        const year = now.getFullYear();
-                        const daysInMonth = new Date(year, now.getMonth() + 1, 0).getDate(); // 30 or 31
-                        const todayDay = now.getDate(); // 1 to 31
-                        const firstDayWeekday = new Date(year, now.getMonth(), 1).getDay(); // 0 (Sun) to 6 (Sat)
-                        
-                        // Count claimed days this month
-                        const claimedCount = Math.min(daysInMonth, userProfile.checkinStreak || (checkedInToday ? 1 : 0));
-
-                        return (
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between px-1">
-                              <span className="font-display font-black text-xs text-[var(--theme-text)]">
-                                {monthName} {year}
-                              </span>
-                              <span className="bg-[var(--theme-primary)] text-white font-sans text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                                {claimedCount} / {daysInMonth}
-                              </span>
-                            </div>
-
-                            {/* Calendar Grid Container */}
-                            <div className="bg-[var(--theme-bg)]/60 border border-[var(--theme-card-border)] rounded-2xl p-2.5 space-y-1.5">
-                              {/* Weekdays Row */}
-                              <div className="grid grid-cols-7 gap-1 text-center font-sans font-bold text-[10px] text-[var(--theme-text)] opacity-60 pb-1">
-                                <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-                              </div>
-
-                              {/* Days Grid */}
-                              <div className="grid grid-cols-7 gap-1">
-                                {/* Empty offset slots */}
-                                {Array.from({ length: firstDayWeekday }).map((_, i) => (
-                                  <div key={`empty-${i}`} className="w-full aspect-square" />
-                                ))}
-
-                                {/* Day cards 1 to daysInMonth */}
-                                {Array.from({ length: daysInMonth }).map((_, i) => {
-                                  const dayNum = i + 1;
-                                  const isPast = dayNum < todayDay;
-                                  const isToday = dayNum === todayDay;
-
-                                  // Determine status: claimed, today, missed, future
-                                  let isClaimed = false;
-                                  let isMissed = false;
-
-                                  if (isPast) {
-                                    if (dayNum <= (userProfile.checkinStreak || 0)) {
-                                      isClaimed = true;
-                                    } else {
-                                      isMissed = true;
-                                    }
-                                  } else if (isToday) {
-                                    if (checkedInToday) {
-                                      isClaimed = true;
-                                    }
-                                  }
-
-                                  return (
-                                    <div
-                                      key={`day-${dayNum}`}
-                                      onClick={() => {
-                                        if (isToday && !checkedInToday && spinningIndex === null) {
-                                          handleCheckin();
-                                        }
-                                      }}
-                                      className={`aspect-square rounded-xl border flex flex-col items-center justify-center p-0.5 relative transition-all select-none text-center ${
-                                        isClaimed
-                                          ? "bg-[var(--theme-primary)] border-[var(--theme-primary)] text-white font-bold shadow-lg"
-                                          : isToday && !checkedInToday
-                                          ? "bg-[var(--theme-accent)] border-[var(--theme-accent)] text-white font-black ring-2 ring-[var(--theme-accent)]/40 shadow-sm cursor-pointer"
-                                          : isMissed
-                                          ? "bg-[var(--theme-card-bg)]/70 border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"
-                                          : "bg-[var(--theme-bg)]/60 border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-60"
-                                      }`}
-                                    >
-                                      <span className="text-[10px] leading-none mb-0.5">{dayNum}</span>
-                                      
-                                      {spinningIndex !== null && isToday ? (
-                                        <Loader2 className="w-3 h-3 animate-spin text-current" />
-                                      ) : isClaimed ? (
-                                        <Check className="w-3 h-3 text-white stroke-[3]" />
-                                      ) : isToday && !checkedInToday ? (
-                                        <Gift className="w-3 h-3 text-white" />
-                                      ) : isMissed ? (
-                                        <X className="w-2.5 h-2.5 text-[var(--theme-text)] opacity-70 stroke-[3]" />
-                                      ) : (
-                                        <Lock className="w-2.5 h-2.5 text-[var(--theme-text)] opacity-40" />
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Quick Guide */}
-                      <div className="rounded-3xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/70 px-4 py-3 text-sm text-[var(--theme-text)] opacity-90">
-                        <p className="font-semibold">How to claim</p>
-                        <p className="mt-1 text-xs opacity-70 leading-5">
-                          Tap today's tile when it is available. Check in daily to keep your streak alive and increase future rewards.
-                        </p>
-                      </div>
-
-                      {/* Bottom CTA Button */}
-                      <div className="pt-1">
-                        {checkedInToday ? (
-                          <div className="w-full py-3 rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-text)] text-xs font-display font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-not-allowed select-none">
-                            <Check className="w-4 h-4 stroke-[3]" />
-                            <span>Already claimed</span>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={handleCheckin}
-                            disabled={spinningIndex !== null}
-                            className="btn-3d-primary w-full py-3 rounded-full text-xs font-display font-black uppercase tracking-wider text-white flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-98"
-                          >
-                            {spinningIndex !== null ? (
-                              <Loader2 className="w-4 h-4 animate-spin text-white" />
-                            ) : (
-                              <>
-                                <Gift className="w-4 h-4 text-white" />
-                                <span>Claim reward now</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
+            {/* Daily Check-in lives on the Streaks page now */}
 
 
 
 
 
 {/* ================= SHEETS & DRAWERS OVERLAYS ================= */}
-
-      {/* 2. Nice Minimal Settings Sheet */}
-      <AnimatePresence>
-        {showSettingsSheet && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSettingsSheet(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-xs"
-            />
-            {/* Sheet - 85vh max height */}
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 26, stiffness: 220 }}
-              className="relative w-full max-w-md h-[85vh] max-h-[85vh] theme-card bg-[var(--theme-card-bg)] border-t border-[var(--theme-card-border)] text-[var(--theme-text)] rounded-t-[var(--theme-radius)] p-6 pb-8 flex flex-col z-10 overflow-hidden shadow-2xl"
-            >
-              {/* Header */}
-              <div className="flex justify-between items-center pb-2 border-b border-[var(--theme-card-border)] shrink-0 mb-4">
-                <div className="space-y-0.5">
-                  <h4 className="font-display font-black text-base text-[var(--theme-text)] uppercase tracking-tight">Bind Account</h4>
-                  <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Configure your billing & security</p>
-                </div>
-                <button
-                  onClick={() => setShowSettingsSheet(false)}
-                  className="p-1.5 rounded-full btn-3d-secondary border border-[var(--theme-card-border)] text-[var(--theme-text)] cursor-pointer focus:outline-none"
-                  id="close-settings-btn"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Form */}
-              <form onSubmit={handleSaveProfile} className="space-y-4 flex-1 overflow-y-auto pr-1 pb-16">
-                <div className="space-y-1">
-                  <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Display Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans font-medium transition-colors"
-                    placeholder="Username display"
-                    id="settings-username-input"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Phone Number</label>
-                  <div className="relative">
-                    <Phone className="w-3.5 h-3.5 text-[var(--theme-text)] opacity-50 absolute left-3 top-3.5" />
-                    <input
-                      type="tel"
-                      required
-                      value={withdrawalPhone}
-                      disabled={true} readOnly
-                      className="w-full pl-9 pr-4 py-2.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans opacity-70"
-                      placeholder="+25677..."
-                      id="settings-phone-input"
-                    />
-                  </div>
-                </div>
-
-                
-
-                <div className="space-y-1">
-                  <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">USDT Wallet Address (Optional)</label>
-                  <div className="relative">
-                    <Wallet className="w-3.5 h-3.5 text-[var(--theme-text)] opacity-50 absolute left-3 top-3.5" />
-                    <input
-                      type="text"
-                      value={usdtAddress}
-                      onChange={(e) => setUsdtAddress(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans transition-colors"
-                      placeholder="T..."
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1 pt-2 border-t border-[var(--theme-card-border)]">
-                  <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Update Password (Optional)</label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans transition-colors"
-                    placeholder="New password"
-                  />
-                </div>
-                
-                {newPassword && (
-                  <div className="space-y-1">
-                    <input
-                      type="password"
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans transition-colors"
-                      placeholder="Confirm new password"
-                    />
-                  </div>
-                )}
-
-                {successUpdate && (
-                  <div className="text-center text-[11px] text-emerald-400 font-sans py-1 flex items-center justify-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>✓ System settings saved offline!</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isSavingProfile}
-                  className="w-full py-3 rounded-[var(--theme-radius)] bg-[var(--theme-primary)] hover:brightness-110 text-white font-sans font-bold text-xs shadow-md transition-all cursor-pointer outline-none active:scale-[0.99] flex items-center justify-center"
-                >
-                  {isSavingProfile ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : "Save Account Data"}
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* 3. Transaction History Sheet */}
       <AnimatePresence>
@@ -1079,8 +562,10 @@ export default function ProfileView({
                   { id: "all", label: "All" },
                   { id: "deposit", label: "Recharge" },
                   { id: "withdraw", label: "Withdrawal" },
-                  { id: "checkin", label: "Check-in" },
+                  { id: "product", label: "Product" },
+                  { id: "yield", label: "Yield" },
                   { id: "referral", label: "Referral" },
+                  { id: "checkin", label: "Check-in" },
                   { id: "voucher", label: "Voucher" },
                   { id: "vip_task", label: "VIP Tasks" }
                 ].map((tab) => (
@@ -1115,59 +600,67 @@ export default function ProfileView({
                   transactions
                     .filter((tx) => {
                       if (historyFilter === "all") return true;
-                      const t = (tx.type || "").toLowerCase();
-                      if (historyFilter === "deposit") return t === "deposit" || t === "balance" || t === "manual";
-                      if (historyFilter === "withdraw") return t === "withdrawal" || t === "withdraw";
-                      if (historyFilter === "checkin") return t === "checkin" || t === "checkin_bonus";
-                      if (historyFilter === "referral") return t === "referral";
-                      if (historyFilter === "voucher") return t === "voucher";
-                      if (historyFilter === "vip_task") return t === "vip_task";
+                      const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
+                      if (historyFilter === "deposit") return canon === "deposit";
+                      if (historyFilter === "withdraw") return canon === "withdrawal";
+                      if (historyFilter === "product") return canon === "product_activation";
+                      if (historyFilter === "yield") return canon === "daily_yield";
+                      if (historyFilter === "checkin") return canon === "daily_checkin_bonus";
+                      if (historyFilter === "referral") return canon === "referral_signup_bonus" || canon === "referral_level_income";
+                      if (historyFilter === "voucher") return canon === "gift_code";
+                      if (historyFilter === "vip_task") return canon === "vip_task";
+                      if (historyFilter === "registration_bonus") return canon === "registration_bonus";
                       return true;
                     })
                     .map((tx) => {
-                      const t = (tx.type || "").toLowerCase();
+                      const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
                       const txStatus = String(tx.status || "").toUpperCase();
-                      const isPositive = t === "deposit" || t === "balance" || t === "manual" || t === "checkin" || t === "checkin_bonus" || t === "referral" || t === "voucher" || t === "vip_task" || t === "reward";
+                      const isPositive = isPositiveTransaction(tx.type, tx.metadata);
 
-                      // Compute display amounts: for withdrawals prefer payoutAmount (after fee), falling back to amount - fee
-                      const metadata = tx.metadata || {};
-                      const requestedAmount = Number(metadata.requestedAmount ?? tx.amount ?? 0);
-                      const feeAmount = Number(metadata.feeAmount ?? 0);
-                      const payoutAmount = Number(metadata.payoutAmount ?? Math.max(0, (tx.amount || 0) - feeAmount));
+                      const { fee: feeAmount, payout: payoutAmount } = getWithdrawalDisplayAmounts(tx);
+                      const meta = getTransactionDisplayMeta(tx.type, tx.metadata);
 
-                      let badgeLabel = "Transaction";
+                      let badgeLabel = meta.label;
                       let badgeStyle = "bg-blue-500/15 text-blue-500 border-blue-500/30";
                       let IconComponent = Coins;
 
-                      if (t === "deposit" || t === "balance" || t === "manual") {
+                      if (canon === "deposit") {
                         badgeLabel = "Recharge";
                         badgeStyle = "bg-emerald-500/15 text-emerald-500 border-emerald-500/30";
                         IconComponent = ArrowDownLeft;
-                      } else if (t === "withdrawal" || t === "withdraw") {
+                      } else if (canon === "withdrawal") {
                         badgeLabel = "Withdrawal";
                         badgeStyle = "bg-rose-500/15 text-rose-500 border-rose-500/30";
                         IconComponent = ArrowUpRight;
-                      } else if (t === "gpu" || t === "subscription") {
-                        badgeLabel = "Product Rental";
+                      } else if (canon === "product_activation") {
+                        badgeLabel = meta.isProductWithName && meta.productName ? meta.productName : "Product Rental";
                         badgeStyle = "bg-blue-500/15 text-blue-500 border-blue-500/30";
                         IconComponent = Cpu;
-                      } else if (t === "checkin" || t === "daily accumulation") {
+                      } else if (canon === "daily_yield") {
+                        badgeLabel = "Daily Yield";
+                        badgeStyle = "bg-amber-500/15 text-amber-500 border-amber-500/30";
+                        IconComponent = Flame;
+                      } else if (canon === "daily_checkin_bonus") {
                         badgeLabel = "Daily Check-in";
                         badgeStyle = "bg-amber-500/15 text-amber-500 border-amber-500/30";
                         IconComponent = Flame;
-                      } else if (t === "referral") {
+                      } else if (canon === "registration_bonus") {
+                        badgeLabel = "Registration Bonus";
+                        badgeStyle = "bg-teal-500/15 text-teal-500 border-teal-500/30";
+                        IconComponent = CheckCircle2;
+                      } else if (canon === "referral_signup_bonus") {
                         badgeLabel = "Referral Bonus";
                         badgeStyle = "bg-purple-500/15 text-purple-500 border-purple-500/30";
                         IconComponent = Users;
-                      } else if (t === "voucher") {
-                        badgeLabel = "Voucher Cut";
+                      } else if (canon === "referral_level_income") {
+                        badgeLabel = `Referral L${meta.level ?? "?"}`;
+                        badgeStyle = "bg-purple-500/15 text-purple-500 border-purple-500/30";
+                        IconComponent = Users;
+                      } else if (canon === "gift_code") {
+                        badgeLabel = "Gift Code";
                         badgeStyle = "bg-indigo-500/15 text-indigo-500 border-indigo-500/30";
                         IconComponent = Gift;
-                      } else if (t === "checkin_bonus" || t === "register") {
-                        badgeLabel = "Check-in Bonus";
-                        badgeStyle = "bg-teal-500/15 text-teal-500 border-teal-500/30";
-                        IconComponent = CheckCircle2;
-                      } else if (t === "vip_task") {
+                      } else if (canon === "vip_task") {
                         badgeLabel = "VIP Task";
                         badgeStyle = "bg-yellow-500/15 text-yellow-500 border-yellow-500/30";
                         IconComponent = Trophy;
@@ -1196,10 +689,10 @@ export default function ProfileView({
 
                           <div className="text-right space-y-0.5">
                             <span className={`text-xs font-sans font-black ${isPositive ? "text-emerald-500" : "text-[var(--theme-text)]"}`}>
-                              {isPositive ? "+" : "-"} {formatCurrency((t === "withdrawal" || t === "withdraw") ? payoutAmount : (tx.amount || 0))}
+                              {isPositive ? "+" : "-"} {formatCurrency(canon === "withdrawal" ? payoutAmount : (tx.amount || 0))}
                             </span>
 
-                            {(t === "withdrawal" || t === "withdraw") && feeAmount > 0 && (
+                            {canon === "withdrawal" && feeAmount > 0 && (
                               <p className="text-[11px] text-[var(--theme-text)] opacity-60 font-sans font-medium">
                                 Fees: {formatCurrency(feeAmount)}
                               </p>
@@ -1207,7 +700,7 @@ export default function ProfileView({
 
                             {((tx.operator === "USDT" || tx.withdrawOperator === "USDT" || (tx.senderPhone || "").startsWith("T")) && siteConfig?.usdtRate) && (
                               <p className="text-[11px] font-sans text-[var(--theme-primary)] font-bold">
-                                ≈ ${(((t === "withdrawal" || t === "withdraw") ? payoutAmount : (tx.amount || 0)) / siteConfig.usdtRate).toFixed(2)} USDT
+                                ≈ ${((canon === "withdrawal" ? payoutAmount : (tx.amount || 0)) / siteConfig.usdtRate).toFixed(2)} USDT
                               </p>
                             )}
 
@@ -1227,17 +720,8 @@ export default function ProfileView({
         )}
       </AnimatePresence>
 
-      {/* 4. VIP Tasks Sheet Overlay */}
-      <AnimatePresence>
-        {showVipTasksSheet && (
-          <VipTasksSheet
-            isOpen={showVipTasksSheet}
-            onClose={() => setShowVipTasksSheet(false)}
-            userProfile={userProfile}
-            onClaimSuccess={onProfileUpdate}
-          />
-        )}
-      </AnimatePresence>
+      {/* 3.5 Community Sheet — shared with DashboardView */}
+      <CommunitySheet open={showCommunitySheet} onClose={() => setShowCommunitySheet(false)} siteConfig={siteConfig} />
     </div>
   );
 }

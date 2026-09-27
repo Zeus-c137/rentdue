@@ -14,9 +14,8 @@ interface MetricCardProps {
 
 export default function MetricCard({ title, value, subtitle, isLoading, titleColor, icon, variant = "hero" }: MetricCardProps) {
   const { cardStyle } = useTheme();
-  const isPlayful = cardStyle === "playful-3d";
-  const isGlass = cardStyle === "glass" || cardStyle === "liquid-glass";
   const isMuted = variant === "muted";
+  const isImageIcon = React.isValidElement(icon) && (icon as any).type === 'img';
 
   let accent: { bg: string; shadow: string; text: string } = { bg: "var(--theme-card-border)", shadow: "var(--theme-card-shadow)", text: "var(--theme-text)" };
   let titleClass = "text-[var(--theme-text)] opacity-60 font-black tracking-widest";
@@ -36,17 +35,15 @@ export default function MetricCard({ title, value, subtitle, isLoading, titleCol
   }
 
   const cardBase = isMuted
-    ? "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-none opacity-95"
-    : isGlass
-    ? "bg-[var(--theme-card-bg)]/80 backdrop-blur-xl border-white/20 shadow-lg"
-    : isPlayful
-    ? "bg-[var(--theme-card-bg)] border-2 border-[var(--theme-card-border)] shadow-[0_5px_0_0_var(--theme-card-shadow)]"
-    : "bg-[var(--theme-card-bg)] border-2 border-[var(--theme-card-border)] shadow-md";
+    ? "bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 shadow-sm"
+    : cardStyle === "glass"
+    ? "bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 shadow-sm"
+    : "bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 shadow-[0_4px_0_0_var(--theme-card-shadow)]";
 
   const heightClass = isMuted ? "h-[96px]" : "h-[112px]";
 
   return (
-    <div className={`relative overflow-hidden theme-card rounded-[var(--theme-radius)] p-3.5 ${heightClass} flex flex-col justify-between transition-all group ${cardBase}`}>
+    <div style={{ transform: "translateZ(0)" }} className={`relative overflow-hidden theme-card rounded-[var(--theme-radius)] p-3.5 ${heightClass} flex flex-col justify-between ${cardBase} isolate`}>
       
       <div className="flex items-start justify-between gap-2">
         <span
@@ -56,12 +53,18 @@ export default function MetricCard({ title, value, subtitle, isLoading, titleCol
           {title}
         </span>
         {icon && (
+          isImageIcon ? (
+            <div className="w-11 h-11 flex items-center justify-center shrink-0 overflow-hidden bg-transparent border-0">
+              <span className="w-11 h-11 flex items-center justify-center [&>img]:w-11 [&>img]:h-11 [&>img]:object-contain drop-shadow-[0_3px_8px_rgba(0,0,0,0.12)]">{icon}</span>
+            </div>
+          ) : (
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white shadow-md border border-white/15"
             style={{ background: accent.bg, boxShadow: `0 3px 0 0 ${accent.shadow}` }}
           >
             <span className="w-4.5 h-4.5 flex items-center justify-center [&>svg]:w-4.5 [&>svg]:h-4.5">{icon}</span>
           </div>
+          )
         )}
       </div>
 

@@ -1,482 +1,649 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Home: balance + progress, Rent Clock, runs, streak. Every section answers
+ * "why come back tomorrow". No totals without action, no decoration.
  */
-
-import React, { useState, useEffect } from "react";
-import { UserProfile, SubscribedNode, SystemStats, NotificationItem, SubscriptionItem } from "../types";
-import {
-  Coins,
-  Zap,
-  RefreshCw,
-  Layers,
-  CheckCircle,
-  Flame,
-  Plus,
-  Clock,
-  ArrowDownLeft,
-  ArrowUpRight,
-  ShieldCheck,
-  Bell,
-  AlertCircle,
-  X,
-  ChevronRight,
-  ExternalLink,
-  Smartphone,
-  Gift,
-  Send,
-  MessageSquare,
-  Activity,
-  Users,
-  Cpu,
-} from "lucide-react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useGatedInterval } from "../hooks/useGatedInterval";
+import { fetchJsonWithSignal } from "../utils/abortableFetch";
+import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
+import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { getMilestoneBoard } from "./VipTasksPage";
+import { tierMetaFor } from "../utils/vip";
 import { motion, AnimatePresence } from "motion/react";
-
-import ParticleBg from "./ParticleBg";
-import NewsCarousel from "./NewsCarousel";
-import MetricCard from "./MetricCard";
-import FeaturedProducts from "./FeaturedProducts";
+import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
+import { toast } from "sonner";
 import { useCurrency } from "../currency";
+import {
+  getRunProgress,
+  getRunEndMs,
+  getRunState,
+  formatClock,
+  getTodayKey,
+} from "../utils/runs";
 
 interface DashboardViewProps {
   profile: UserProfile;
   activeNodes: SubscribedNode[];
-  onNavigateToCatalog: () => void;
-  onNavigateToDeposit: () => void;
-  onNavigateToWithdraw?: () => void;
-  onNavigateToProfile: () => void;
-  onNavigateToAlerts: () => void;
   items: SubscriptionItem[];
-  systemStats?: SystemStats;
-  siteConfig?: any;
-  notifications?: NotificationItem[];
-  onRefreshDashboard: () => void;
+  onNavigateToCatalog: () => void;
+  onNavigateToIncome: () => void;
+  onNavigateToMilestones: (stage?: string) => void;
+  onNavigateToStreaks: () => void;
+  onProfileUpdate: (p: UserProfile) => void;
+}
+
+interface FlightCoin {
+  id: number;
+  startX: number;
+  startY: number;
+  dx: number;
+  dy: number;
+  delay: number;
+}
+
+function WeekSpark({ data }: { data: number[] }) {
+  const W = 300;
+  const H = 56;
+  const P = 4;
+  const max = Math.max(...data, 0);
+  const min = Math.min(...data, 0);
+  const span = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = P + (i * (W - P * 2)) / Math.max(1, data.length - 1);
+    const y = H - P - ((v - min) / span) * (H - P * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const [lastX, lastY] = pts[pts.length - 1].split(",");
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className="w-full h-14 overflow-visible"
+      aria-hidden
+    >
+      <polygon
+        points={`${P},${H} ${pts.join(" ")} ${W - P},${H}`}
+        fill="var(--theme-primary)"
+        opacity="0.12"
+      />
+      <polyline
+        points={pts.join(" ")}
+        fill="none"
+        stroke="var(--theme-primary)"
+        strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="spark-draw"
+      />
+      <circle cx={lastX} cy={lastY} r="3" fill="var(--theme-primary)" className="spark-dot" />
+    </svg>
+  );
 }
 
 export default function DashboardView({
   profile,
   activeNodes,
-  onNavigateToCatalog,
-  onNavigateToDeposit,
-  onNavigateToWithdraw,
-  onNavigateToProfile,
-  onNavigateToAlerts,
   items,
-  systemStats,
-  siteConfig,
-  notifications: externalNotifications,
-  onRefreshDashboard
+  onNavigateToCatalog,
+  onNavigateToIncome,
+  onNavigateToMilestones,
+  onNavigateToStreaks,
+  onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showCommunitySheet, setShowCommunitySheet] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [weekSeries, setWeekSeries] = useState<number[] | null>(null);
+  const [checkinBusy, setCheckinBusy] = useState(false);
+  const [checkedInLocal, setCheckedInLocal] = useState(false);
+  const [coins, setCoins] = useState<FlightCoin[] | null>(null);
+  const [barsIn, setBarsIn] = useState(false);
+  const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
+  const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
+  const [claimedDays, setClaimedDays] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    void getMilestoneBoard(profile.phone, ctrl.signal)
+      .then((b) => { if (!cancelled) setMsBoard(b); })
+      .catch(() => { /* milestones are progressive enhancement; home works without them */ });
+    return () => { cancelled = true; ctrl.abort(); };
+  }, [profile.phone]);
+  // Next incomplete achievement in an open stage — never a finished one.
+  const nextMilestone = useMemo(() => {
+    if (!msBoard || msBoard.tasks.length === 0) return null;
+    const claimedTiers = msBoard.claimedTierRewards || [];
+    const openStages = (msBoard.stageOrder || []).filter(
+      (stage) => !claimedTiers.includes(stage) && msBoard.tasks.some((t) => t.category === stage && !t.stageLocked)
+    );
+    if (openStages.length === 0) return { done: true as const };
+    const pool = msBoard.tasks.filter((t) => openStages.includes(t.category));
+    const task = (pool.find((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0)) || pool[0]) as VipTask;
+    return { done: false as const, task };
+  }, [msBoard]);
+  const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
+  const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "account_created" ? "" : "runs");
+  useEffect(() => {
+    setBarsIn(false);
+    const frame = requestAnimationFrame(() => setBarsIn(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const balanceRef = useRef<HTMLParagraphElement>(null);
+  const todayKey = getTodayKey();
 
-  // Notifications — prefer parent-provided list to avoid duplicate /api/profile/notifications fetches
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => externalNotifications ?? []);
-  const [notifLoading, setNotifLoading] = useState(false);
-  const [teamCount, setTeamCount] = useState(0);
-  const lastReferralsFetch = React.useRef<number>(0);
-  const [selectedAlert, setSelectedAlert] = useState<NotificationItem | null>(null);
+  // Rent Clock tick — gated to visible tab.
+  useGatedInterval(
+    () => {
+      if (!document.hidden) setNowMs(Date.now());
+    },
+    1000,
+    { enabled: true, visibilityGate: true }
+  );
 
-  function renderMessageWithLinks(text: string) {
-    if (!text) return "";
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-    return parts.map((part, index) => {
-      if (part.match(urlRegex)) {
-        return (
-          <a
-            key={index}
-            href={part}
-            target="_blank"
-            referrerPolicy="no-referrer"
-            rel="noopener noreferrer"
-            className="text-blue-450 hover:text-blue-300 font-bold hover:underline break-all inline-block select-text"
-          >
-            {part}
-          </a>
-        );
-      }
-      return part;
+  const weekTotal = weekSeries === null ? null : weekSeries.reduce((sum, v) => sum + v, 0);
+
+  // Check-in economics preview (server is authoritative at claim time).
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchJsonWithSignal<{ checkinBaseBonus?: number; checkinIncrement?: number }>(`/api/config/site`, ctrl.signal)
+      .then((cfg) => {
+        if (ctrl.signal.aborted) return;
+        const base = Number(cfg.checkinBaseBonus);
+        const inc = Number(cfg.checkinIncrement);
+        setCheckinEcon({ base: Number.isFinite(base) ? base : 1000, inc: Number.isFinite(inc) ? inc : 100 });
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, []);
+
+  // Week sparkline: everything credited to withdrawable, per day.
+  useEffect(() => {
+    if (weekSeries !== null) return;
+    const ctrl = new AbortController();
+    fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
+      .then((rows) => {
+        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
+        const days: number[] = [0, 0, 0, 0, 0, 0, 0];
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startMs = startOfToday.getTime();
+        for (const tx of rows) {
+          const type = String(tx.type || "").toLowerCase();
+          if (!CREDIT_TYPES.has(type)) continue;
+          if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
+          const ts = new Date(tx.timestamp).getTime();
+          if (!Number.isFinite(ts)) continue;
+          const dayIndex = Math.floor((ts - startMs) / (24 * 3600 * 1000)) + 6;
+          if (dayIndex < 0 || dayIndex > 6) continue;
+          days[dayIndex] += Number(tx.amount) || 0;
+        }
+        setWeekSeries(days);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.phone]);
+
+  const activeRuns = useMemo(() => {
+    const list = activeNodes.filter((n) => getRunState(n, items) === "active");
+    list.sort((a, b) => (getRunEndMs(a) ?? Infinity) - (getRunEndMs(b) ?? Infinity));
+    return list;
+  }, [activeNodes, items]);
+  const [showCompletedRuns, setShowCompletedRuns] = useState(false);
+  const completedRuns = useMemo(() => {
+    const list = activeNodes.filter((n) => getRunState(n, items) !== "active");
+    list.sort((a, b) => (getRunEndMs(b) ?? -Infinity) - (getRunEndMs(a) ?? -Infinity));
+    return list;
+  }, [activeNodes, items]);
+  const shownRuns = showCompletedRuns ? completedRuns : activeRuns;
+
+  // Next check-in opens at UTC midnight (check-ins settle on UTC days).
+  const nextCheckinIn = useMemo(() => {
+    const n = new Date(nowMs);
+    const midnight = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1);
+    return Math.max(0, midnight - nowMs);
+  }, [nowMs]);
+
+  const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
+  const streak = Math.max(0, Number(profile.checkinStreak) || 0);
+
+  // Button preview mirrors the server formula: base + (nextStreak - 1) * inc,
+  // where the streak continues only from yesterday.
+  const checkinAmount = useMemo(() => {
+    const base = checkinEcon && Number.isFinite(checkinEcon.base) ? checkinEcon.base : 1000;
+    const inc = checkinEcon && Number.isFinite(checkinEcon.inc) ? checkinEcon.inc : 100;
+    const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split("T")[0];
+    const next = profile.lastCheckinDate === yesterday ? streak + 1 : 1;
+    return base + (next - 1) * inc;
+  }, [checkinEcon, profile.lastCheckinDate, streak]);
+
+  // Full-month streak, same math as the original check-in modal: the server
+  // keeps streaks consecutive, so the live run is exactly `todayStreak` days
+  // ending today (claimed) or yesterday (claimable). Tiles derive from it.
+  const weekTiles = useMemo(() => {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const todayMs = Date.UTC(year, month, now.getUTCDate());
+    const todayStreak = checkedInToday ? streak : streak + 1;
+    const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
+    const tomorrowMs = todayMs + 86400000;
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return {
+      month: now.toLocaleString("default", { month: "long" }),
+      days: Array.from({ length: daysInMonth }, (_, i) => {
+        const ms = Date.UTC(year, month, i + 1);
+        const key = new Date(ms).toISOString().split("T")[0];
+        const isToday = ms === todayMs;
+        return {
+          key,
+          label: String(i + 1),
+          isToday,
+          isFuture: ms > todayMs,
+          // Next countdown tile: tomorrow once today is claimed. Distinct from greyed futures.
+          isNext: checkedInToday && ms === tomorrowMs,
+          // Claimed: inside the live run and (past, or today already checked).
+          claimed: ms >= runStartMs && ms <= todayMs && (ms < todayMs || checkedInToday),
+        };
+      }),
+    };
+  }, [checkedInToday, streak, todayKey]);
+  const tilesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tilesRef.current
+      ?.querySelector('[data-today="true"]')
+      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, []);
+
+  const deliverCheckin = (bonus: number, streak: number) => {
+    // Atomic balance update: parent profile swaps the moment coins land.
+    onProfileUpdate({
+      ...profile,
+      points: (Number(profile.points) || 0) + bonus,
+      lastCheckinDate: todayKey,
+      checkinStreak: streak,
     });
-  }
+    setCheckedInLocal(true);
+    setCoins(null);
+    toast.success(bonus > 0 ? `Checked in! +${formatCurrency(bonus)}` : "Checked in! Streak kept alive.");
+  };
 
-  const fetchDashboardData = async () => {
+  const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
+    if (checkedInToday || checkinBusy) return;
+    // Capture tile geometry synchronously — React synthetic events go stale after await.
+    const tileRect = source === "tile" && event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
+    setCheckinBusy(true);
     try {
-      setNotifLoading(true);
-      // If parent already supplies notifications, reuse them — avoid duplicate /api/profile/notifications
-      if (externalNotifications === undefined) {
-        const notifRes = await fetch(`/api/profile/notifications/${profile.phone}`);
-        if (notifRes.ok) {
-          const notifData = await notifRes.json();
-          setNotifications(notifData);
+      const res = await fetch("/api/user/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: profile.phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Check-in failed.");
+      const bonus = Number(data.amount ?? data.bonus ?? 0);
+      const nextStreak = Number(data.streak ?? streak + 1);
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      // Coin flight plays only on tile tap, flying to the balance hero. Header
+      // button claims instantly with no animation and no confetti.
+      if (source === "tile" && !reduced && tileRect) {
+        const root = rootRef.current;
+        const to = balanceRef.current?.getBoundingClientRect();
+        if (root && to) {
+          const rootRect = root.getBoundingClientRect();
+          const startX = tileRect.left + tileRect.width / 2 - rootRect.left;
+          const startY = tileRect.top + tileRect.height / 2 - rootRect.top;
+          const endX = to.left + to.width / 2 - rootRect.left;
+          const endY = to.top + to.height / 2 - rootRect.top;
+          setCoins(
+            Array.from({ length: 10 }, (_, i) => ({
+              id: Date.now() + i,
+              startX: startX + (Math.random() - 0.5) * 24,
+              startY: startY + (Math.random() - 0.5) * 10,
+              dx: endX - startX + (Math.random() - 0.5) * 30,
+              dy: endY - startY,
+              delay: i * 0.06,
+            }))
+          );
+          window.setTimeout(() => deliverCheckin(bonus, nextStreak), 1050);
+        } else {
+          deliverCheckin(bonus, nextStreak);
         }
       } else {
-        setNotifications(externalNotifications);
+        deliverCheckin(bonus, nextStreak);
       }
-
-      // Fetch dynamic active team size calculation
-      const refRes = await fetch(`/api/profile/referrals/${profile.phone}`);
-      if (refRes.ok) {
-        const refData = await refRes.json();
-        if (Array.isArray(refData)) {
-          setTeamCount(refData.length);
-        }
-      }
-    } catch (e) {
-      console.error("Dashboard subsidiary fetch error:", e);
+    } catch (err: any) {
+      toast.error(err.message || "Check-in failed.");
     } finally {
-      setNotifLoading(false);
+      setCheckinBusy(false);
     }
   };
 
-  // Fetch referrals/teamCount only; notifications come from parent when available
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (externalNotifications !== undefined) {
-        if (!cancelled) setNotifications(externalNotifications);
-      }
-      // Throttle referrals fetch to 30s — prevents 115/ navigation spam
-      const now = Date.now();
-      if (now - lastReferralsFetch.current < 30_000) return;
-      lastReferralsFetch.current = now;
-      try {
-        const refRes = await fetch(`/api/profile/referrals/${profile.phone}`);
-        if (!cancelled && refRes.ok) {
-          const refData = await refRes.json();
-          if (Array.isArray(refData)) setTeamCount(refData.length);
-        }
-      } catch {}
-      if (externalNotifications === undefined) {
-        // Only fetch notifications here when parent doesn't provide them
-        try {
-          const notifRes = await fetch(`/api/profile/notifications/${profile.phone}`);
-          if (!cancelled && notifRes.ok) {
-            const notifData = await notifRes.json();
-            setNotifications(notifData);
-          }
-        } catch {}
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [profile.phone, externalNotifications]);
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await onRefreshDashboard();
-    await fetchDashboardData();
-    setTimeout(() => setIsRefreshing(false), 500);
-  };
-
-  // Dynamic Today's Income calculation
-  const getKampalaDateStr = () => {
-    const d = new Date();
-    const kampalaTime = new Date(d.getTime() + 3 * 60 * 60 * 1000);
-    return kampalaTime.toISOString().split("T")[0];
-  };
-
-  const todayStr = getKampalaDateStr();
-  const todayEarnings = activeNodes
-    .filter((n) => n.status === "active" && n.lastClaimedDate === todayStr)
-    .reduce((sum, n) => sum + n.dailyYield, 0);
-
-  // Total incoming from all nodes all time
-  const totalEarnedAllTime = activeNodes
-    .reduce((sum, n) => sum + (n.totalEarned || 0), 0);
-
-  const dynamicNews = notifications.filter(n => n.category === "news").map(n => ({
-    id: n.id,
-    title: n.title,
-    description: n.message,
-    date: new Date(n.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-    tag: n.metadata?.tag || "NEWS",
-    imageUrl: n.metadata?.imageUrl || "",
-    link: n.metadata?.link || ""
-  }));
-
-  const DEFAULT_NEWS_FEED: any[] = [];
-
-  const HUT8_NEWS_FEED = dynamicNews.length > 0 ? dynamicNews : DEFAULT_NEWS_FEED;
-
-  const [currentSlide, setCurrentSlide] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % HUT8_NEWS_FEED.length);
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [HUT8_NEWS_FEED.length]);
+  // Every ledger type that credits the withdrawable (Cash Out) balance.
+  const CREDIT_TYPES = useMemo(
+    () =>
+      new Set([
+        "daily_yield",
+        "referral_signup_bonus",
+        "referral_level_income",
+        "daily_checkin_bonus",
+        "gift_code",
+        "vip_task",
+        "registration_bonus",
+      ]),
+    []
+  );
 
   return (
-    <div className="space-y-6 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-2xl relative">
-      
-      {/* Dynamic Grid for Miner Stats - hero/muted hierarchy */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {isRefreshing ? (
-          <>
-            {[...Array(6)].map((_, i) => (
-              <MetricCard key={i} title="Loading..." value="" isLoading={true} variant="muted" />
-            ))}
-          </>
-        ) : (
-          <>
-            {/* Hero: yield */}
-            <MetricCard
-              title="AI Income"
-              value={formatCurrency(totalEarnedAllTime)}
-              titleColor="accent"
-              icon={<Cpu />}
-              variant="hero"
-            />
-
-            <MetricCard
-              title="Today's Earnings"
-              value={formatCurrency(todayEarnings)}
-              titleColor="gold"
-              icon={<Zap />}
-              variant="hero"
-            />
-
-            {/* Muted: secondary stats */}
-            <MetricCard
-              title="Total Deposits"
-              value={formatCurrency(profile.totalDeposits || 0)}
-              titleColor="primary"
-              icon={<ArrowDownLeft />}
-              variant="muted"
-            />
-
-            <MetricCard
-              title="Total Cash Out"
-              value={formatCurrency(profile.withdrawnCash || 0)}
-              titleColor="secondary"
-              icon={<ArrowUpRight />}
-              variant="muted"
-            />
-
-            <MetricCard
-              title="Invite Count"
-              value={(teamCount || profile.invitesCount || 0).toLocaleString()}
-              icon={<Users />}
-              variant="muted"
-            />
-
-            <MetricCard
-              title="Invite Income"
-              value={formatCurrency(profile.referralRewardsEarned || 0)}
-              icon={<Gift />}
-              variant="muted"
-            />
-          </>
-        )}
-      </div>
-
-      {/* Community — single row, triggers liquid-glass sheet */}
-      <button
-        type="button"
-        onClick={() => setShowCommunitySheet(true)}
-        className="w-full flex items-center gap-3 rounded-[var(--theme-radius)] bg-white/60 backdrop-blur-xl border border-white/30 p-3 active:scale-[0.99] transition-all group text-left cursor-pointer shadow-sm"
-        style={{
-          backdropFilter: "blur(16px) saturate(160%)",
-          WebkitBackdropFilter: "blur(16px) saturate(160%)",
-        }}
-      >
-        <img src="/telegram.svg" alt="Telegram" className="w-9 h-9 rounded-xl shrink-0 shadow-sm object-contain" />
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-display font-black text-slate-700 leading-none">Community • Official</p>
-          <p className="text-[10.5px] font-sans font-bold text-slate-500 leading-none mt-1 truncate">Tap to open • {siteConfig?.telegramLink && siteConfig?.whatsappLink ? "Telegram & WhatsApp" : siteConfig?.telegramLink ? "Telegram" : siteConfig?.whatsappLink ? "WhatsApp" : "2.4k online"}</p>
-        </div>
-        <ChevronRight className="w-4 h-4 text-slate-500 opacity-40 group-hover:opacity-60 transition-opacity shrink-0" />
-      </button>
-
-      {/* Quick Actions — docked bar */}
-      <div className="theme-card border-2 border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] rounded-[var(--theme-radius)] p-1.5 grid grid-cols-2 gap-1.5 shadow-sm">
-        <button
-          onClick={onNavigateToDeposit}
-          className="btn-3d-primary text-white font-display font-black text-xs uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer shadow-[0_3px_0_0_var(--theme-primary-shadow)]"
-        >
-          <ArrowDownLeft className="w-4 h-4" />
-          <span>Deposit</span>
-        </button>
-
-        <button
-          onClick={onNavigateToWithdraw || onNavigateToDeposit}
-          className="bg-[var(--theme-bg)] border-2 border-[var(--theme-card-border)] text-[var(--theme-text)] font-display font-black text-xs uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer hover:border-[var(--theme-primary)]/30"
-        >
-          <ArrowUpRight className="w-4 h-4 text-[var(--theme-primary)]" />
-          <span>Withdraw</span>
-          </button>
-        </div>
-
-      <FeaturedProducts items={items} onBrowseProducts={onNavigateToCatalog} />
-
+    <div ref={rootRef} className="relative space-y-5 text-[var(--theme-text)]">
+      {/* Coin flight: check-in reward travels to the balance */}
       <AnimatePresence>
-        {selectedAlert && (() => {
-          let CategoryIcon = Bell;
-          let strokeColor = "text-blue-500";
-          let badgeBg = "bg-blue-500/10 border border-blue-500/20 text-blue-400";
-          
-          if (selectedAlert.category === "deposit") {
-            CategoryIcon = Coins;
-            strokeColor = "text-emerald-400";
-            badgeBg = "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400";
-          } else if (selectedAlert.category === "withdraw") {
-            CategoryIcon = Smartphone;
-            strokeColor = "text-blue-400";
-            badgeBg = "bg-blue-500/10 border border-blue-500/20 text-blue-400";
-          } else if (selectedAlert.category === "rewards") {
-            CategoryIcon = Gift;
-            strokeColor = "text-amber-400";
-            badgeBg = "bg-amber-500/10 border border-amber-500/20 text-amber-500";
-          } else if (selectedAlert.category === "daily accumulation") {
-            CategoryIcon = Coins;
-            strokeColor = "text-amber-400";
-            badgeBg = "bg-amber-500/10 border border-amber-500/20 text-amber-500";
-          } else if (selectedAlert.category === "system" || selectedAlert.category === "announcement") {
-            CategoryIcon = Bell;
-            strokeColor = "text-blue-400";
-            badgeBg = "bg-blue-500/10 border border-blue-500/20 text-blue-400";
-          }
-
-          return (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+        {coins && (
+          <div className="absolute inset-0 z-30 pointer-events-none overflow-visible">
+            {coins.map((coin) => (
+              <motion.img
+                key={coin.id}
+                src={dollar3d}
+                alt=""
+                initial={{ x: 0, y: 0, scale: 0.7, opacity: 1 }}
+                animate={{ x: coin.dx, y: coin.dy, scale: 0.25, opacity: 0 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setSelectedAlert(null)}
-                className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-pointer"
+                transition={{ duration: 0.85, delay: coin.delay, ease: "easeIn" }}
+                className="absolute w-9 h-9 object-contain"
+                style={{ left: coin.startX - 18, top: coin.startY - 18 }}
               />
-              <motion.div
-                initial={{ scale: 0.94, opacity: 0, y: 15 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.94, opacity: 0, y: 15 }}
-                transition={{ type: "spring", damping: 25, stiffness: 350 }}
-                className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-[0_0_50px_-10px_rgba(0,0,0,0.8)] overflow-hidden z-10 flex flex-col max-h-[85vh]"
-              >
-                {/* Header mimicking the Alert Card */}
-                <div className="flex justify-between items-center p-5 bg-slate-900/90 backdrop-blur-md shrink-0">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-2xl bg-slate-950 border border-slate-850 flex items-center justify-center shrink-0 ${strokeColor}`}>
-                      <CategoryIcon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[8px] uppercase tracking-wider font-mono font-black border px-1.5 py-0.5 rounded ${badgeBg}`}>
-                          {(selectedAlert.category === "daily accumulation" || selectedAlert.category === "rewards") ? "rewards" : selectedAlert.category}
-                        </span>
-                        <span className="text-[12px] font-sans text-slate-500 font-semibold">
-                          {new Date(selectedAlert.timestamp).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit"
-                          })}
-                        </span>
-                      </div>
-                      <h4 className="font-extrabold text-sm text-slate-100 mt-1 tracking-tight leading-snug">{selectedAlert.title}</h4>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setSelectedAlert(null)}
-                    className="p-1.5 rounded-full bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer transition-colors border border-slate-850"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Body mimicking the Card layout */}
-                <div className="p-6 overflow-y-auto space-y-5">
-                  <div className="text-[13.5px] text-slate-300 leading-relaxed space-y-4 font-sans whitespace-pre-line select-text">
-                    {renderMessageWithLinks(selectedAlert.message)}
-                  </div>
-
-                  {selectedAlert.metadata?.link && (
-                    <div className="pt-3">
-                      <a
-                        href={selectedAlert.metadata.link}
-                        target="_blank"
-                        referrerPolicy="no-referrer"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-5 py-3.5 rounded-2xl btn-3d-accent text-white font-sans text-xs font-black uppercase tracking-wider transition-all cursor-pointer w-full justify-center"
-                      >
-                        <span>Open Link</span>
-                        <ExternalLink className="w-4 h-4 text-white" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </div>
-          );
-        })()}
-      </AnimatePresence>
-
-      {/* Community — liquid glass sheet */}
-      <AnimatePresence>
-        {showCommunitySheet && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowCommunitySheet(false)}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: 40, opacity: 0, scale: 0.97 }}
-              animate={{ y: 0, opacity: 1, scale: 1 }}
-              exit={{ y: 40, opacity: 0, scale: 0.97 }}
-              transition={{ type: "spring", damping: 26, stiffness: 340 }}
-              className="relative w-full max-w-sm rounded-[28px] overflow-hidden border border-white/20 shadow-[0_20px_60px_rgba(0,0,0,0.3)]"
-              style={{
-                background: "linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.65) 100%)",
-                backdropFilter: "blur(24px) saturate(180%)",
-                WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              }}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-[var(--theme-primary)]/10 pointer-events-none" />
-              <div className="relative p-5 pb-6">
-                <div className="w-10 h-1 rounded-full bg-black/15 mx-auto mb-4" />
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Join our community</h3>
-                  <button onClick={() => setShowCommunitySheet(false)} className="w-8 h-8 rounded-full bg-black/10 hover:bg-black/15 flex items-center justify-center text-slate-600 transition-colors">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-2.5">
-                  {siteConfig?.whatsappLink && (
-                    <a href={siteConfig.whatsappLink} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition-colors group">
-                      <img src="/whatsapp.svg" alt="WhatsApp" className="w-10 h-10 rounded-xl shrink-0 shadow-sm object-contain bg-white p-1" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-black text-slate-800 leading-none">WhatsApp Support</span>
-                        <span className="block text-[11px] font-bold text-slate-500 leading-none mt-1 truncate">{siteConfig.whatsappLink}</span>
-                      </span>
-                      <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
-                    </a>
-                  )}
-                  {siteConfig?.telegramLink && (
-                    <a href={siteConfig.telegramLink} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition-colors group">
-                      <img src="/telegram.svg" alt="Telegram" className="w-10 h-10 rounded-xl shrink-0 shadow-sm object-contain bg-white p-1" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-black text-slate-800 leading-none">Telegram Channel</span>
-                        <span className="block text-[11px] font-bold text-slate-500 leading-none mt-1 truncate">{siteConfig.telegramLink}</span>
-                      </span>
-                      <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
-                    </a>
-                  )}
-                  {!siteConfig?.telegramLink && !siteConfig?.whatsappLink && (
-                    <p className="text-center text-sm font-bold text-slate-500 py-6">No community links configured yet.</p>
-                  )}
-                </div>
-              </div>
-            </motion.div>
+            ))}
           </div>
         )}
       </AnimatePresence>
+      {/* Balance hero — one balance, plus progress */}
+      <section className="px-1">
+        <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+          Withdrawable balance
+        </p>
+        <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
+          {formatCurrency(Number(profile.points) || 0)}
+        </p>
+        <p className="mt-3 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
+          {weekTotal === null ? (
+            <span className="opacity-60">Tallying the week…</span>
+          ) : (
+            <>+{formatCurrency(weekTotal)} this week</>
+          )}
+        </p>
+        {weekSeries && (
+          <div className="mt-2">
+            <WeekSpark data={weekSeries} />
+          </div>
+        )}
+      </section>
+
+      {/* Next milestone — flat header, card body. Body taps route to the stage. */}
+      {nextMilestone && (
+        <section>
+          <div className="flex items-start justify-between mb-3 px-1">
+            <div>
+              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToMilestones()}
+              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+            >
+              View all <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          {nextMilestone.done ? (
+            <p className="px-1 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+          ) : (() => {
+            const task = nextMilestone.task;
+            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
+            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
+            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
+            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
+            const counts = msIsMoney(task.metric)
+              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
+              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
+            return (
+              <button
+                type="button"
+                onClick={() => onNavigateToMilestones(task.category)}
+                aria-label="View journey stage"
+                className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
+                    {tierArt ? (
+                      <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    ) : (
+                      <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
+                      {task.category}
+                    </span>
+                    <p className="text-[15px] font-display font-black truncate mt-0.5">{task.title}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                        <div
+                          className="h-full run-progress-fill transition-[width] duration-700 ease-out"
+                          style={{ width: barsIn ? `${pct}%` : "0%" }}
+                        />
+                      </div>
+                      <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                        {Math.round(pct)}%
+                      </span>
+                    </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Progress</span>
+                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
+                        {counts}
+                      </span>
+                    </p>
+                  </div>
+                  <span className="shrink-0 p-2 rounded-full opacity-60">
+                    <ChevronRight className="w-4 h-4" />
+                  </span>
+                </div>
+              </button>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* Daily streak — mini 7-day run, Mon–Sun */}
+      <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={onNavigateToStreaks}
+              aria-label="Open streaks"
+              className="text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-all shrink-0 p-1"
+            >
+              <CalendarDays className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
+                {weekTiles.month}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0">
+            {checkedInToday ? (
+              <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
+                {formatClock(nextCheckinIn)}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleCheckin("button")}
+                disabled={checkinBusy}
+                className="px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold tabular-nums transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+              >
+                {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
+              </button>
+            )}
+          </div>
+        </div>
+        <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {weekTiles.days.map((d) => {
+            const isNext = (d as { isNext?: boolean }).isNext === true;
+            const missed = !d.isFuture && !d.isToday && !d.claimed;
+            const active = d.isToday && !d.claimed;
+            const dimmed = (missed || d.isFuture) && !isNext;
+            const inner = (
+              <>
+                <img
+                  src={dollar3d}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className={`w-7 h-7 object-contain ${dimmed ? "grayscale" : ""}`}
+                />
+                {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
+                <span
+                  className={`text-[8px] font-sans font-black uppercase tracking-wide ${
+                    d.claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
+                  }`}
+                >
+                  {d.label}
+                </span>
+              </>
+            );
+            const cls = `relative rounded-xl w-11 shrink-0 aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
+              d.claimed
+                ? ""
+                : active
+                  ? "border border-[var(--theme-primary)]/70 tile-shimmer"
+                  : isNext
+                    ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
+                    : d.isFuture
+                      ? "opacity-40"
+                      : ""
+            }`;
+            return active ? (
+              <button
+                key={d.key}
+                type="button"
+                onClick={(e) => void handleCheckin("tile", e)}
+                disabled={checkinBusy}
+                aria-label="Check in today"
+                data-today="true"
+                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key={d.key} data-today={d.isToday || undefined} data-next={isNext || undefined} title={isNext ? "Next check-in" : undefined} className={cls}>
+                {inner}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Empty state — the loop entry, kept with its runs card */}
+      {activeNodes.length === 0 && (
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
+          <p className="font-display font-black text-lg">No active runs.</p>
+          <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
+          <button
+            type="button"
+            onClick={onNavigateToCatalog}
+            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
+          >
+            <Plus className="w-4 h-4" /> Start your first Run
+          </button>
+        </section>
+      )}
+
+      {/* Runs — one card, two rows, overflow as a count */}
+      {(activeRuns.length > 0 || completedRuns.length > 0) && (
+        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
+                className={`p-2 -ml-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+              <h2 className="font-display font-black text-[15px] truncate">
+                {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToIncome}
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+            >
+              View all
+            </button>
+          </div>
+          <div className="min-h-[196px]">
+            {shownRuns.length === 0 ? (
+              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
+                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
+              </p>
+            ) : null}
+            {shownRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node, items);
+            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
+            const thumb = mapped?.imageUrl || node.image || "";
+            return (
+              <button
+                key={node.id}
+                type="button"
+                onClick={onNavigateToIncome}
+                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  {thumb ? (
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-11 h-11 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                  ) : (
+                    <span className="w-11 h-11 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-lg flex items-center justify-center">
+                      {node.itemName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                          <div
+                            className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
+                            style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
+                          />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                          {Math.round(progress.percent)}%
+                        </span>
+                      </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Accrued</span>
+                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
+                        +{formatCurrency(node.totalEarned || 0)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
