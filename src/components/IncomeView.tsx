@@ -49,11 +49,9 @@ export default function IncomeView({
     ? activeNodes.filter((n) => getRunState(n, items) !== "active")
     : activeNodes.filter((n) => getRunState(n, items) === "active");
 
-  // Calculate Cumulative total earnings — resolve daily rate from catalog so every product counts
-  const rateOf = (node: SubscribedNode) => {
-    const mapped = items.find((item) => item.id === node.itemId || item.name === node.itemName);
-    return mapped?.dailyYield !== undefined ? mapped.dailyYield : (node.dailyYield || 0);
-  };
+  // Cumulative total earnings — purchase-time snapshot first (same source the
+  // server credits from); live catalog only as a legacy fallback.
+  const rateOf = (node: SubscribedNode) => getRunDailyRate(node, items);
   const nodeStatus = (node: SubscribedNode): string => String(node.status || "").toLowerCase();
   const totalDailyYield = activeNodes.filter(n => nodeStatus(n) === "active").reduce((acc, node) => acc + rateOf(node), 0);
 
