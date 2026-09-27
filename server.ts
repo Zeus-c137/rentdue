@@ -51,7 +51,7 @@ import {
   dailyCheckin,
   adminGetCatalogItems,
   getVipTaskboard,
-  claimVipTask,
+  claimTierReward,
   adminUpdateUserLockStatus,
   adminCreateAnnouncement,
   adminUpdateAnnouncement,
@@ -534,10 +534,10 @@ app.get("/api/profile/vip-tasks/:phone", async (req, res) => {
 });
 
 app.post("/api/profile/vip-tasks/claim", async (req, res) => {
-  const { phone, taskId } = req.body;
+  const { phone, category } = req.body;
 
-  if (!phone || !taskId) {
-    return res.status(400).json({ error: "Missing required parameters phone and taskId." });
+  if (!phone || !category) {
+    return res.status(400).json({ error: "Missing required parameters phone and category." });
   }
 
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
@@ -546,7 +546,7 @@ app.post("/api/profile/vip-tasks/claim", async (req, res) => {
   }
 
   try {
-    const result = await claimVipTask(phone, taskId);
+    const result = await claimTierReward(phone, String(category));
     res.json(result);
   } catch (error: any) {
     console.error("Claim milestone error:", error);
@@ -1303,8 +1303,8 @@ app.post("/api/copilot/chat", async (req, res) => {
       const tasks = Array.isArray(vipBoard.tasks) ? vipBoard.tasks : [];
       vipTasksList = tasks.length > 0
         ? tasks.slice(0, 12).map((t: any) => {
-            const state = t.claimed ? "claimed" : t.unlocked ? "UNLOCKED — tell them to claim it on the Milestones page" : `progress ${fmt(t.progress)} of ${fmt(t.requiredBonus)}`;
-            return `- ${t.title}: needs ${fmt(t.requiredBonus)} operator points, reward ${fmt(t.reward)} [${state}]`;
+            const state = t.unlocked && !t.stageLocked ? "DONE — its stage can be claimed once every achievement in it is done" : `progress ${t.progress} of ${t.requiredBonus}`;
+            return `- ${t.title} [${t.category}]: needs ${t.progress}/${t.requiredBonus} ${t.metric}, stage reward claimed on the Journey page [${state}]`;
           }).join("\n")
         : "No milestones configured right now.";
     }
@@ -1372,7 +1372,7 @@ Knowledge & Capabilities:
 - **Withdrawal**: Withdraw from the withdrawable balance to Mobile Money or USDT. Only works with an active product. Withdrawal fee is exactly ${siteConfig?.withdrawFee || 0}%.
 - **Invite Program**: Users share referral links and earn ${siteConfig?.level1InviteIncomePct ?? 15}% on Level 1, ${siteConfig?.level2InviteIncomePct ?? 5}% on Level 2, ${siteConfig?.level3InviteIncomePct ?? 0}% on Level 3, and ${siteConfig?.level4InviteIncomePct ?? 0}% on Level 4 when invited friends activate products (referrals only pay while the invitee has an active product).
 - **Gift Codes**: New gift codes are given out daily in the community groups set by the admin (WhatsApp: ${siteConfig?.whatsappLink || "N/A"}, Telegram: ${siteConfig?.telegramLink || "N/A"}). Tell users to join the community groups to claim them.
-- **Milestones**: Complete operator-points targets to unlock rewards. This user's exact per-task progress and unlock state are listed above under "Their milestone board" — quote their real figures, and when a task shows UNLOCKED, direct them to claim it on the Milestones page.
+- **Milestones**: Journey stages with achievements. A stage reward is claimed once, only when every achievement in that stage is done. Quote their real figures, and direct them to claim finished stages on the Journey page.
 - **Support Links**: WhatsApp (${siteConfig?.whatsappLink || "N/A"}) and Telegram (${siteConfig?.telegramLink || "N/A"}).
 
 Instructions:

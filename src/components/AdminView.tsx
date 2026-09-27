@@ -76,7 +76,7 @@ import { migrateCardStyle, sanitizeSiteConfig } from "../utils/themeTokens";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 import { readApiJson } from "../utils/api";
 import { canonicalTypeOf, getWithdrawalDisplayAmounts } from "../utils/transactionMeta";
-import { normalizeVipTask, dedupeCategories } from "@/src/utils/vip";
+import { normalizeVipTask, dedupeCategories, metricMeta, normalizeTierMeta, tierRewardFor, type TierMeta } from "@/src/utils/vip";
 
 function isSettledTransaction(transaction: any): boolean {
   const status = String(transaction?.status || "").toUpperCase();
@@ -273,9 +273,16 @@ export default function AdminView() {
   const [openVipTaskMenuId, setOpenVipTaskMenuId] = useState<string | null>(null);
   const [isVipCategoryModalOpen, setIsVipCategoryModalOpen] = useState(false);
   const [newVipCategory, setNewVipCategory] = useState("");
+  const [newVipTierReward, setNewVipTierReward] = useState(0);
   const { updateLocalThemeConfig } = useTheme();
 
   const getVipTasks = (): VipTaskConfig[] => Array.isArray(siteConfig?.vipTasks) ? siteConfig.vipTasks : [];
+  const getVipTierRewards = (): Record<string, number> => {
+    const raw = (siteConfig as any)?.vipTierRewards;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, number>;
+    return {};
+  };
+  const getVipTierMeta = (): Record<string, TierMeta> => normalizeTierMeta((siteConfig as any)?.vipTierMeta);
   const getVipTaskCategories = (): string[] => dedupeCategories([
     ...(Array.isArray(siteConfig?.vipTaskCategories) ? siteConfig.vipTaskCategories : []),
     ...getVipTasks().map((task) => task.category)
@@ -322,7 +329,7 @@ export default function AdminView() {
       category: vipTaskCategory,
       metric: vipTaskMetric,
       requiredBonus: vipTaskRequiredBonus,
-      reward: vipTaskReward,
+      reward: 0,
       imageUrl: vipTaskImageUrl,
       active: editingVipTaskId ? getVipTasks().find((task) => task.id === editingVipTaskId)?.active !== false : true
     };
@@ -330,7 +337,7 @@ export default function AdminView() {
     try {
       task = normalizeVipTask(rawTask);
       if (!task.title || !task.category) throw new Error("Enter a milestone title and category.");
-      if (!Number.isFinite(task.requiredBonus) || task.requiredBonus <= 0 || !Number.isFinite(task.reward) || task.reward <= 0) throw new Error("Requirement and reward must both be greater than zero.");
+      if (!Number.isFinite(task.requiredBonus) || task.requiredBonus <= 0) throw new Error("Requirement must be greater than zero.");
       if (editingVipTaskId) task.id = editingVipTaskId;
     } catch (err: any) {
       toast.error(err.message || "Enter a milestone title and category.");
@@ -404,28 +411,120 @@ export default function AdminView() {
     }, "Milestone status updated.");
   };
 
-  const handleAddVipCategory = async () => {
-    const category = newVipCategory.trim();
-    if (!category) return;
-    const next = dedupeCategories([...getVipTaskCategories(), category]);
-    if (next.length === getVipTaskCategories().length) {
-      toast.info("That tier already exists.");
+  // Tier editor works on a local draft so renames, rewards, descriptions,
+  // and art are reviewed together and saved once — independent of the main
+  // site-configuration Save button. Nothing persists until Save Tiers.
+  interface TierDraft { key: string; name: string; reward: string; description: string; imageUrl: string; }
+  const [tierDrafts, setTierDrafts] = useState<TierDraft[] | null>(null);
+  const [savingTiers, setSavingTiers] = useState(false);
+
+  const openTierEditor = () => {
+    const rewards = getVipTierRewards();
+    const meta = getVipTierMeta();
+    setTierDrafts(getVipTaskCategories().map((category) => ({
+      key: category,
+      name: category,
+      reward: rewards[category] ? String(rewards[category]) : "",
+      description: meta[category]?.description || "",
+      imageUrl: meta[category]?.imageUrl || "",
+    })));
+    setNewVipCategory("");
+    setNewVipTierReward(0);
+    setIsVipCategoryModalOpen(true);
+  };
+
+  const closeTierEditor = () => { setIsVipCategoryModalOpen(false); setTierDrafts(null); };
+
+  const patchTierDraft = (index: number, patch: Partial<TierDraft>) => {
+    setTierDrafts((prev) => (prev || []).map((draft, i) => (i === index ? { ...draft, ...patch } : draft)));
+  };
+
+  const addTierDraft = () => {
+    const name = newVipCategory.trim();
+    if (!name) return;
+    let duplicate = false;
+    setTierDrafts((prev) => {
+      const list = prev || [];
+      if (list.some((draft) => draft.name.trim().toLowerCase() === name.toLowerCase())) { duplicate = true; return list; }
+      return [...list, { key: "", name, reward: newVipTierReward ? String(newVipTierReward) : "", description: "", imageUrl: "" }];
+    });
+    if (duplicate) { toast.info("That tier already exists."); return; }
+    setNewVipCategory("");
+    setNewVipTierReward(0);
+    setVipTaskCategory(name);
+  };
+
+  const removeTierDraft = (index: number) => {
+    setTierDrafts((prev) => (prev || []).filter((_, i) => i !== index));
+  };
+
+  const handleTierDraftImageFile = async (index: number, file: File | undefined) => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Only PNG, JPG or WebP images are allowed.");
       return;
     }
-      const saved = await persistVipConfig({ vipTaskCategories: next }, "Tier created.");
-    if (saved) {
-      setNewVipCategory("");
-      setVipTaskCategory(category);
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be smaller than 2 MB.");
+      return;
+    }
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read file."));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/admin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "viptask", data }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Upload failed.");
+      patchTierDraft(index, { imageUrl: body.url });
+      toast.success("Tier art uploaded — save tiers to keep it.");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed.");
     }
   };
 
-  const handleRemoveVipCategory = async (category: string) => {
-    const isUsed = getVipTasks().some((task) => task.category === category);
-    if (isUsed) {
-      toast.error("This category is used by a task. Move or remove that task first.");
-      return;
+  const handleSaveTiers = async () => {
+    const list = tierDrafts || [];
+    const names = list.map((draft) => draft.name.trim());
+    if (names.some((name) => !name)) { toast.error("Every tier needs a name."); return; }
+    if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) { toast.error("Tier names must be unique."); return; }
+    const renames = new Map<string, string>();
+    list.forEach((draft) => { if (draft.key && draft.key !== draft.name.trim()) renames.set(draft.key, draft.name.trim()); });
+    const tasks = getVipTasks();
+    for (const task of tasks) {
+      if (!names.includes(task.category) && !renames.has(task.category)) {
+        toast.error(`"${task.category}" still has tasks. Move or remove them first.`);
+        return;
+      }
     }
-      await persistVipConfig({ vipTaskCategories: getVipTaskCategories().filter((existing) => existing !== category) }, "Tier removed.");
+    for (const [oldName] of renames) {
+      if (usersList.some((u) => (((u as any).claimedTierRewards || []) as string[]).includes(oldName))) {
+        toast.error(`Cannot rename "${oldName}" — users already claimed it.`);
+        return;
+      }
+    }
+    const rewards: Record<string, number> = {};
+    const meta: Record<string, TierMeta> = {};
+    list.forEach((draft) => {
+      const name = draft.name.trim();
+      const amount = Math.max(0, Number(draft.reward) || 0);
+      if (amount > 0) rewards[name] = amount;
+      const entry: TierMeta = {};
+      if (draft.description.trim()) entry.description = draft.description.trim().slice(0, 220);
+      if (draft.imageUrl.trim()) entry.imageUrl = draft.imageUrl.trim();
+      if (entry.description || entry.imageUrl) meta[name] = entry;
+    });
+    const nextTasks = tasks.map((task) => (renames.has(task.category) ? { ...task, category: renames.get(task.category) as string } : task));
+    setSavingTiers(true);
+    const saved = await persistVipConfig({ vipTaskCategories: names, vipTierRewards: rewards, vipTierMeta: meta, vipTasks: nextTasks }, "Tiers saved.");
+    setSavingTiers(false);
+    if (saved) closeTierEditor();
   };
 
   // Password override state
@@ -3087,7 +3186,7 @@ export default function AdminView() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <button type="button" onClick={() => setIsVipCategoryModalOpen(true)} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage tiers</button>
+                          <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage tiers</button>
                           <button type="button" onClick={() => { setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(getVipTaskCategories()[0] || ""); setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create milestone</button>
                         </div>
                       </div>
@@ -3099,22 +3198,44 @@ export default function AdminView() {
                               <tr className="bg-[var(--theme-bg)] border-b border-[var(--theme-card-border)]">
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65">Task</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65">Category</th>
-                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right"></th>
-                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Reward</th>
+                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Need</th>
+                                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Tier reward</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-center">Users</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-center">Status</th>
                                 <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider opacity-65 text-right">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[var(--theme-card-border)]/40">
-                              {getVipTasks().map((task) => {
-                                const claimedUsers = usersList.filter((user) => (user.claimedVipTasks || []).includes(task.id)).length;
+                              {(() => {
+                                const groups: string[] = [];
+                                for (const t of getVipTasks()) {
+                                  if (!groups.includes(t.category)) groups.push(t.category);
+                                }
+                                return groups.map((group) => {
+                                  const rows = getVipTasks().filter((t) => t.category === group);
+                                  const meta = getVipTierMeta()[group] || {};
+                                  return (
+                                    <React.Fragment key={group}>
+                                      <tr className="bg-[var(--theme-bg)]/60">
+                                        <td colSpan={7} className="px-4 py-2.5">
+                                          <div className="flex items-center gap-2.5 flex-wrap">
+                                            <span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{group}</span>
+                                            <span className="text-[11px] font-bold text-[var(--theme-primary)]">+{formatCurrency(tierRewardFor(getVipTierRewards(), group))}</span>
+                                            {meta.description && <span className="text-[11px] opacity-55">{meta.description}</span>}
+                                            <span className="text-[10px] opacity-45 font-bold ml-auto">{rows.length} task{rows.length === 1 ? "" : "s"}</span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      {rows.map((task) => {
+                                        const claimedUsers = usersList.filter((user) => ((user as any).claimedTierRewards || []).includes(task.category)).length;
+                                        const needMeta = metricMeta(task.metric);
+                                        const needText = needMeta.isMoney ? formatCurrency(task.requiredBonus) : `${Number(task.requiredBonus || 0).toLocaleString()}${needMeta.unit ? ` ${needMeta.unit}` : ""}`;
                                 return (
                                   <tr key={task.id} className="hover:bg-[var(--theme-bg)]/45 transition-colors">
                                     <td className="px-4 py-4 min-w-[220px]"><div className="flex items-center gap-2.5"><div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">{task.imageUrl ? <img src={fixGitHubImageUrl(task.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">{task.title.charAt(0).toUpperCase()}</span>}</div><div className="min-w-0"><div className="font-bold text-[var(--theme-text)] truncate">{task.title}</div><div className="text-[11px] opacity-55 mt-1 max-w-[290px] truncate">{task.description || "No description"}</div></div></div></td>
-                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span></td>
-                                    <td className="px-4 py-4 text-right font-bold">{formatCurrency(task.requiredBonus)}</td>
-                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">+{formatCurrency(task.reward)}</td>
+                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{needMeta.source}</div></td>
+                                    <td className="px-4 py-4 text-right font-bold">{needText}</td>
+                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">+{formatCurrency(tierRewardFor(getVipTierRewards(), task.category))}</td>
                                     <td className="px-4 py-4 text-center font-bold">{claimedUsers}</td>
                                     <td className="px-4 py-4 text-center"><button type="button" onClick={() => void handleToggleVipTask(task.id)} className={`rounded-full border px-2.5 py-1 text-[10px] font-black cursor-pointer ${task.active === false ? "border-[var(--theme-card-border)] opacity-55" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"}`}>{task.active === false ? "INACTIVE" : "ACTIVE"}</button></td>
                                     <td className="px-4 py-4 text-right">
@@ -3146,7 +3267,11 @@ export default function AdminView() {
                                   </tr>
                                 );
                               })}
-                            </tbody>
+                            </React.Fragment>
+                          );
+                        })
+                      })()}
+                    </tbody>
                           </table>
                         </div>
                         {getVipTasks().length === 0 && <div className="p-10 text-center text-xs opacity-60">No milestones published. Create one to make it available to users.</div>}
@@ -3173,7 +3298,7 @@ export default function AdminView() {
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsVipTaskModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
                     <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-lg theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
                       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]">
-                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit milestone" : "Create milestone"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the reward, category, art, metric, or requirement." : "Publish a one-shot reward that unlocks from a real operator event."}</p></div>
+                        <div><h3 className="text-base font-black">{editingVipTaskId ? "Edit milestone" : "Create milestone"}</h3><p className="text-xs opacity-60 mt-1">{editingVipTaskId ? "Update the category, art, metric, or requirement." : "Publish a progress achievement inside a journey stage."}</p></div>
                         <button type="button" onClick={() => setIsVipTaskModalOpen(false)} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
                       </div>
                       <form onSubmit={(event) => { event.preventDefault(); void handleAddVipTask(); }} className="p-5 space-y-4">
@@ -3187,7 +3312,7 @@ export default function AdminView() {
                                 <option value="" disabled>Select category</option>
                                 {getVipTaskCategories().map((category) => <option key={category} value={category}>{category}</option>)}
                               </select>
-                              <button type="button" onClick={() => setIsVipCategoryModalOpen(true)} className="btn-3d-secondary px-2.5 cursor-pointer" title="Create category"><Plus className="w-4 h-4" /></button>
+                              <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-2.5 cursor-pointer" title="Create category"><Plus className="w-4 h-4" /></button>
                             </div>
                           </label>
                         </div>
@@ -3203,15 +3328,13 @@ export default function AdminView() {
                               <option value="completed_runs">Completed runs</option>
                               <option value="streak_days">Check-in streak (days)</option>
                               <option value="lifetime_yield">Lifetime run yield ({currency})</option>
+                              <option value="invites_count">Invites (count)</option>
+                              <option value="milestones_claimed">Milestones claimed (count)</option>
+                              <option value="account_created">Account created (auto)</option>
                             </select>
                           </label>
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : "(runs)"}
-                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
-                          </label>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Reward ({currency})
-                            <input type="text" inputMode="numeric" required value={vipTaskReward || ""} onChange={(event) => setVipTaskReward(Number(event.target.value) || 0)} placeholder="50000" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
+                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                           </label>
                         </div>
                         <div className="space-y-1.5">
@@ -3255,12 +3378,52 @@ export default function AdminView() {
               <AnimatePresence>
                 {isVipCategoryModalOpen && (
                   <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsVipCategoryModalOpen(false)} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
-                    <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-md theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
-                      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]"><div><h3 className="text-base font-black">Milestone tiers</h3><p className="text-xs opacity-60 mt-1">Create reusable labels for task tiers.</p></div><button type="button" onClick={() => setIsVipCategoryModalOpen(false)} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button></div>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeTierEditor} className="absolute inset-0 bg-black/70 backdrop-blur-xs" />
+                    <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="relative w-full max-w-lg theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden text-[var(--theme-text)]">
+                      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)]"><div><h3 className="text-base font-black">Milestone tiers</h3><p className="text-xs opacity-60 mt-1">Stages unlock in order. Edit names, rewards, descriptions, and art — then save once.</p></div><button type="button" onClick={closeTierEditor} className="p-2 rounded-full hover:bg-[var(--theme-bg)] cursor-pointer opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button></div>
                       <div className="p-5 space-y-4">
-                        <div className="flex gap-2"><input type="text" value={newVipCategory} onChange={(event) => setNewVipCategory(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void handleAddVipCategory(); } }} placeholder="e.g. Bronze" className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm" /><button type="button" onClick={() => void handleAddVipCategory()} disabled={isLoading} className="btn-3d-primary text-white px-3.5 text-xs font-black cursor-pointer disabled:opacity-50"><Plus className="w-4 h-4" /></button></div>
-                        <div className="space-y-2 max-h-56 overflow-y-auto">{getVipTaskCategories().length === 0 ? <p className="text-xs opacity-60 text-center py-5">No categories yet. Add your first tier above.</p> : getVipTaskCategories().map((category) => <div key={category} className="flex items-center justify-between gap-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] px-3 py-2.5"><span className="text-sm font-bold">{category}</span><button type="button" onClick={() => void handleRemoveVipCategory(category)} className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button></div>)}</div>
+                        <div className="flex gap-2"><input type="text" value={newVipCategory} onChange={(event) => setNewVipCategory(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addTierDraft(); } }} placeholder="e.g. Bronze" className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm" /><input type="text" inputMode="numeric" value={newVipTierReward || ""} onChange={(event) => setNewVipTierReward(Number(event.target.value) || 0)} placeholder={`Reward (${currency})`} title="Stage reward" className="theme-input w-28 px-3 py-2.5 text-sm" /><button type="button" onClick={addTierDraft} disabled={isLoading} className="btn-3d-primary text-white px-3.5 text-xs font-black cursor-pointer disabled:opacity-50"><Plus className="w-4 h-4" /></button></div>
+                        <div className="space-y-3 max-h-[60vh] overflow-y-auto">{(tierDrafts || []).length === 0 ? <p className="text-xs opacity-60 text-center py-5">No tiers yet. Add your first tier above.</p> : (tierDrafts || []).map((draft, idx) => {
+                          const taskCount = getVipTasks().filter((t) => t.category === draft.name.trim() || (draft.key && t.category === draft.key)).length;
+                          const claimedCount = usersList.filter((u) => (((u as any).claimedTierRewards || []) as string[]).includes(draft.key || draft.name.trim())).length;
+                          return (
+                            <div key={`${draft.key || "new"}-${idx}`} className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-black opacity-40 shrink-0">{idx + 1}.</span>
+                                <input type="text" value={draft.name} onChange={(event) => patchTierDraft(idx, { name: event.target.value })} placeholder="Tier name" className="theme-input min-w-0 flex-1 px-2.5 py-2 text-sm font-black" />
+                                <span className="flex items-center gap-2 shrink-0">
+                                  {taskCount === 0 && <span className="text-[10px] font-black uppercase text-amber-500">No tasks</span>}
+                                  <span className="text-[10px] font-bold opacity-50">{taskCount} task{taskCount === 1 ? "" : "s"}</span>
+                                  {claimedCount > 0 && <span className="text-[10px] font-bold opacity-50">{claimedCount} claimed</span>}
+                                  <button type="button" onClick={() => removeTierDraft(idx)} className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="text-[11px] font-bold uppercase tracking-wider opacity-75">Reward ({currency})
+                                  <input type="text" inputMode="numeric" value={draft.reward} onChange={(event) => patchTierDraft(idx, { reward: event.target.value })} placeholder="19000" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
+                                </label>
+                                <div className="text-[11px] font-bold uppercase tracking-wider opacity-75">Stage art
+                                  <div className="flex gap-2 items-center mt-1">
+                                    <div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
+                                      {draft.imageUrl ? <img src={fixGitHubImageUrl(draft.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">N/A</span>}
+                                    </div>
+                                    <label className="theme-input flex-1 px-2.5 py-2 text-[11px] font-bold text-center cursor-pointer hover:border-[var(--theme-primary)]">Upload<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { void handleTierDraftImageFile(idx, event.target.files?.[0]); event.target.value = ""; }} /></label>
+                                  </div>
+                                </div>
+                              </div>
+                              <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Description
+                                <input type="text" value={draft.description} maxLength={220} onChange={(event) => patchTierDraft(idx, { description: event.target.value })} placeholder="e.g. Getting started" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
+                              </label>
+                              <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Art URL
+                                <input type="text" value={draft.imageUrl} onChange={(event) => patchTierDraft(idx, { imageUrl: event.target.value })} placeholder="https://… or /uploads/…" className="theme-input w-full px-2.5 py-2 text-sm mt-1 font-mono" />
+                              </label>
+                            </div>
+                          );
+                        })}</div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button type="button" onClick={closeTierEditor} className="btn-3d-secondary px-5 py-2.5 text-xs font-black cursor-pointer">Cancel</button>
+                          <button type="button" onClick={() => void handleSaveTiers()} disabled={savingTiers || isLoading} className="btn-3d-primary text-white px-5 py-2.5 text-xs font-black cursor-pointer disabled:opacity-50 flex items-center gap-2">{savingTiers ? "Saving…" : "Save Tiers"}</button>
+                        </div>
                       </div>
                     </motion.div>
                   </div>

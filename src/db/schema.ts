@@ -34,6 +34,7 @@ export const users = mysqlTable(
     invitesCount: int("invites_count").default(0).notNull(),
     referralRewardsEarned: double("referral_rewards_earned").default(0).notNull(),
     claimedVipTasks: json("claimed_vip_tasks").$type<string[]>().default([]),
+    claimedTierRewards: json("claimed_tier_rewards").$type<string[]>().default([]),
     locked: boolean("locked").default(false).notNull(),
     usdtAddress: varchar("usdt_address", { length: 255 }).default(""),
     lastCheckinDate: varchar("last_checkin_date", { length: 32 }).default(""),

@@ -84,6 +84,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       invites_count INT NOT NULL DEFAULT 0,
       referral_rewards_earned DOUBLE NOT NULL DEFAULT 0,
       claimed_vip_tasks JSON NOT NULL,
+      claimed_tier_rewards JSON NULL,
       locked BOOLEAN NOT NULL DEFAULT FALSE,
       usdt_address VARCHAR(255) DEFAULT '',
       last_checkin_date VARCHAR(32) DEFAULT '',
@@ -200,6 +201,15 @@ export async function ensureDatabaseSchema(): Promise<void> {
   // preserved while the settlement guard is introduced.
   try {
     await connection.query("ALTER TABLE transactions ADD COLUMN balance_applied_at VARCHAR(64) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
+      throw error;
+    }
+  }
+
+  // Journey stage rewards: one claim per tier, tracked per user.
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN claimed_tier_rewards JSON NULL");
   } catch (error: any) {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
       throw error;

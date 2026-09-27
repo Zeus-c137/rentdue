@@ -43,7 +43,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import history3d from "@/src/assets/3d/3dicons-calender-iso-premium.png"; // lazy via img attrs
-import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import invite3d from "@/src/assets/3d/3dicons-link-iso-premium.png";
 import vip3d from "@/src/assets/3d/3dicons-trophy-iso-premium.png";
 import gift3d2 from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
@@ -55,7 +54,6 @@ import guide3d from "@/src/assets/3d/3dicons-pencil-iso-premium.png";
 import community3d from "@/src/assets/3d/3dicons-megaphone-iso-premium.png";
 import lab3d from "@/src/assets/3d/3dicons-lab-iso-premium.png";
 import { Button } from "./ui/button";
-import { useShimmerPulse } from "../hooks/useShimmerPulse";
 import confetti from "canvas-confetti";
 import NewsCarousel from "./NewsCarousel";
 import VisaMetricCard from "./VisaMetricCard";
@@ -69,7 +67,7 @@ interface ProfileViewProps {
   onProfileUpdate: (newProfile: UserProfile) => void;
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw?: () => void;
-  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade", chatRoom?: "shared" | "admin") => void;
+  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade" | "streaks", chatRoom?: "shared" | "admin") => void;
   onLogout: () => void;
   autoOpenWithdraw?: boolean;
   onCloseAutoWithdraw?: () => void;
@@ -94,10 +92,6 @@ export default function ProfileView({
   const [showGiftCodeSheet, setShowGiftCodeSheet] = useState(false);
   const [giftCodeValue, setGiftCodeValue] = useState("");
   const [isRedeemingGiftCode, setIsRedeemingGiftCode] = useState(false);
-
-  const [showCheckinSheet, setShowCheckinSheet] = useState(false);
-  const [isCheckingIn, setIsCheckingIn] = useState(false);
-  const [spinningIndex, setSpinningIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (autoOpenWithdraw) {
@@ -192,20 +186,7 @@ export default function ProfileView({
 
   const todayStr = new Date().toISOString().split("T")[0];
   const checkedInToday = userProfile.lastCheckinDate === todayStr;
-  // Hero label shimmer — same gated pulse as balances; ProfileView stays
-  // mounted while the tab is open, so it dies off-page automatically.
-  const heroPulse = useShimmerPulse();
   const currentStreak = userProfile.checkinStreak || 0;
-
-  useEffect(() => {
-    if (!checkedInToday) {
-      if (document.hidden) return;
-      const timer = setTimeout(() => {
-        if (!document.hidden) setShowCheckinSheet(true);
-      }, 5 * 60 * 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [checkedInToday]);
 
   // Canonical check-in economics — mirrors the server fallbacks in
   // dailyCheckin (base 1000 / increment 100). One pair everywhere so sheet
@@ -220,20 +201,10 @@ export default function ProfileView({
 
   // Month-run math. The server keeps streaks consecutive (a missed day
   // restarts at 1), so the current run is exactly: streak days ending today
-  // (claimed) or yesterday (claimable). Every tile derives from this.
-  const nowCal = new Date();
-  const calMonthName = nowCal.toLocaleString("default", { month: "long" });
-  const calYear = nowCal.getFullYear();
-  const calDaysInMonth = new Date(calYear, nowCal.getMonth() + 1, 0).getDate();
-  const calTodayDay = nowCal.getDate();
-  const calFirstWeekday = new Date(calYear, nowCal.getMonth(), 1).getDay();
-  // Streak number that today carries (claimed or about to be claimed).
+  // (claimed) or yesterday (claimable). The shared sheet derives tiles.
+  const calTodayDay = new Date().getDate();
   const calTodayStreak = checkedInToday ? currentStreak : currentStreak + 1;
   const calTodayAmount = baseBonus + (calTodayStreak - 1) * increment;
-  // First day-of-month of the live run (<= 0 when the run started last month).
-  const calRunStartDay = calTodayDay - calTodayStreak + 1;
-  const calClaimedDays = Array.from({ length: calTodayDay }, (_, i) => i + 1)
-    .filter((d) => d >= calRunStartDay && (d < calTodayDay || checkedInToday));
   const compactUgx = (n: number) => n >= 1000 ? `${parseFloat((n / 1000).toFixed(1))}k` : `${n}`;
 
   const handleRedeemGiftCode = async (e: React.FormEvent) => {
@@ -277,58 +248,6 @@ export default function ProfileView({
       toast.error(err.message);
     } finally {
       setIsRedeemingGiftCode(false);
-    }
-  };
-
-  const handleCheckin = async () => {
-    if (isCheckingIn) return;
-    setIsCheckingIn(true);
-    setSpinningIndex(calTodayDay);
-    const startTime = Date.now();
-    try {
-      const res = await fetch("/api/user/checkin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: userProfile.phone })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to check in.");
-
-      // Ensure spinner runs for at least 1500ms for a premium feel
-      const elapsedTime = Date.now() - startTime;
-      const minSpinTime = 1500;
-      if (elapsedTime < minSpinTime) {
-        await new Promise((resolve) => setTimeout(resolve, minSpinTime - elapsedTime));
-      }
-
-      const formattedAmount = formatCurrency(data.amount);
-      const formattedNewBalance = formatCurrency(userProfile.points + data.amount);
-      
-      toast.success(`Checked in! You've claimed ${formattedAmount} for Day ${data.streak}! New balance: ${formattedNewBalance}${data.reset ? " Fresh streak started!" : ""}`);
-      
-      // Trigger Confetti!
-      try {
-        confetti({
-          particleCount: 150,
-          spread: 85,
-          origin: { y: 0.6 }
-        });
-      } catch (confettiErr) {
-        console.error("Confetti failed", confettiErr);
-      }
-
-      // Update profile locally (modal stays open — the user dismisses it)
-      onProfileUpdate({
-        ...userProfile,
-        points: userProfile.points + data.amount,
-        lastCheckinDate: new Date().toISOString().split("T")[0],
-        checkinStreak: data.streak
-      });
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setIsCheckingIn(false);
-      setSpinningIndex(null);
     }
   };
 
@@ -499,7 +418,7 @@ export default function ProfileView({
               <img src={gift3d2} alt="" className="w-12 h-12 object-contain drop-shadow-sm" />
               <span className="text-[11px] font-sans text-[var(--theme-text)] font-extrabold tracking-wide">Gift Code</span>
             </button>
-            <button onClick={() => setShowCheckinSheet(true)} className="relative flex flex-col items-center gap-1.5 focus:outline-none group">
+            <button onClick={() => onNavigate("streaks")} className="relative flex flex-col items-center gap-1.5 focus:outline-none group">
               {!checkedInToday && (
                 <span className="absolute -top-1 right-2 flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--theme-primary)] opacity-60"></span>
@@ -624,133 +543,7 @@ export default function ProfileView({
 
 
 
-            {/* Daily Check-in Modal (30-Day Calendar matching inspiration screenshot) */}
-            <AnimatePresence>
-              {showCheckinSheet && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
-                  <motion.div 
-                    initial={{ opacity: 0 }} 
-                    animate={{ opacity: 1 }} 
-                    exit={{ opacity: 0 }} 
-                    className="absolute inset-0 bg-black/75 backdrop-blur-xs" 
-                    onClick={() => setShowCheckinSheet(false)} 
-                  />
-                  <motion.div 
-                    initial={{ scale: 0.94, y: 15, opacity: 0 }} 
-                    animate={{ scale: 1, y: 0, opacity: 1 }} 
-                    exit={{ scale: 0.94, y: 15, opacity: 0 }} 
-                    transition={{ type: "spring", damping: 26, stiffness: 360 }} 
-                    className="relative w-full max-w-[440px] max-h-[90vh] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-left flex flex-col overflow-hidden backdrop-blur-xl"
-                  >
-                    {/* Top Banner - Theme Aware */}
-                    <div className=" relative px-5 py-4 text-[var(--theme-text)] flex flex-col gap-3 shrink-0">
-                      <button 
-                        onClick={() => setShowCheckinSheet(false)} 
-                        className="absolute right-4 top-4 text-[var(--theme-text)] opacity-60 hover:opacity-100 p-2 rounded-full hover:bg-[var(--theme-bg)] transition-colors cursor-pointer"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                      <div className="flex items-center gap-3">
-                        <img src={checkin3d} alt="" className="w-11 h-11 object-contain drop-shadow-sm" loading="lazy" decoding="async" />
-                        <h3 className="font-display font-black text-xl tracking-tight text-[var(--theme-text)]">Daily check-in</h3>
-                      </div>
-                    </div>
-
-                    <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-5 scrollbar-none">
-                      {/* Hero Reward — today's payout */}
-                      <div className="rounded-2xl px-4 py-3.5 flex items-center justify-center gap-3">
-                        <img src={dollar3d} alt="" loading="lazy" decoding="async" className={`w-12 h-12 object-contain drop-shadow-lg shrink-0${checkedInToday ? " opacity-40 saturate-50" : ""}`} />
-                        <div className="min-w-0">
-                          <p className={`text-[10px] font-black uppercase tracking-[0.14em] text-[var(--theme-primary)] leading-none${heroPulse ? " animate-shimmer-slow" : ""}`}>
-                            {checkedInToday ? "Come back tomorrow" : `Day ${calTodayStreak} reward`}
-                          </p>
-                          <p className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none mt-1.5">
-                            {formatCurrency(calTodayAmount)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Month & Count Header */}
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between px-1">
-                              <span className="font-display font-black text-xs text-[var(--theme-text)]">
-                                {calMonthName} {calYear}
-                              </span>
-                              <span className="bg-transparent text-[var(--theme-primary)] border border-[var(--theme-primary)] font-sans text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                                {calClaimedDays.length} / {calDaysInMonth}
-                              </span>
-                            </div>
-
-                            {/* Calendar Grid — bare tiles on the modal */}
-                            <div className="rounded-2xl p-2.5 space-y-1.5">
-                              {/* Weekdays Row */}
-                              <div className="grid grid-cols-7 gap-1 text-center font-sans font-bold text-[10px] text-[var(--theme-text)] opacity-60 pb-1">
-                                <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-                              </div>
-
-                              {/* Days Grid */}
-                              <div className="grid grid-cols-7 gap-1">
-                                {/* Empty offset slots */}
-                                {Array.from({ length: calFirstWeekday }).map((_, i) => (
-                                  <div key={`empty-${i}`} className="w-full aspect-square" />
-                                ))}
-
-                                {/* Day cards 1 to daysInMonth */}
-                                {Array.from({ length: calDaysInMonth }).map((_, i) => {
-                                  const dayNum = i + 1;
-                                  const isToday = dayNum === calTodayDay;
-                                  const isFuture = dayNum > calTodayDay;
-                                  // In-run days up to today are claimed (today only if done).
-                                  const isClaimed = !isFuture && dayNum >= calRunStartDay && (!isToday || checkedInToday);
-                                  const isMissed = !isFuture && !isToday && !isClaimed;
-                                  const claimable = isToday && !checkedInToday;
-
-                                  return (
-                                    <div
-                                      key={`day-${dayNum}`}
-                                      onClick={() => {
-                                        if (claimable && spinningIndex === null) {
-                                          handleCheckin();
-                                        }
-                                      }}
-                                      className={`aspect-square rounded-xl relative flex items-center justify-center transition-all select-none ${
-                                        claimable ? "cursor-pointer ring-2 ring-[var(--theme-primary)] bg-[var(--theme-primary)]/10" : ""
-                                      }`}
-                                    >
-                                      {spinningIndex !== null && isToday ? (
-                                        <Loader2 className="w-5 h-5 animate-spin text-[var(--theme-primary)]" />
-                                      ) : (
-                                        <img
-                                          src={dollar3d}
-                                          alt=""
-                                          loading="lazy"
-                                          decoding="async"
-                                          className={`w-9 h-9 object-contain drop-shadow ${
-                                            claimable
-                                              ? "animate-pulse"
-                                              : isClaimed
-                                                ? ""
-                                                : isMissed
-                                                  ? "opacity-60"
-                                                  : "opacity-40 saturate-50"
-                                          }`}
-                                        />
-                                      )}
-                                      {isMissed && (
-                                        <div className="absolute inset-0 rounded-xl bg-red-500/45 pointer-events-none" />
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                      {/* Tiles handle claim directly */}
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
+            {/* Daily Check-in lives on the Streaks page now */}
 
 
 

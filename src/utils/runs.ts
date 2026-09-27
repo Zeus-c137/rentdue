@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Shared Run helpers: progress estimates, maturity countdowns, greetings.
- * Used by Home today; Income adopts them when its own estimate is replaced.
+ * Home and Income share this math so both screens agree.
  */
-import type { SubscribedNode } from "../types";
+import type { SubscribedNode, SubscriptionItem } from "../types";
 
 export interface RunProgress {
   elapsed: number;
@@ -14,21 +14,72 @@ export interface RunProgress {
 }
 
 /**
- * Day-count estimate from credited earnings. Matches IncomeView's current
- * math so both screens agree until Income moves to date-based progress.
+ * Catalog-aware totals: the live catalog item wins over the purchase-time
+ * snapshot, so admin duration/yield edits apply to running runs on every
+ * screen. Falls back to the node snapshot, then 15 days.
  */
-export function getRunElapsedDays(node: SubscribedNode): number {
-  const total = Math.max(1, Math.floor(Number(node.duration) || 0));
-  const daily = Number(node.dailyYield) || 0;
+export function getRunCatalogMatch(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): SubscriptionItem | undefined {
+  if (!items) return undefined;
+  return items.find((item) => item.id === node.itemId || item.name === node.itemName);
+}
+
+export function getRunTotalDays(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): number {
+  const mapped = getRunCatalogMatch(node, items);
+  return Math.max(1, Math.floor(Number(mapped?.duration ?? node.duration) || 0) || 15);
+}
+
+export function getRunDailyRate(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): number {
+  const mapped = getRunCatalogMatch(node, items);
+  const rate = mapped?.dailyYield !== undefined ? mapped.dailyYield : node.dailyYield;
+  return Number(rate) || 0;
+}
+
+/**
+ * Day-count estimate from credited earnings. Shared by Home and Income so
+ * both screens agree, including after admin duration edits.
+ */
+export function getRunElapsedDays(node: SubscribedNode, items?: SubscriptionItem[]): number {
+  const total = getRunTotalDays(node, items);
+  const daily = getRunDailyRate(node, items);
   if (daily <= 0) return 1;
   const earned = Number(node.totalEarned) || 0;
   return Math.min(total, Math.max(1, Math.floor(earned / daily)));
 }
 
-export function getRunProgress(node: SubscribedNode): RunProgress {
-  const total = Math.max(1, Math.floor(Number(node.duration) || 0));
-  const elapsed = getRunElapsedDays(node);
+export function getRunProgress(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): RunProgress {
+  const total = getRunTotalDays(node, items);
+  const elapsed = getRunElapsedDays(node, items);
   return { elapsed, total, percent: Math.min(100, Math.max(0, (elapsed / total) * 100)) };
+}
+
+/**
+ * One definition of "done" shared by progress bars, pills, and filters:
+ * expired always; otherwise done when the bar itself reads complete
+ * (elapsed >= total) or the status already left active. This keeps the
+ * Completed tab in sync with what the bars show, regardless of whether
+ * the payout cron has flipped the row's status yet.
+ */
+export function getRunState(
+  node: SubscribedNode,
+  items?: SubscriptionItem[]
+): "active" | "done" | "expired" {
+  const status = String(node.status || "").toLowerCase();
+  if (status === "expired") return "expired";
+  if (status !== "active") return "done";
+  const { elapsed, total } = getRunProgress(node, items);
+  return elapsed >= total ? "done" : "active";
 }
 
 export function getRunEndMs(node: SubscribedNode): number | null {

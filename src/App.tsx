@@ -18,6 +18,7 @@ import GuideView from "./components/GuideView";
 import ChatView from "./components/ChatView";
 import TransactionHistoryView from "./components/TransactionHistoryView";
 import VipTasksPage from "./components/VipTasksPage";
+import StreaksPage from "./components/StreaksPage";
 import ProductGuessGame from "./components/ProductGuessGame";
 import AlertsView from "./components/AlertsView";
 import AdminView from "./components/AdminView";
@@ -32,11 +33,16 @@ import {
   Layers,
   Users,
   MessageCircleMore,
+  MessageCircle,
+  MessagesSquare,
   User,
   LogOut,
   Percent,
   X,
   Coins,
+  Store,
+  Trophy,
+  Menu,
   ArrowRight,
   HelpCircle,
   Computer,
@@ -134,7 +140,9 @@ export default function App() {
       cancelled = true;
     };
   }, [isAdminRoute]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade" | "streaks">("dashboard");
+  const [journeyStage, setJourneyStage] = useState<string | null>(null);
+  const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [siteConfig, setSiteConfig] = useState<any>(null);
   const chatUnread = useChatUnread(userProfile?.phone);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
@@ -413,18 +421,20 @@ export default function App() {
     setUserProfile(newProfile);
   };
 
-  // Callback on successful active subscription activation
+  // Callback on successful active subscription activation. State only —
+  // Catalog shows the activation modal and the user continues deliberately.
   const handleSubscribeSuccess = (newSub: SubscribedNode, costAmt: number) => {
     if (userProfile) {
       const updatedProfile = {
         ...userProfile,
-        rechargeBalance: Math.max(0, (userProfile.rechargeBalance || 0) - costAmt)
+        rechargeBalance: Math.max(0, (userProfile.rechargeBalance || 0) - costAmt),
+        // Server credits day-1 yield to withdrawable instantly — mirror it
+        // locally so the balance is correct before the next refetch.
+        points: (userProfile.points || 0) + (Number(newSub.totalEarned) || 0)
       };
       setUserProfile(updatedProfile);
     }
     setActiveNodes((prev) => [newSub, ...prev]);
-    // Redirect to Income tab so they can view their machines!
-    setActiveTab("income");
     // Refresh system global counts
     fetch("/api/system/stats")
       .then((res) => res.json())
@@ -572,6 +582,19 @@ export default function App() {
 
           {/* Action controllers */}
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Messages trigger button */}
+            <button
+              onClick={() => setActiveTab("chat")}
+              className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
+              title="Messages"
+            >
+              <MessagesSquare className="w-6 h-6 text-[var(--theme-text)]" />
+              {chatUnread > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+            </button>
             {/* Notification Bell trigger button */}
             <button
               onClick={() => {
@@ -582,16 +605,13 @@ export default function App() {
               className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
               title="View Alerts & Notifications"
             >
-              <img src={headerBell3d} alt="" decoding="async" loading="eager" className="w-7 h-7 object-contain shrink-0 drop-shadow-sm" />
+              <Bell className="w-6 h-6 text-[var(--theme-text)]" />
               {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 0 && (
-                <>
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs animate-bounce">
-                    {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 9
-                      ? "9+"
-                      : userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length}
-                  </span>
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 rounded-full animate-ping pointer-events-none" />
-                </>
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
+                  {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 9
+                    ? "9+"
+                    : userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length}
+                </span>
               )}
             </button>
           </div>
@@ -616,7 +636,8 @@ export default function App() {
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
                   onNavigateToIncome={() => setActiveTab("income")}
-                  onNavigateToMilestones={() => setActiveTab("vip")}
+                  onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
+                  onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
                   onProfileUpdate={handleProfileChange}
                 />
               </motion.div>
@@ -641,6 +662,8 @@ export default function App() {
                     setActiveTab("deposit");
                   }}
                   onSubscribeSuccess={handleSubscribeSuccess}
+                  onActivationContinue={() => setActiveTab("income")}
+                  onNavigateToDeposit={() => setActiveTab("deposit")}
                 />
               </motion.div>
             )}
@@ -750,8 +773,20 @@ export default function App() {
               </motion.div>
             )}
 
-            {(activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip")) && (
+            {activeTab === "streaks" && (
               <motion.div
+                key="streaks"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
+              >
+                <StreaksPage phone={userProfile.phone} userProfile={userProfile} siteConfig={siteConfig} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab(streaksReturn)} />
+              </motion.div>
+            )}
+
+            {(activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip")) && (              <motion.div
                 key="vip"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -759,7 +794,7 @@ export default function App() {
                 transition={{ duration: 0.12 }}
                 className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
               >
-                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} />
+                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} focusStage={journeyStage} />
               </motion.div>
             )}
 
@@ -829,6 +864,9 @@ export default function App() {
                   autoOpenWithdraw={autoOpenWithdraw}
                   onCloseAutoWithdraw={() => setAutoOpenWithdraw(false)}
                   onNavigate={(tab, room) => {
+                    if (tab === "streaks") {
+                      setStreaksReturn("profile");
+                    }
                     if (room) {
                       setChatRoomDefault(room);
                     } else {
@@ -892,60 +930,46 @@ export default function App() {
             {/* Home */}
             <button
               onClick={() => setActiveTab("dashboard")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <img src={navHome3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">Home</span>
+              <Home className="w-6 h-6" />
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Home</span>
             </button>
 
-            {/* Products */}
+            {/* Store */}
             <button
               onClick={() => setActiveTab("catalog")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <img src={navProducts3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">Products</span>
+              <Store className="w-6 h-6" />
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Store</span>
             </button>
 
-            {/* Income */}
+            {/* My Runs */}
             <button
               onClick={() => setActiveTab("income")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "income" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "income" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <img src={navIncome3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">Income</span>
+              <Zap className="w-6 h-6" />
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">My Runs</span>
             </button>
 
-            {/* History — NEW */}
+            {/* Milestones */}
             <button
-              onClick={() => setActiveTab("history")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "history" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
+              onClick={() => setActiveTab("vip")}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <img src={navHistory3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">History</span>
-            </button>
-
-            {/* Chat */}
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`relative flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "chat" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
-            >
-              <img src={navChat3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              {chatUnread > 0 && (
-                <span className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center border-2 border-[var(--theme-bg)]">
-                  {chatUnread > 99 ? "99+" : chatUnread}
-                </span>
-              )}
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">Chat</span>
+              <Trophy className="w-6 h-6" />
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Milestones</span>
             </button>
 
             {/* Profile */}
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "bg-[var(--theme-primary)] text-white shadow-[0_3px_0_0_var(--theme-primary-shadow)] -translate-y-0.5" : "bg-transparent text-[var(--theme-text)] opacity-100"}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
-              <img src={navProfile3d} alt="" decoding="async" loading="eager" className="w-10 h-10 object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.12)]" />
-              <span className="text-[9px] sm:text-[10px] font-display font-black uppercase tracking-wide leading-none">Profile</span>
+              <User className="w-6 h-6" />
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Profile</span>
             </button>
           </nav>
         </div>

@@ -339,6 +339,7 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
           claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
+          claimedTierRewards: readJsonStringArray((u as any).claimedTierRewards),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
@@ -385,6 +386,7 @@ export async function registerUserProfile(data: any): Promise<any> {
     invitesCount: 0,
     referralRewardsEarned: 0,
     claimedVipTasks: [],
+    claimedTierRewards: [],
     locked: false,
     usdtAddress: "",
     lastCheckinDate: "",
@@ -413,6 +415,7 @@ export async function registerUserProfile(data: any): Promise<any> {
       invitesCount: newUser.invitesCount,
       referralRewardsEarned: newUser.referralRewardsEarned,
       claimedVipTasks: newUser.claimedVipTasks,
+      claimedTierRewards: (newUser as any).claimedTierRewards || [],
       locked: newUser.locked,
       usdtAddress: newUser.usdtAddress,
       lastCheckinDate: newUser.lastCheckinDate,
@@ -566,6 +569,7 @@ export async function updateUserProfile(
     invitesCount: 0,
     referralRewardsEarned: 0,
     claimedVipTasks: [],
+    claimedTierRewards: [],
     locked: false,
     usdtAddress: "",
     lastCheckinDate: "",
@@ -590,6 +594,7 @@ export async function updateUserProfile(
         invitesCount: updated.invitesCount,
         referralRewardsEarned: updated.referralRewardsEarned,
         claimedVipTasks: updated.claimedVipTasks,
+        claimedTierRewards: (updated as any).claimedTierRewards || [],
         locked: updated.locked,
         usdtAddress: updated.usdtAddress,
         lastCheckinDate: updated.lastCheckinDate,
@@ -1823,6 +1828,7 @@ export async function adminGetAllUsers(): Promise<UserProfile[]> {
           invitesCount: u.invitesCount,
           referralRewardsEarned: u.referralRewardsEarned,
           claimedVipTasks: readJsonStringArray(u.claimedVipTasks),
+          claimedTierRewards: readJsonStringArray((u as any).claimedTierRewards),
           locked: u.locked,
           usdtAddress: u.usdtAddress || "",
           lastCheckinDate: u.lastCheckinDate || "",
@@ -2147,7 +2153,11 @@ export async function getVipTaskboard(phone: string) {
   const opResult: any = await drizzleDb.execute(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = ${phone} AND type IN ('daily_yield', 'referral_signup_bonus', 'referral_level_income', 'daily_checkin_bonus', 'gift_code', 'vip_task', 'registration_bonus') AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')`);
   const opRows = Array.isArray(opResult?.[0]) ? opResult[0] : [];
   const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
-  const claimed = user.claimedVipTasks || [];
+  const claimedTiers: string[] = Array.isArray((user as any).claimedTierRewards) ? (user as any).claimedTierRewards : [];
+  const rawTierRewards: Record<string, any> = readJsonRecord((config as any).vipTierRewards);
+  const rawTierMeta: Record<string, any> = readJsonRecord((config as any).vipTierMeta);
+  const invitesCount = Math.max(0, Number((user as any).invitesCount || 0));
+  const milestonesClaimed = claimedTiers.length;
 
   // Per-milestone event metrics for the mockup one-shots (First Run,
   // 7-Day Streak, First 100K, Clean Exit, Still Running). Tasks created
@@ -2159,7 +2169,7 @@ export async function getVipTaskboard(phone: string) {
     const statRows: any[] = await drizzleDb.select({
       started: sql`count(*)`,
       active: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) = 'ACTIVE' THEN 1 ELSE 0 END), 0)`,
-      completed: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) = 'COMPLETED' THEN 1 ELSE 0 END), 0)`,
+      completed: sql`COALESCE(SUM(CASE WHEN UPPER(${schema.subscribedNodes.status}) IN ('COMPLETED', 'EXPIRED') THEN 1 ELSE 0 END), 0)`,
       earned: sql`COALESCE(SUM(${schema.subscribedNodes.totalEarned}), 0)`
     }).from(schema.subscribedNodes).where(eq(schema.subscribedNodes.userId, phone));
     const stats = statRows?.[0] || {};
@@ -2177,10 +2187,48 @@ export async function getVipTaskboard(phone: string) {
       case "completed_runs": return completedRuns;
       case "streak_days": return streakDays;
       case "lifetime_yield": return lifetimeYield;
+      case "invites_count": return invitesCount;
+      case "milestones_claimed": return milestonesClaimed;
+      case "account_created": return 1;
       default: return operatorPoints;
     }
   };
 
+  // Rewards live on the tier (stage), claimed once per stage via
+  // claimTierReward. Tasks are progress-only: no per-task claiming, so
+  // every task reports claimed:false and completion is pure progress.
+  // Admin order is the display order: older milestones on top, new ones
+  // below. Never re-sort by threshold — days, invites, runs and UGX are
+  // incomparable. Stages (= categories) unlock strictly in first-seen
+  // order: a stage opens only once the previous stage's reward is claimed.
+  // Progress still tracks live inside locked stages (e.g. 5/7 days).
+  const stageOrder: string[] = [];
+  for (const task of configuredTasks) {
+    if (!task || (task as any).active === false) continue;
+    const cat = String((task as any).category || "Milestone").trim() || "Milestone";
+    if (!stageOrder.includes(cat)) stageOrder.push(cat);
+  }
+  const stageOpen = stageOrder.map((_, idx) => idx === 0 || claimedTiers.includes(stageOrder[idx - 1]));
+  // Resolve rewards + meta against exact stage names, matching admin keys
+  // case-insensitively so "Rookie" rewards reach "ROOKIE" tasks.
+  const lowerRewards: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawTierRewards)) {
+    lowerRewards[String(key).trim().toLowerCase()] = Math.max(0, Number(value) || 0);
+  }
+  const tierRewards: Record<string, number> = {};
+  const tierMeta: Record<string, { description?: string; imageUrl?: string }> = {};
+  for (const stage of stageOrder) {
+    tierRewards[stage] = lowerRewards[stage.toLowerCase()] ?? 0;
+    const metaHit = Object.keys(rawTierMeta).find((key) => String(key).trim().toLowerCase() === stage.toLowerCase());
+    if (metaHit) {
+      const entry = (rawTierMeta[metaHit] ?? {}) as Record<string, unknown>;
+      const description = String(entry.description ?? "").trim().slice(0, 220);
+      const imageUrl = String(entry.imageUrl ?? "").trim();
+      if (description || imageUrl) {
+        tierMeta[stage] = { ...(description ? { description } : {}), ...(imageUrl ? { imageUrl } : {}) };
+      }
+    }
+  }
   const tasks = configuredTasks
     .filter((task: any) => task && task.active !== false)
     .map((task: any) => {
@@ -2188,38 +2236,42 @@ export async function getVipTaskboard(phone: string) {
       const metric = String(task.metric || "operator_points");
       const progress = metricValue(metric);
       const art = String(task.imageUrl || "").trim();
+      const category = String(task.category || "Milestone");
       return {
         id: String(task.id),
         title: String(task.title || "Milestone Task"),
-        description: String(task.description || "Unlock this reward with operator points."),
-        category: String(task.category || "Milestone"),
+        description: String(task.description || ""),
+        category,
         metric,
         requiredBonus: threshold,
-        reward: Math.max(0, Number(task.reward || 0)),
+        reward: 0,
         ...(art ? { imageUrl: art } : {}),
         progress,
         unlocked: progress >= threshold,
-        claimed: claimed.includes(String(task.id))
+        claimed: false as boolean,
+        stageIndex: Math.max(0, stageOrder.indexOf(category.trim() || "Milestone")),
+        stageLocked: false as boolean,
       };
-    })
-    .sort((a, b) => a.requiredBonus - b.requiredBonus);
+    });
+  for (const task of tasks) {
+    const idx = Math.max(0, Number((task as any).stageIndex || 0));
+    const open = idx < stageOpen.length ? stageOpen[idx] : true;
+    (task as any).stageLocked = !open;
+    if (!open) task.unlocked = false;
+  }
 
-  // VIP rank follows the published task ladder, not referral-count guesses or
-  // task-id parsing. A user reaches the highest task that their server-side
-  // Combined Level 1–4 bonus has unlocked or that they have already claimed.
-  // If categories are labeled 0..N (e.g. VIP 0 → VIP 4), respect the numeric
-  // category value so a user with 4 unlocked 0..3 shows VIP 3 not VIP 4.
-  const vipLevel = tasks.reduce((highest, task) => {
-    if (!(task.unlocked || task.claimed)) return highest;
-    const raw = String(task.category || "");
-    const parsed = parseInt(raw.replace(/\D/g, ""), 10);
-    const level = Number.isFinite(parsed) && raw.replace(/\D/g, "") !== "" ? parsed : tasks.indexOf(task) + 1;
-    return Math.max(highest, level);
-  }, 0);
+  // Journey rank = number of claimed stage rewards.
+
+  // Journey rank = number of claimed stage rewards.
+  const vipLevel = claimedTiers.length;
 
   return {
     tasks,
     vipLevel,
+    stageOrder,
+    tierRewards,
+    tierMeta,
+    claimedTierRewards: claimedTiers,
     referralRates: {
       level1: Number(config.level1InviteIncomePct ?? 15),
       level2: Number(config.level2InviteIncomePct ?? 5),
@@ -2238,15 +2290,23 @@ export async function getVipTaskboard(phone: string) {
   };
 }
 
-export async function claimVipTask(phone: string, taskId: string) {
+export async function claimTierReward(phone: string, category: string) {
   const board = await getVipTaskboard(phone);
-  const task = board.tasks.find((candidate) => candidate.id === taskId);
-  if (!task) throw new Error("This milestone is not currently available.");
-  if (!task.unlocked) throw new Error("Keep earning operator points to unlock this milestone.");
-  if (task.claimed) throw new Error("Milestone reward already claimed.");
+  const stage = String(category || "").trim();
+  const inStage = board.tasks.filter((candidate) => candidate.category === stage);
+  if (!stage || inStage.length === 0) throw new Error("This journey stage is not currently available.");
+  if (board.claimedTierRewards?.includes(stage)) throw new Error("Stage reward already claimed.");
+  const idx = Math.max(0, (board.stageOrder || []).indexOf(stage));
+  if (idx > 0 && !board.claimedTierRewards?.includes((board.stageOrder || [])[idx - 1])) {
+    throw new Error("Complete the earlier journey stage first.");
+  }
+  const pending = inStage.filter((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0));
+  if (pending.length > 0) throw new Error(`Complete all ${stage} achievements first.`);
+  const reward = Math.max(0, Number(board.tierRewards?.[stage] || 0));
+  if (!(reward > 0)) throw new Error("No reward is set for this stage yet.");
 
-  const drizzleDb = requireDatabase("claim the VIP task");
-  let claimedVipTasks: string[] = [];
+  const drizzleDb = requireDatabase("claim the journey stage reward");
+  let claimedTierRewards: string[] = [];
   await drizzleDb.transaction(async (tx) => {
     const userRows = await tx.select().from(schema.users)
       .where(eq(schema.users.phone, phone))
@@ -2254,15 +2314,15 @@ export async function claimVipTask(phone: string, taskId: string) {
       .for("update");
     const user = userRows[0];
     if (!user) throw new Error("User not found");
-    claimedVipTasks = readJsonStringArray(user.claimedVipTasks);
-    if (claimedVipTasks.includes(task.id)) throw new Error("Milestone reward already claimed.");
-    claimedVipTasks.push(task.id);
+    claimedTierRewards = readJsonStringArray((user as any).claimedTierRewards);
+    if (claimedTierRewards.includes(stage)) throw new Error("Stage reward already claimed.");
+    claimedTierRewards.push(stage);
 
-    // Credit directly to withdrawable balance (points)! The reward and
-    // requirement come from server-side site configuration, never the client.
+    // Credit directly to withdrawable balance (points)! The reward comes
+    // from server-side site configuration, never the client.
     await tx.update(schema.users).set({
-      points: sql`${schema.users.points} + ${task.reward}`,
-      claimedVipTasks
+      points: sql`${schema.users.points} + ${reward}`,
+      claimedTierRewards
     }).where(eq(schema.users.phone, phone));
   });
 
@@ -2271,12 +2331,12 @@ export async function claimVipTask(phone: string, taskId: string) {
     id: "vip_" + crypto.randomBytes(8).toString("hex"),
     userId: phone,
     type: "vip_task",
-    amount: task.reward,
+    amount: reward,
     currency: "UGX",
     status: "SUCCESSFUL",
     paymentMethod: "VIP_TASK",
     phone: phone,
-    itemId: taskId,
+    itemId: `tier:${stage}`,
     mode: "auto",
     timestamp: new Date().toISOString()
   });
@@ -2284,8 +2344,8 @@ export async function claimVipTask(phone: string, taskId: string) {
   // Create notification alert
   await createNotification(
     phone,
-    "Milestone Reward Claimed",
-    `Successfully claimed milestone reward of UGX ${task.reward.toLocaleString()} credited to your withdrawable balance!`,
+    "Stage Reward Claimed",
+    `Successfully claimed ${stage} stage reward of UGX ${reward.toLocaleString()} credited to your withdrawable balance!`,
     "rewards"
   );
 
@@ -2293,10 +2353,10 @@ export async function claimVipTask(phone: string, taskId: string) {
     roomId: "shared",
     sender: "system",
     senderName: "SYSTEM BROADCAST",
-    text: `User ${phone.slice(0, 4)}*** claimed a milestone reward of UGX ${task.reward.toLocaleString()}!`
+    text: `User ${phone.slice(0, 4)}*** claimed the ${stage} stage reward of UGX ${reward.toLocaleString()}!`
   });
 
-  return { bonus: task.reward, claimedVipTasks };
+  return { bonus: reward, claimedTierRewards };
 }
 
 export async function adminUpdateUserLockStatus(phone: string, locked: boolean) {
@@ -2415,6 +2475,30 @@ export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<
 
     if (Array.isArray(updated.vipTaskCategories)) {
       updated.vipTaskCategories = dedupeCategories(updated.vipTaskCategories);
+    }
+
+    if ((updated as any).vipTierRewards && typeof (updated as any).vipTierRewards === "object" && !Array.isArray((updated as any).vipTierRewards)) {
+      const clean: Record<string, number> = {};
+      for (const [key, value] of Object.entries((updated as any).vipTierRewards)) {
+        const name = String(key).trim();
+        if (name) clean[name] = Math.max(0, Number(value) || 0);
+      }
+      (updated as any).vipTierRewards = clean;
+    }
+
+    if ((updated as any).vipTierMeta && typeof (updated as any).vipTierMeta === "object" && !Array.isArray((updated as any).vipTierMeta)) {
+      const clean: Record<string, { description?: string; imageUrl?: string }> = {};
+      for (const [key, value] of Object.entries((updated as any).vipTierMeta)) {
+        const name = String(key).trim();
+        if (!name) continue;
+        const entry = (value ?? {}) as Record<string, unknown>;
+      const description = String(entry.description ?? "").trim().slice(0, 220);
+        const imageUrl = String(entry.imageUrl ?? "").trim();
+        if (description || imageUrl) {
+          clean[name] = { ...(description ? { description } : {}), ...(imageUrl ? { imageUrl } : {}) };
+        }
+      }
+      (updated as any).vipTierMeta = clean;
     }
 
     if (Array.isArray(updated.vipTasks)) {

@@ -47,6 +47,8 @@ export interface SiteConfig {
   level4InviteIncomePct?: number;
   vipTasks?: VipTaskConfig[];
   vipTaskCategories?: string[];
+  vipTierRewards?: Record<string, number>;
+  vipTierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   checkinBaseBonus?: number;
   checkinIncrement?: number;
   exchangeRateUSD?: number;
@@ -108,11 +110,17 @@ export interface VipTask {
   unlocked: boolean;
   claimed: boolean;
   imageUrl?: string;
+  stageIndex?: number;
+  stageLocked?: boolean;
 }
 
 export interface VipTaskboard {
   tasks: VipTask[];
   vipLevel?: number;
+  stageOrder?: string[];
+  tierRewards?: Record<string, number>;
+  tierMeta?: Record<string, { description?: string; imageUrl?: string }>;
+  claimedTierRewards?: string[];
   referralRates?: {
     level1: number;
     level2: number;
@@ -147,6 +155,7 @@ export interface UserProfile {
   totalDeposits?: number; // total deposits in UGX
   aiIncome?: number; // total passive yield claims built up
   claimedVipTasks?: string[]; // VIP tasks already claimed (e.g. ["vip-1"])
+  claimedTierRewards?: string[]; // Journey stages (tiers) already claimed (e.g. ["Rookie"])
   locked?: boolean; // account locked status
   usdtAddress?: string;
   lastCheckinDate?: string;

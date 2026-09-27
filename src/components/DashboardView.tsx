@@ -9,9 +9,9 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
-import { Plus, Trophy, ChevronRight } from "lucide-react";
-import { getMilestoneBoard, bustMilestoneCache } from "./VipTasksPage";
-import confetti from "canvas-confetti";
+import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { getMilestoneBoard } from "./VipTasksPage";
+import { tierMetaFor } from "../utils/vip";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import { useCurrency } from "../currency";
 import {
   getRunProgress,
   getRunEndMs,
+  getRunState,
   formatClock,
   getTodayKey,
 } from "../utils/runs";
@@ -29,7 +30,8 @@ interface DashboardViewProps {
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
   onNavigateToIncome: () => void;
-  onNavigateToMilestones: () => void;
+  onNavigateToMilestones: (stage?: string) => void;
+  onNavigateToStreaks: () => void;
   onProfileUpdate: (p: UserProfile) => void;
 }
 
@@ -87,17 +89,6 @@ const PROGRESS_GRADIENT: React.CSSProperties = {
     "linear-gradient(180deg, var(--hut-gold-300-glossy) 0%, var(--hut-gold-500) 70%, var(--hut-gold-700) 100%)",
 };
 
-function themeConfettiColors(): string[] {
-  try {
-    const styles = getComputedStyle(document.documentElement);
-    const primary = styles.getPropertyValue("--theme-primary").trim() || "#C6FF00";
-    const secondary = styles.getPropertyValue("--theme-secondary").trim() || "#A3E635";
-    return [primary, secondary, "#FFFFFF"];
-  } catch {
-    return ["#C6FF00", "#A3E635", "#FFFFFF"];
-  }
-}
-
 export default function DashboardView({
   profile,
   activeNodes,
@@ -105,6 +96,7 @@ export default function DashboardView({
   onNavigateToCatalog,
   onNavigateToIncome,
   onNavigateToMilestones,
+  onNavigateToStreaks,
   onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
@@ -115,7 +107,8 @@ export default function DashboardView({
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [barsIn, setBarsIn] = useState(false);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
-  const [msClaimId, setMsClaimId] = useState<string | null>(null);
+  const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
+  const [claimedDays, setClaimedDays] = useState<Set<string> | null>(null);
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();
@@ -124,36 +117,27 @@ export default function DashboardView({
       .catch(() => { /* milestones are progressive enhancement; home works without them */ });
     return () => { cancelled = true; ctrl.abort(); };
   }, [profile.phone]);
+  // Next incomplete achievement in an open stage — never a finished one.
   const nextMilestone = useMemo(() => {
     if (!msBoard || msBoard.tasks.length === 0) return null;
-    const open = msBoard.tasks.filter((t) => !t.claimed);
-    if (open.length === 0) return { done: true as const };
-    const claimable = open.find((t) => t.unlocked);
-    return { done: false as const, task: (claimable || open.find((t) => !t.unlocked) || open[0]) as VipTask, claimable: !!claimable };
+    const claimedTiers = msBoard.claimedTierRewards || [];
+    const openStages = (msBoard.stageOrder || []).filter(
+      (stage) => !claimedTiers.includes(stage) && msBoard.tasks.some((t) => t.category === stage && !t.stageLocked)
+    );
+    if (openStages.length === 0) return { done: true as const };
+    const pool = msBoard.tasks.filter((t) => openStages.includes(t.category));
+    const task = (pool.find((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0)) || pool[0]) as VipTask;
+    return { done: false as const, task };
   }, [msBoard]);
   const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
-  const msUnit = (m?: string) => (m === "streak_days" ? "days" : "runs");
-  const handleMilestoneClaim = async (task: VipTask) => {
-    setMsClaimId(task.id);
-    const ctrl = new AbortController();
-    try {
-      const data = await fetchJsonWithSignal<{ bonus: number; claimedVipTasks?: string[] }>(`/api/profile/vip-tasks/claim`, ctrl.signal, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: profile.phone, taskId: task.id }) });
-      const bonus = Number(data.bonus || 0);
-      toast.success(`${formatCurrency(bonus)} milestone reward claimed`);
-      try { confetti({ particleCount: 90, spread: 70, origin: { y: 0.7 }, colors: themeConfettiColors() }); } catch { /* confetti is decoration */ }
-      onProfileUpdate({ ...profile, points: Number(profile.points || 0) + bonus, claimedVipTasks: data.claimedVipTasks || [...(profile.claimedVipTasks || []), task.id] });
-      bustMilestoneCache();
-      setMsBoard((prev) => prev && { ...prev, tasks: prev.tasks.map((t) => (t.id === task.id ? { ...t, claimed: true } : t)) });
-    } catch (err: any) { if (err?.name !== "AbortError") toast.error(err.message || "Claim failed"); }
-    finally { setMsClaimId(null); }
-  };
+  const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "account_created" ? "" : "runs");
   useEffect(() => {
+    setBarsIn(false);
     const frame = requestAnimationFrame(() => setBarsIn(true));
     return () => cancelAnimationFrame(frame);
   }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
-  const checkinBtnRef = useRef<HTMLButtonElement>(null);
   const todayKey = getTodayKey();
 
   // Rent Clock tick — gated to visible tab.
@@ -166,6 +150,20 @@ export default function DashboardView({
   );
 
   const weekTotal = weekSeries === null ? null : weekSeries.reduce((sum, v) => sum + v, 0);
+
+  // Check-in economics preview (server is authoritative at claim time).
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchJsonWithSignal<{ checkinBaseBonus?: number; checkinIncrement?: number }>(`/api/config/site`, ctrl.signal)
+      .then((cfg) => {
+        if (ctrl.signal.aborted) return;
+        const base = Number(cfg.checkinBaseBonus);
+        const inc = Number(cfg.checkinIncrement);
+        setCheckinEcon({ base: Number.isFinite(base) ? base : 1000, inc: Number.isFinite(inc) ? inc : 100 });
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, []);
 
   // Week sparkline: everything credited to withdrawable, per day.
   useEffect(() => {
@@ -196,10 +194,17 @@ export default function DashboardView({
   }, [profile.phone]);
 
   const activeRuns = useMemo(() => {
-    const list = activeNodes.filter((n) => n.status === "active");
+    const list = activeNodes.filter((n) => getRunState(n, items) === "active");
     list.sort((a, b) => (getRunEndMs(a) ?? Infinity) - (getRunEndMs(b) ?? Infinity));
     return list;
-  }, [activeNodes]);
+  }, [activeNodes, items]);
+  const [showCompletedRuns, setShowCompletedRuns] = useState(false);
+  const completedRuns = useMemo(() => {
+    const list = activeNodes.filter((n) => getRunState(n, items) !== "active");
+    list.sort((a, b) => (getRunEndMs(b) ?? -Infinity) - (getRunEndMs(a) ?? -Infinity));
+    return list;
+  }, [activeNodes, items]);
+  const shownRuns = showCompletedRuns ? completedRuns : activeRuns;
 
   // Next check-in opens at UTC midnight (check-ins settle on UTC days).
   const nextCheckinIn = useMemo(() => {
@@ -211,6 +216,16 @@ export default function DashboardView({
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
 
+  // Button preview mirrors the server formula: base + (nextStreak - 1) * inc,
+  // where the streak continues only from yesterday.
+  const checkinAmount = useMemo(() => {
+    const base = checkinEcon && Number.isFinite(checkinEcon.base) ? checkinEcon.base : 1000;
+    const inc = checkinEcon && Number.isFinite(checkinEcon.inc) ? checkinEcon.inc : 100;
+    const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split("T")[0];
+    const next = profile.lastCheckinDate === yesterday ? streak + 1 : 1;
+    return base + (next - 1) * inc;
+  }, [checkinEcon, profile.lastCheckinDate, streak]);
+
   // Full-month streak, same math as the original check-in modal: the server
   // keeps streaks consecutive, so the live run is exactly `todayStreak` days
   // ending today (claimed) or yesterday (claimable). Tiles derive from it.
@@ -221,6 +236,7 @@ export default function DashboardView({
     const todayMs = Date.UTC(year, month, now.getUTCDate());
     const todayStreak = checkedInToday ? streak : streak + 1;
     const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
+    const tomorrowMs = todayMs + 86400000;
     const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     return {
       month: now.toLocaleString("default", { month: "long" }),
@@ -233,6 +249,8 @@ export default function DashboardView({
           label: String(i + 1),
           isToday,
           isFuture: ms > todayMs,
+          // Next countdown tile: tomorrow once today is claimed. Distinct from greyed futures.
+          isNext: checkedInToday && ms === tomorrowMs,
           // Claimed: inside the live run and (past, or today already checked).
           claimed: ms >= runStartMs && ms <= todayMs && (ms < todayMs || checkedInToday),
         };
@@ -259,8 +277,10 @@ export default function DashboardView({
     toast.success(bonus > 0 ? `Checked in! +${formatCurrency(bonus)}` : "Checked in! Streak kept alive.");
   };
 
-  const handleCheckin = async () => {
+  const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusy) return;
+    // Capture tile geometry synchronously — React synthetic events go stale after await.
+    const tileRect = source === "tile" && event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
     setCheckinBusy(true);
     try {
       const res = await fetch("/api/user/checkin", {
@@ -273,39 +293,33 @@ export default function DashboardView({
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const root = rootRef.current;
-      const from = checkinBtnRef.current?.getBoundingClientRect();
-      const to = balanceRef.current?.getBoundingClientRect();
-      if (!reduced && root && from && to) {
-        // Gold coins fly from the check-in button to the balance, then the
-        // balance updates — the reward visibly arrives.
-        const rootRect = root.getBoundingClientRect();
-        const startX = from.left + from.width / 2 - rootRect.left;
-        const startY = from.top + from.height / 2 - rootRect.top;
-        const endX = to.left + to.width / 2 - rootRect.left;
-        const endY = to.top + to.height / 2 - rootRect.top;
-        setCoins(
-          Array.from({ length: 10 }, (_, i) => ({
-            id: Date.now() + i,
-            startX: startX + (Math.random() - 0.5) * 24,
-            startY: startY + (Math.random() - 0.5) * 10,
-            dx: endX - startX + (Math.random() - 0.5) * 30,
-            dy: endY - startY,
-            delay: i * 0.06,
-          }))
-        );
-        window.setTimeout(() => deliverCheckin(bonus, nextStreak), 1050);
+      // Coin flight plays only on tile tap, flying to the balance hero. Header
+      // button claims instantly with no animation and no confetti.
+      if (source === "tile" && !reduced && tileRect) {
+        const root = rootRef.current;
+        const to = balanceRef.current?.getBoundingClientRect();
+        if (root && to) {
+          const rootRect = root.getBoundingClientRect();
+          const startX = tileRect.left + tileRect.width / 2 - rootRect.left;
+          const startY = tileRect.top + tileRect.height / 2 - rootRect.top;
+          const endX = to.left + to.width / 2 - rootRect.left;
+          const endY = to.top + to.height / 2 - rootRect.top;
+          setCoins(
+            Array.from({ length: 10 }, (_, i) => ({
+              id: Date.now() + i,
+              startX: startX + (Math.random() - 0.5) * 24,
+              startY: startY + (Math.random() - 0.5) * 10,
+              dx: endX - startX + (Math.random() - 0.5) * 30,
+              dy: endY - startY,
+              delay: i * 0.06,
+            }))
+          );
+          window.setTimeout(() => deliverCheckin(bonus, nextStreak), 1050);
+        } else {
+          deliverCheckin(bonus, nextStreak);
+        }
       } else {
         deliverCheckin(bonus, nextStreak);
-      }
-      if (!reduced) {
-        confetti({
-          particleCount: 25,
-          spread: 60,
-          startVelocity: 28,
-          origin: { y: 0.7 },
-          colors: themeConfettiColors(),
-        });
       }
     } catch (err: any) {
       toast.error(err.message || "Check-in failed.");
@@ -374,14 +388,14 @@ export default function DashboardView({
       </section>
 
       {/* Empty state — the loop entry */}
-      {activeRuns.length === 0 && (
+      {activeNodes.length === 0 && (
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
           <p className="font-display font-black text-lg">No active runs.</p>
           <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
           <button
             type="button"
             onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
           >
             <Plus className="w-4 h-4" /> Start your first Run
           </button>
@@ -389,22 +403,38 @@ export default function DashboardView({
       )}
 
       {/* Runs — one card, two rows, overflow as a count */}
-      {activeRuns.length > 0 && (
+      {(activeRuns.length > 0 || completedRuns.length > 0) && (
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
-            <h2 className="font-display font-black text-[15px]">
-              Active Runs <span className="text-[var(--theme-text-muted)] font-bold">{activeRuns.length}</span>
-            </h2>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
+                className={`p-2 -ml-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+              <h2 className="font-display font-black text-[15px] truncate">
+                {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
+              </h2>
+            </div>
             <button
               type="button"
               onClick={onNavigateToIncome}
-              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
             >
-              View all{activeRuns.length > 2 ? ` • +${activeRuns.length - 2}` : ""}
+              View all
             </button>
           </div>
-          {activeRuns.slice(0, 2).map((node) => {
-            const progress = getRunProgress(node);
+          <div className="min-h-[196px]">
+            {shownRuns.length === 0 ? (
+              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
+                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
+              </p>
+            ) : null}
+            {shownRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node, items);
             const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
             const thumb = mapped?.imageUrl || node.image || "";
             return (
@@ -423,26 +453,23 @@ export default function DashboardView({
                     </span>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
-                      <span
-                        className="font-display font-bold text-[13px] tabular-nums shrink-0 bg-clip-text text-transparent"
-                        style={PROGRESS_GRADIENT}
-                      >
-                        {Math.round(progress.percent)}%
-                      </span>
-                    </div>
-                    <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
-                      <div
-                        className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
-                        style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
-                      />
-                    </div>
-                    <p className="mt-1.5 text-right">
-                      <span
-                        className="font-display font-bold tabular-nums text-xs bg-clip-text text-transparent"
-                        style={PROGRESS_GRADIENT}
-                      >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
+                          <div
+                            className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
+                            style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
+                          />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                          {Math.round(progress.percent)}%
+                        </span>
+                      </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Accrued</span>
+                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
                         +{formatCurrency(node.totalEarned || 0)}
                       </span>
                     </p>
@@ -451,38 +478,52 @@ export default function DashboardView({
               </button>
             );
           })}
+          </div>
         </section>
       )}
 
       {/* Daily streak — mini 7-day run, Mon–Sun */}
       <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
-            <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
-              {weekTiles.month}
-            </p>
-          </div>
-          {checkedInToday ? (
-            <span className="shrink-0 font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
-              {formatClock(nextCheckinIn)}
-            </span>
-          ) : (
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
-              ref={checkinBtnRef}
               type="button"
-              onClick={handleCheckin}
-              disabled={checkinBusy}
-              className="shrink-0 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer tile-shimmer"
+              onClick={onNavigateToStreaks}
+              aria-label="Open streaks"
+              className="text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-all shrink-0 p-1"
             >
-              {checkinBusy ? "…" : "Check in"}
+              <CalendarDays className="w-5 h-5" />
             </button>
-          )}
+            <div className="min-w-0">
+              <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
+                {weekTiles.month}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0">
+            {checkedInToday ? (
+              <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
+                {formatClock(nextCheckinIn)}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleCheckin("button")}
+                disabled={checkinBusy}
+                className="px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold tabular-nums transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
+              >
+                {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
+              </button>
+            )}
+          </div>
         </div>
         <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
+            const isNext = (d as { isNext?: boolean }).isNext === true;
             const missed = !d.isFuture && !d.isToday && !d.claimed;
             const active = d.isToday && !d.claimed;
+            const dimmed = (missed || d.isFuture) && !isNext;
             const inner = (
               <>
                 <img
@@ -490,12 +531,12 @@ export default function DashboardView({
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  className={`w-7 h-7 object-contain ${missed || d.isFuture ? "grayscale" : ""}`}
+                  className={`w-7 h-7 object-contain ${dimmed ? "grayscale" : ""}`}
                 />
                 {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
                 <span
                   className={`text-[8px] font-sans font-black uppercase tracking-wide ${
-                    d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
+                    d.claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
                   }`}
                 >
                   {d.label}
@@ -504,18 +545,20 @@ export default function DashboardView({
             );
             const cls = `relative rounded-xl w-11 shrink-0 aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
               d.claimed
-                ? "bg-[var(--theme-primary)]/15"
+                ? ""
                 : active
                   ? "border border-[var(--theme-primary)]/70 tile-shimmer"
-                  : d.isFuture
-                    ? "opacity-40"
-                    : ""
+                  : isNext
+                    ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
+                    : d.isFuture
+                      ? "opacity-40"
+                      : ""
             }`;
             return active ? (
               <button
                 key={d.key}
                 type="button"
-                onClick={handleCheckin}
+                onClick={(e) => void handleCheckin("tile", e)}
                 disabled={checkinBusy}
                 aria-label="Check in today"
                 data-today="true"
@@ -524,7 +567,7 @@ export default function DashboardView({
                 {inner}
               </button>
             ) : (
-              <div key={d.key} data-today={d.isToday || undefined} className={cls}>
+              <div key={d.key} data-today={d.isToday || undefined} data-next={isNext || undefined} title={isNext ? "Next check-in" : undefined} className={cls}>
                 {inner}
               </div>
             );
@@ -535,15 +578,15 @@ export default function DashboardView({
       {/* Next milestone — mockup strip: art tile, reward, thin progress, inline claim */}
       {nextMilestone && (
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-start justify-between mb-3">
             <div>
               <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
-              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Small wins. Bigger moves.</p>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
             </div>
             <button
               type="button"
-              onClick={onNavigateToMilestones}
-              className="shrink-0 inline-flex items-center gap-1 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+              onClick={() => onNavigateToMilestones()}
+              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
             >
               View all <ChevronRight className="w-4 h-4" />
             </button>
@@ -553,49 +596,44 @@ export default function DashboardView({
           ) : (() => {
             const task = nextMilestone.task;
             const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
-            const remaining = Math.max(0, Number(task.requiredBonus || 0) - Number(task.progress || 0));
-            const toGo = msIsMoney(task.metric) ? formatCurrency(remaining) : `${remaining.toLocaleString()} ${msUnit(task.metric)}`;
+            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
+            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
+            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
+            const counts = msIsMoney(task.metric)
+              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
+              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
             return (
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
-                  {task.imageUrl ? (
-                    <img src={task.imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                  {tierArt ? (
+                    <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   ) : (
                     <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-sans font-extrabold truncate">{task.title}</p>
-                  <p className="text-[11px] font-sans text-[var(--theme-primary)] font-bold">+{formatCurrency(Number(task.reward || 0))} on claim</p>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
+                    {task.category}
+                  </span>
+                  <p className="text-[13px] font-sans font-extrabold truncate mt-0.5">{task.title}</p>
                   <div className="mt-1.5 h-1.5 rounded-full bg-black/20 overflow-hidden">
                     <div
                       className="h-full rounded-full transition-[width] duration-700 ease-out"
                       style={{ ...PROGRESS_GRADIENT, width: barsIn ? `${pct}%` : "0%" }}
                     />
                   </div>
-                  {!nextMilestone.claimable && (
-                    <p className="mt-1 text-[10px] font-sans text-[var(--theme-text-muted)]">{toGo} to go</p>
-                  )}
+                  <div className="mt-1 flex items-center justify-end gap-2">
+                    <p className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-80">{counts}</p>
+                  </div>
                 </div>
-                {nextMilestone.claimable ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleMilestoneClaim(task)}
-                    disabled={msClaimId === task.id}
-                    className="shrink-0 px-4 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
-                  >
-                    {msClaimId === task.id ? "…" : "Claim"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onNavigateToMilestones}
-                    aria-label="View milestones"
-                    className="shrink-0 p-2 rounded-full opacity-60 hover:opacity-100 cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => onNavigateToMilestones(task.category)}
+                  aria-label="View journey stage"
+                  className="shrink-0 p-2 rounded-full opacity-60 hover:opacity-100 cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             );
           })()}
