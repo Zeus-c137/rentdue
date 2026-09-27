@@ -23,7 +23,7 @@ Single Node process: `dist/server.cjs` serves the API and the built frontend fro
 
 - Health: `/healthz` (liveness) · `/readyz` (readiness — 503 until DB init finishes, use this for host health checks)
 - Scheduler hook: `GET /api/jobs/daily-credit?key=<DAILY_CREDIT_JOB_SECRET>` (idempotent; prefer an external cron over the in-process midnight job on sleeping hosts)
-- Uploads: site images go to Cloudinary when `CLOUDINARY_*` keys are set, else local `./uploads/` (ephemeral on most hosts)
+- Uploads: all site images go to Cloudinary (`CLOUDINARY_*` required — no local-disk fallback); the returned `secure_url` is saved in the DB
 
 ## Render Deployment (Web Service, not Static Site)
 1. Create a hosted MySQL database (empty) and a Web Service from this repo.

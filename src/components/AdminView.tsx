@@ -3436,7 +3436,7 @@ export default function AdminView() {
                               type="text"
                               value={vipTaskImageUrl}
                               onChange={(event) => setVipTaskImageUrl(event.target.value)}
-                              placeholder="https://… or /uploads/…"
+                              placeholder="https://…"
                               className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm font-mono"
                             />
                             <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
@@ -3507,7 +3507,7 @@ export default function AdminView() {
                                 <input type="text" value={draft.description} maxLength={220} onChange={(event) => patchTierDraft(idx, { description: event.target.value })} placeholder="e.g. Getting started" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
                               </label>
                               <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Art URL
-                                <input type="text" value={draft.imageUrl} onChange={(event) => patchTierDraft(idx, { imageUrl: event.target.value })} placeholder="https://… or /uploads/…" className="theme-input w-full px-2.5 py-2 text-sm mt-1 font-mono" />
+                                <input type="text" value={draft.imageUrl} onChange={(event) => patchTierDraft(idx, { imageUrl: event.target.value })} placeholder="https://…" className="theme-input w-full px-2.5 py-2 text-sm mt-1 font-mono" />
                               </label>
                             </div>
                           );
