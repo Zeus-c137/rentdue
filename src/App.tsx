@@ -924,71 +924,86 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Bottom Tab Bar — First stab: angular, chunky, Duolingo-playful, not a pill */}
-        <div className="w-full px-0 pb-0 pt-0 bg-transparent shrink-0 z-40 select-none">
-          <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-t-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-1.5 sm:px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-1">
+        {/* Bottom Tab Bar — floating dock with a raised My Runs action */}
+        <div className="w-full px-4 pt-0 pb-[calc(0.375rem+env(safe-area-inset-bottom))] bg-transparent shrink-0 z-40 select-none">
+          <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-2 pt-2 pb-2 grid grid-cols-5 items-end">
             {/* Home */}
             <button
               onClick={() => setActiveTab("dashboard")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
                 <Home className="w-6 h-6 col-start-1 row-start-1" />
                 <Home fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "dashboard" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Home</span>
+              <span className="w-4 h-1 flex items-center justify-center">
+                {activeTab === "dashboard" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+              </span>
             </button>
 
             {/* Store */}
             <button
               onClick={() => setActiveTab("catalog")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
                 <Store className="w-6 h-6 col-start-1 row-start-1" />
                 <Store fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Store</span>
+              <span className="w-4 h-1 flex items-center justify-center">
+                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+              </span>
             </button>
 
-            {/* My Runs */}
-            <button
-              onClick={() => setActiveTab("income")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "income" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              {siteConfig?.logoUrl?.trim() ? (
-                <BrandLogo siteConfig={siteConfig} className="w-6 h-6 flex items-center justify-center shrink-0 [&>img]:rounded-md" />
-              ) : (
-                <span className="grid place-items-center w-6 h-6">
-                  <Zap className="w-6 h-6 col-start-1 row-start-1" />
-                  <Zap fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "income" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-                </span>
-              )}
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">My Runs</span>
-            </button>
+            {/* My Runs — raised floating action */}
+            <div className="flex flex-col items-center">
+              <button
+                onClick={() => setActiveTab("income")}
+                aria-label="My Runs"
+                className={`-mt-10 mb-1 w-14 h-14 rounded-full bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] grid place-items-center border active:scale-90 transition-all duration-200 ${activeTab === "income" ? "border-[var(--theme-primary)] text-[var(--theme-primary)]" : "border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"}`}
+              >
+                {siteConfig?.logoUrl?.trim() ? (
+                  <BrandLogo siteConfig={siteConfig} className="w-8 h-8 flex items-center justify-center shrink-0 [&>img]:rounded-lg" />
+                ) : (
+                  <Zap fill="currentColor" className="w-7 h-7" />
+                )}
+              </button>
+              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Runs</span>
+              <span className="w-4 h-1 flex items-center justify-center mt-1">
+                {activeTab === "income" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+              </span>
+            </div>
 
             {/* Milestones */}
             <button
               onClick={() => setActiveTab("vip")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
                 <Trophy className="w-6 h-6 col-start-1 row-start-1" />
                 <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Milestones</span>
+              <span className="w-4 h-1 flex items-center justify-center">
+                {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+              </span>
             </button>
 
             {/* Profile */}
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
                 <User className="w-6 h-6 col-start-1 row-start-1" />
                 <User fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "profile" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
               <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Profile</span>
+              <span className="w-4 h-1 flex items-center justify-center">
+                {activeTab === "profile" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+              </span>
             </button>
           </nav>
         </div>
