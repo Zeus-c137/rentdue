@@ -200,6 +200,9 @@ export default function DashboardView({
     return list;
   }, [activeNodes, items]);
   const shownRuns = showCompletedRuns ? completedRuns : activeRuns;
+  // Catalog + subs arrive in one batch after login — before that, hold a
+  // dimension-matched skeleton instead of flashing the empty state.
+  const listsReady = items.length > 0;
 
   // Next check-in opens at UTC midnight (check-ins settle on UTC days).
   const nextCheckinIn = useMemo(() => {
@@ -375,14 +378,41 @@ export default function DashboardView({
             <>+{formatCurrency(weekTotal)} this week</>
           )}
         </p>
-        {weekSeries && (
+        {weekSeries ? (
           <div className="mt-2">
             <WeekSpark data={weekSeries} />
           </div>
+        ) : (
+          <div aria-hidden="true" className="mt-2 h-14 rounded-xl bg-[var(--theme-text)]/10 animate-pulse" />
         )}
       </section>
 
       {/* Next milestone — flat header, card body. Body taps route to the stage. */}
+      {!nextMilestone && msBoard === null && (
+        <section aria-hidden="true" className="animate-pulse">
+          <div className="flex items-start justify-between mb-3 px-1">
+            <div>
+              <div className="h-[18px] w-32 rounded-md bg-[var(--theme-text)]/10" />
+              <div className="mt-1.5 h-[14px] w-52 max-w-full rounded-md bg-[var(--theme-text)]/10" />
+            </div>
+            <div className="mt-0.5 h-4 w-16 rounded-md bg-[var(--theme-text)]/10 shrink-0" />
+          </div>
+          <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="h-3 w-20 rounded bg-[var(--theme-text)]/10" />
+                <div className="mt-1.5 h-[18px] w-3/4 rounded bg-[var(--theme-text)]/10" />
+                <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10" />
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <div className="h-[14px] w-16 rounded bg-[var(--theme-text)]/10" />
+                  <div className="h-[14px] w-24 rounded bg-[var(--theme-text)]/10" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
       {nextMilestone && (
         <section>
           <div className="flex items-start justify-between mb-3 px-1">
@@ -460,7 +490,13 @@ export default function DashboardView({
       {/* Daily streak — mini 7-day run, Mon–Sun */}
       <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="min-w-0">
+            <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
+            <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
+              {weekTiles.month}
+            </p>
+          </div>
+          <div className="shrink-0 flex items-center gap-1">
             <button
               type="button"
               onClick={onNavigateToStreaks}
@@ -469,18 +505,12 @@ export default function DashboardView({
             >
               <CalendarDays className="w-5 h-5" />
             </button>
-            <div className="min-w-0">
-              <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
-              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
-                {weekTiles.month}
-              </p>
-            </div>
-          </div>
-          <div className="shrink-0">
             {checkedInToday ? (
               <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
                 {formatClock(nextCheckinIn)}
               </span>
+            ) : checkinEcon === null ? (
+              <span aria-hidden className="block h-[38px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
             ) : (
               <button
                 type="button"
@@ -550,8 +580,33 @@ export default function DashboardView({
         </div>
       </section>
 
-      {/* Empty state — the loop entry, kept with its runs card */}
-      {activeNodes.length === 0 && (
+      {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
+      {!listsReady ? (
+        <section aria-hidden="true" className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4 animate-pulse">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
+            <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
+          </div>
+          <div className="min-h-[196px]">
+            {[0, 1].map((i) => (
+              <div key={i} className="py-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
+                    <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10" />
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
+                      <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : activeNodes.length === 0 ? (
+        /* Empty state — the loop entry, kept with its runs card */
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
           <p className="font-display font-black text-lg">No active runs.</p>
           <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
@@ -563,32 +618,30 @@ export default function DashboardView({
             <Plus className="w-4 h-4" /> Start your first Run
           </button>
         </section>
-      )}
-
-      {/* Runs — one card, two rows, overflow as a count */}
-      {(activeRuns.length > 0 || completedRuns.length > 0) && (
+      ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
+        /* Runs — one card, two rows, overflow as a count */
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
-            <div className="flex items-center gap-1.5 min-w-0">
+            <h2 className="font-display font-black text-[15px] truncate min-w-0">
+              {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
+            </h2>
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
                 aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
-                className={`p-2 -ml-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+                className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
               >
                 <SlidersHorizontal className="w-4 h-4" />
               </button>
-              <h2 className="font-display font-black text-[15px] truncate">
-                {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
-              </h2>
+              <button
+                type="button"
+                onClick={onNavigateToIncome}
+                className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+              >
+                View all
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onNavigateToIncome}
-              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
-            >
-              View all
-            </button>
           </div>
           <div className="min-h-[196px]">
             {shownRuns.length === 0 ? (
@@ -643,7 +696,7 @@ export default function DashboardView({
           })}
           </div>
         </section>
-      )}
+      ) : null}
     </div>
   );
 }

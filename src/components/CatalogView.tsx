@@ -120,6 +120,16 @@ export default function CatalogView({
     return cat;
   };
 
+  const DEFAULT_STORE_TITLE = "The Store";
+  const DEFAULT_STORE_DESC = "Choose your runs and begin your journey from our carefully curated categories.";
+  const activeTitle = activeCategory === "All" ? DEFAULT_STORE_TITLE : getCategoryLabel(activeCategory);
+  const activeDesc =
+    activeCategory === "All"
+      ? DEFAULT_STORE_DESC
+      : (siteConfig?.categoryMeta?.[activeCategory]?.description?.trim() ||
+        `Choose your runs from ${getCategoryLabel(activeCategory)}.`);
+
+
   return (
     <div className="w-full bg-transparent text-[var(--theme-text)] select-none pb-16 relative">
       <AnimatePresence mode="wait">
@@ -131,10 +141,7 @@ export default function CatalogView({
           transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
           className="space-y-4 px-1"
         >
-            <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">The Store</h1>
-            <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px]">Choose your runs and begin your journey from our carefully curated categories.</p>
-
-            {/* Account balance — what can be deployed into runs */}
+            {/* Account balance — what can be deployed into runs (above shifting title) */}
             <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
               <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
@@ -151,6 +158,20 @@ export default function CatalogView({
                 </button>
               </div>
             </div>
+
+            {/* Shifting title + description — swaps with the active category tab */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeCategory}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              >
+                <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">{activeTitle}</h1>
+                <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] mt-1.5">{activeDesc}</p>
+              </motion.div>
+            </AnimatePresence>
 
             {/* Category selection Tabs — no container bg (transparent) */}
             <div className="relative p-1.5 -mx-1 mb-2">
@@ -215,7 +236,7 @@ export default function CatalogView({
                       )}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none" />
                       {ownedQuantity > 0 && (
-                        <span className="absolute bottom-1.5 right-1.5 rounded-full bg-[var(--theme-primary)] text-white px-2 py-0.5 text-[10px] font-black leading-none shadow-md whitespace-nowrap">
+                        <span className="absolute bottom-1.5 right-1.5 rounded-full border border-[var(--theme-primary)] bg-[var(--theme-card-bg)]/85 backdrop-blur-md text-[var(--theme-text)] px-2 py-0.5 text-[10px] font-black leading-none shadow-md whitespace-nowrap">
                           ×{ownedQuantity}
                         </span>
                       )}

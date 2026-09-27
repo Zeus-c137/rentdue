@@ -43,6 +43,7 @@ import {
   FlaskConical
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { POLL_INTERVAL_MS } from "../utils/motion";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import gift3d2 from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
@@ -191,6 +192,8 @@ export default function ProfileView({
         ...userProfile,
         points: userProfile.points + data.amount
       });
+      // Re-check — more codes may still be claimable.
+      void fetchGiftAvailability();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -226,6 +229,23 @@ export default function ProfileView({
       setWithdrawOperator(userProfile.operator || "MTN");
     }
   }, [userProfile, showWithdrawSheet]);
+
+  // Gift-code pulse — true while the admin has a live code this user can
+  // still redeem (active, unexpired, redemptions left, not yet claimed).
+  const [giftAvailable, setGiftAvailable] = useState(false);
+  const fetchGiftAvailability = async () => {
+    try {
+      const res = await fetch(`/api/user/gift_codes/available/${userProfile.phone}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGiftAvailable(!!data.available);
+      }
+    } catch {
+      // Silent — the dot just stays off.
+    }
+  };
+  useEffect(() => { void fetchGiftAvailability(); }, [userProfile.phone]);
+  useGatedInterval(fetchGiftAvailability, POLL_INTERVAL_MS, { enabled: !!userProfile.phone, visibilityGate: true, runOnVisible: true });
 
   // Fetch non-simulated user transaction logs
   const fetchTxHistory = async () => {
@@ -323,6 +343,7 @@ export default function ProfileView({
 
       {/* 1. Balance — Visa card (recharge + withdrawable) */}
       <VisaMetricCard
+        inviteCode={userProfile.inviteCode}
         leftLabel="Recharge balance"
         leftValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.rechargeBalance || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.rechargeBalance || 0).toLocaleString()}`}
         rightLabel="Withdrawable balance"
@@ -401,12 +422,20 @@ export default function ProfileView({
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
             <button onClick={() => setShowGiftCodeSheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-pink-500/15 text-pink-500 shrink-0">
+              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-pink-500/15 text-pink-500 shrink-0">
                 <Gift className="w-5 h-5" />
+                {giftAvailable && (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--theme-primary)] opacity-60"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--theme-primary)] border-2 border-[var(--theme-bg)]"></span>
+                  </span>
+                )}
               </span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Gift Code</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Redeem a voucher code</span>
+                <span className={`block text-[13px] font-sans font-medium leading-none mt-1.5 ${giftAvailable ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60"}`}>
+                  {giftAvailable ? "New code available" : "Redeem a voucher code"}
+                </span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
@@ -480,37 +509,50 @@ export default function ProfileView({
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={() => setShowGiftCodeSheet(false)} />
                   <motion.div initial={{ scale: 0.94, y: 15, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.94, y: 15, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 350 }} className="relative w-full max-w-[345px] theme-card card-playful-3d bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] rounded-[var(--theme-radius)] p-6 shadow-2xl">
-                    <button onClick={() => setShowGiftCodeSheet(false)} className="absolute right-4 top-4 text-[var(--theme-text)] opacity-60 hover:opacity-100 p-1.5 rounded-full btn-3d-secondary border border-[var(--theme-card-border)] transition-colors cursor-pointer">
+                    <button onClick={() => setShowGiftCodeSheet(false)} aria-label="Close gift code" className="absolute right-4 top-4 text-[var(--theme-text)] opacity-60 hover:opacity-100 p-1.5 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-95 cursor-pointer">
                       <X className="w-4 h-4" />
                     </button>
                     <div className="flex flex-col items-center justify-center mb-5 mt-1">
-                      <img src={gift3d2} alt="" className="w-14 h-14 object-contain drop-shadow-sm mb-3" loading="lazy" decoding="async" />
+                      <span className="w-20 h-20 rounded-[22px] bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center mb-3">
+                        <img src={gift3d2} alt="" className="w-12 h-12 object-contain drop-shadow-sm" loading="lazy" decoding="async" />
+                      </span>
                       <h3 className="text-lg font-display font-black text-[var(--theme-text)] tracking-tight">Gift code</h3>
-                      <p className="text-[12px] text-[var(--theme-text)] opacity-70 mt-1 text-center font-sans">Enter your code below</p>
+                      <p className="text-[12px] text-[var(--theme-text)] opacity-70 mt-1 text-center font-sans leading-relaxed">Enter the code shared with you — the bonus lands in your withdrawable balance.</p>
                     </div>
                     <form onSubmit={handleRedeemGiftCode} className="space-y-4">
                       <div>
+                        <label htmlFor="gift-code-input" className="block text-[11px] font-sans font-black uppercase tracking-wider text-[var(--theme-text)] opacity-60 mb-1.5 text-center">Voucher code</label>
                         <input
+                          id="gift-code-input"
                           type="text"
                           required
+                          autoComplete="off"
+                          autoCapitalize="characters"
+                          spellCheck={false}
                           value={giftCodeValue}
                           onChange={e => setGiftCodeValue(e.target.value.toUpperCase())}
                           placeholder="ENTER CODE"
-                          className="w-full px-4 py-3 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-sm font-display font-black text-center tracking-[0.2em] text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] uppercase transition-all shadow-inner placeholder-[var(--theme-text)]/40"
+                          className="w-full px-4 py-3.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-sm font-display font-black text-center tracking-[0.2em] text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] uppercase transition-all shadow-inner placeholder-[var(--theme-text)]/40"
                         />
                       </div>
-                    <Button
-                      variant="gold-glossy"
-                      size="sm"
-                      type="submit"
-                      loading={isRedeemingGiftCode}
-                      disabled={!giftCodeValue}
-                      className="w-full"
-                      glow={false}
-                    >
-                      get gift
-                    </Button>
+                      <Button
+                        variant="primary"
+                        size="md"
+                        type="submit"
+                        loading={isRedeemingGiftCode}
+                        disabled={!giftCodeValue.trim()}
+                        className="w-full"
+                      >
+                        <Gift className="w-4 h-4" /> Redeem gift
+                      </Button>
                     </form>
+                    <button
+                      type="button"
+                      onClick={() => { setShowGiftCodeSheet(false); setShowCommunitySheet(true); }}
+                      className="mt-4 w-full text-center text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-60 hover:opacity-100 hover:text-[var(--theme-primary)] transition-all cursor-pointer"
+                    >
+                      New codes drop daily in the community groups
+                    </button>
                   </motion.div>
                 </div>
               )}

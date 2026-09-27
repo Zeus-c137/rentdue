@@ -206,6 +206,10 @@ export default function AdminView() {
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
+  const [newCategoryDesc, setNewCategoryDesc] = useState("");
+  const [editingCategoryKey, setEditingCategoryKey] = useState<string | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState("");
+  const [editCategoryDesc, setEditCategoryDesc] = useState("");
   const [isNodesMoreMenuOpen, setIsNodesMoreMenuOpen] = useState(false);
   const [isConfirmDeleteAllModalOpen, setIsConfirmDeleteAllModalOpen] = useState(false);
   const [isDeletingAllNodes, setIsDeletingAllNodes] = useState(false);
@@ -720,26 +724,43 @@ export default function AdminView() {
     }
   };
 
-  // Category Management Actions
+  // Category Management Actions (name editable + description via categoryMeta)
+  const getCategoryMeta = (): Record<string, { description?: string }> => {
+    const raw = (siteConfig as any)?.categoryMeta;
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  };
+
+  const getAllProductCategories = (): string[] => {
+    return Array.from(new Set([...(siteConfig?.categories || []), ...catalogItems.map(i => i.category).filter(Boolean)]));
+  };
+
+  const persistCategoriesConfig = async (nextCats: string[], nextMeta: Record<string, { description?: string }>) => {
+    const res = await fetch("/api/admin/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...siteConfig, categories: nextCats, categoryMeta: nextMeta })
+    });
+    if (!res.ok) throw new Error("Failed saving categories.");
+    setSiteConfig({ ...siteConfig, categories: nextCats, categoryMeta: nextMeta });
+  };
+
   const handleAddCategory = async () => {
     const trimmed = newCategoryInput.trim();
     if (!trimmed) return;
     const existing: string[] = siteConfig?.categories || [];
-    if (existing.includes(trimmed)) {
+    if (existing.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
       toast.info(`Category "${trimmed}" already exists.`);
       return;
     }
+    const desc = newCategoryDesc.trim().slice(0, 280);
     const updatedCats = [...existing, trimmed];
+    const nextMeta = { ...getCategoryMeta() };
+    if (desc) nextMeta[trimmed] = { description: desc };
     try {
       setIsLoading(true);
-      const res = await fetch("/api/admin/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...siteConfig, categories: updatedCats })
-      });
-      if (!res.ok) throw new Error("Failed saving category.");
-      setSiteConfig({ ...siteConfig, categories: updatedCats });
+      await persistCategoriesConfig(updatedCats, nextMeta);
       setNewCategoryInput("");
+      setNewCategoryDesc("");
       toast.success(`Category "${trimmed}" added successfully!`);
     } catch (err: any) {
       toast.error(err.message);
@@ -751,18 +772,89 @@ export default function AdminView() {
   const handleDeleteCategory = async (catToDelete: string) => {
     const existing: string[] = siteConfig?.categories || [];
     const updatedCats = existing.filter((c: string) => c !== catToDelete);
+    const nextMeta = { ...getCategoryMeta() };
+    delete nextMeta[catToDelete];
+    const affected = catalogItems.filter((i) => i.category === catToDelete).length;
     try {
       setIsLoading(true);
-      const res = await fetch("/api/admin/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...siteConfig, categories: updatedCats })
-      });
-      if (!res.ok) throw new Error("Failed deleting category.");
-      setSiteConfig({ ...siteConfig, categories: updatedCats });
-      toast.success(`Category "${catToDelete}" removed.`);
+      await persistCategoriesConfig(updatedCats, nextMeta);
+      if (editingCategoryKey === catToDelete) {
+        setEditingCategoryKey(null);
+        setEditCategoryName("");
+        setEditCategoryDesc("");
+      }
+      toast.success(
+        affected > 0
+          ? `Category "${catToDelete}" removed from config. ${affected} product${affected === 1 ? "" : "s"} still use it and remain visible.`
+          : `Category "${catToDelete}" removed.`
+      );
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartEditCategory = (cat: string) => {
+    setEditingCategoryKey(cat);
+    setEditCategoryName(cat);
+    setEditCategoryDesc(getCategoryMeta()[cat]?.description || "");
+  };
+
+  const handleCancelEditCategory = () => {
+    setEditingCategoryKey(null);
+    setEditCategoryName("");
+    setEditCategoryDesc("");
+  };
+
+  const handleSaveEditedCategory = async () => {
+    if (!editingCategoryKey) return;
+    const oldName = editingCategoryKey;
+    const newName = editCategoryName.trim();
+    if (!newName) {
+      toast.error("Category name cannot be empty.");
+      return;
+    }
+    const existing: string[] = siteConfig?.categories || [];
+    const duplicate = existing.some((c) => c !== oldName && c.toLowerCase() === newName.toLowerCase())
+      || getAllProductCategories().some((c) => c !== oldName && c.toLowerCase() === newName.toLowerCase() && !existing.includes(c));
+    if (duplicate) {
+      toast.error(`Another category named "${newName}" already exists.`);
+      return;
+    }
+    const desc = editCategoryDesc.trim().slice(0, 280);
+    const renamed = newName !== oldName;
+    try {
+      setIsLoading(true);
+      // If renamed, move products to the new name so catalog tabs keep working.
+      if (renamed) {
+        const affected = catalogItems.filter((i) => i.category === oldName);
+        for (const item of affected) {
+          const res = await fetch("/api/admin/catalog/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...item, category: newName })
+          });
+          if (!res.ok) throw new Error(`Failed moving products from "${oldName}" to "${newName}".`);
+        }
+      }
+      const nextCats = existing.includes(oldName)
+        ? existing.map((c) => (c === oldName ? newName : c))
+        : (renamed || !existing.includes(newName) ? [...existing, newName] : existing);
+      const nextMeta = { ...getCategoryMeta() };
+      delete nextMeta[oldName];
+      if (desc) nextMeta[newName] = { description: desc };
+      // Preserve description when only renaming and no new desc typed.
+      if (renamed && !desc) {
+        const prevDesc = getCategoryMeta()[oldName]?.description?.trim();
+        if (prevDesc) nextMeta[newName] = { description: prevDesc.slice(0, 280) };
+      }
+      await persistCategoriesConfig(nextCats, nextMeta);
+      handleCancelEditCategory();
+      toast.success(renamed ? `Category renamed to "${newName}".` : `Category "${newName}" updated.`);
+      fetchAllAdminData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed saving category.");
     } finally {
       setIsLoading(false);
     }
@@ -4561,55 +4653,127 @@ export default function AdminView() {
                   </div>
                   <div>
                     <h3 className="text-base font-extrabold text-[var(--theme-text)]">Manage Product Categories</h3>
-                    <p className="text-[11px] text-[var(--theme-text)] opacity-70 mt-0.5">Add or remove product categories</p>
+                    <p className="text-[11px] text-[var(--theme-text)] opacity-70 mt-0.5">Rename categories, add descriptions shown in the Store</p>
                   </div>
                 </div>
-                <button onClick={() => setIsCategoryModalOpen(false)} className="text-[var(--theme-text)] opacity-60 hover:opacity-100 p-1.5 rounded-lg transition-colors cursor-pointer">
+                <button onClick={() => { setIsCategoryModalOpen(false); handleCancelEditCategory(); }} className="text-[var(--theme-text)] opacity-60 hover:opacity-100 p-1.5 rounded-lg transition-colors cursor-pointer">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
                 {/* Add new category form */}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="e.g. GS Series, AS Series, U Series"
-                    value={newCategoryInput}
-                    onChange={(e) => setNewCategoryInput(e.target.value)}
-                    className="flex-1 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-4 py-2.5 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. GS Series, AS Series, U Series"
+                      value={newCategoryInput}
+                      onChange={(e) => setNewCategoryInput(e.target.value)}
+                      className="flex-1 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-4 py-2.5 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors"
+                    />
+                    <button
+                      onClick={handleAddCategory}
+                      disabled={!newCategoryInput.trim() || isLoading}
+                      className="btn-3d-primary px-4 py-2.5 text-white font-black text-xs rounded-[var(--theme-radius)] transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer active:translate-y-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    placeholder="Short description shown under the category title in the Store (optional)"
+                    value={newCategoryDesc}
+                    onChange={(e) => setNewCategoryDesc(e.target.value)}
+                    maxLength={280}
+                    className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-4 py-2.5 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] transition-colors resize-none"
                   />
-                  <button
-                    onClick={handleAddCategory}
-                    disabled={!newCategoryInput.trim() || isLoading}
-                    className="btn-3d-primary px-4 py-2.5 text-white font-black text-xs rounded-[var(--theme-radius)] transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer active:translate-y-1"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add</span>
-                  </button>
                 </div>
 
                 {/* Categories List */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-80 block">Existing Categories</label>
-                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
-                    {Array.from(new Set([...(siteConfig?.categories || []), ...catalogItems.map(i => i.category).filter(Boolean)])).map((cat) => {
+                  <div className="space-y-2 max-h-72 overflow-y-auto p-1">
+                    {getAllProductCategories().map((cat) => {
+                      const metaDesc = getCategoryMeta()[cat]?.description || "";
+                      const count = catalogItems.filter((i) => i.category === cat).length;
+                      const isEditing = editingCategoryKey === cat;
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={cat}
+                            className="p-3 bg-[var(--theme-bg)] border border-[var(--theme-primary)]/30 rounded-[var(--theme-radius)] space-y-2"
+                          >
+                            <input
+                              type="text"
+                              value={editCategoryName}
+                              onChange={(e) => setEditCategoryName(e.target.value)}
+                              placeholder="Category name"
+                              className="w-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm font-bold text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)]"
+                            />
+                            <textarea
+                              rows={2}
+                              value={editCategoryDesc}
+                              onChange={(e) => setEditCategoryDesc(e.target.value)}
+                              placeholder="Description shown in the Store under this category"
+                              maxLength={280}
+                              className="w-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-[var(--theme-primary)] resize-none"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={handleCancelEditCategory}
+                                disabled={isLoading}
+                                className="px-3 py-1.5 text-xs font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveEditedCategory}
+                                disabled={!editCategoryName.trim() || isLoading}
+                                className="btn-3d-primary px-4 py-1.5 text-white font-black text-xs rounded-[var(--theme-radius)] disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                              >
+                                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                <span>Save</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
                       return (
                         <div
                           key={cat}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-xs font-bold text-[var(--theme-text)] group"
+                          className="p-3 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)]"
                         >
-                          <span className="font-mono text-[var(--theme-primary)] uppercase">{cat}</span>
-                          <button
-                            onClick={() => handleDeleteCategory(cat)}
-                            title="Delete category"
-                            className="text-[var(--theme-text)] opacity-50 hover:text-rose-500 hover:opacity-100 transition-colors p-0.5 cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[var(--theme-primary)] uppercase text-xs font-black truncate flex-1">{cat}</span>
+                            <span className="text-[10px] font-bold text-[var(--theme-text)] opacity-50 shrink-0">{count} item{count === 1 ? "" : "s"}</span>
+                            <button
+                              onClick={() => handleStartEditCategory(cat)}
+                              title="Rename / edit description"
+                              className="text-[var(--theme-text)] opacity-50 hover:text-[var(--theme-primary)] hover:opacity-100 transition-colors p-0.5 cursor-pointer"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCategory(cat)}
+                              title="Delete category"
+                              className="text-[var(--theme-text)] opacity-50 hover:text-rose-500 hover:opacity-100 transition-colors p-0.5 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-[var(--theme-text)] opacity-60 mt-1 leading-snug">
+                            {metaDesc || <span className="italic opacity-70">No description — Store falls back to the default text.</span>}
+                          </p>
                         </div>
                       );
                     })}
+                    {getAllProductCategories().length === 0 && (
+                      <p className="text-[11px] text-[var(--theme-text)] opacity-60 italic">No categories yet. Add your first one above.</p>
+                    )}
                   </div>
                 </div>
               </div>

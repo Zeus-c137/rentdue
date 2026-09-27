@@ -180,13 +180,12 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
         )}
 
         <Button
-          variant="gold-matte"
+          variant="primary"
           size="sm"
           type="submit"
           loading={isSavingProfile}
           disabled={isSavingProfile}
           className="w-full"
-          glow={false}
         >
           Save Account Data
         </Button>

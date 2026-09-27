@@ -18,12 +18,12 @@ export function useClipboard(timeoutMs = CLIPBOARD_TIMEOUT_MS) {
     clearTimer(timerRef);
   }, []);
   const copy = useCallback(
-    async (text: string) => {
+    async (text: string, successMessage = "Copied to clipboard") => {
       if (!text) return;
       try {
         await navigator.clipboard.writeText(text);
         setCopied(true);
-        toast.success("Copied to clipboard");
+        toast.success(successMessage);
         clearTimer(timerRef);
         timerRef.current = window.setTimeout(() => setCopied(false), timeoutMs);
       } catch {
