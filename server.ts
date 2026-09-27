@@ -9,6 +9,7 @@ import path from "path";
 import fs from "fs";
 import cron from "node-cron";
 import dotenv from "dotenv";
+import { v2 as cloudinary } from "cloudinary";
 import {
   seedDatabaseIfEmpty,
   registerUserProfile,
@@ -151,9 +152,44 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 // Middleware
 app.use(express.json({ limit: "15mb" })); // allow larger payload for base64 chat screenshot uploads!
 
-// Runtime uploads (site logo etc.) live on disk, outside git and outside
-// dist/, so rebuilds and redeploys never wipe them.
+// Runtime uploads (site logo etc.) go to Cloudinary when keys are present —
+// required on hosts with ephemeral disks (Render). Local disk remains as a
+// fallback for dev machines and keeps serving legacy /uploads/* files.
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads");
+const CLOUDINARY_FOLDER = process.env.CLOUDINARY_FOLDER || "rentdue";
+const cloudinaryConfigured = Boolean(
+  (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) ||
+    process.env.CLOUDINARY_URL
+);
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
+// Otherwise the SDK picks up CLOUDINARY_URL from env on its own.
+if (!cloudinaryConfigured) {
+  console.warn("[Uploads] No Cloudinary keys — falling back to local disk.");
+}
+
+// Extracts e.g. "rentdue/logo-123" from a Cloudinary delivery URL so replaced
+// assets can be destroyed. Returns null for non-Cloudinary URLs.
+function cloudinaryPublicId(url: string): string | null {
+  if (!url.includes("res.cloudinary.com")) return null;
+  const match = url.split("?")[0].match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z0-9]+$/i);
+  return match ? match[1] : null;
+}
+
+async function destroyCloudinaryUrl(url: string): Promise<void> {
+  const publicId = cloudinaryPublicId(url);
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+  } catch {
+    // best effort — never block the new upload
+  }
+}
 try {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 } catch (err) {
@@ -1996,8 +2032,9 @@ app.post("/api/admin/logout", (_req, res) => {
   res.json({ success: true });
 });
 
-// Site image upload (logo etc.) — JSON base64, no extra deps. Files land in
-// UPLOAD_DIR and are served at /uploads/<file>. Behind the admin guard above.
+// Site image upload (logo etc.) — JSON base64, no extra deps. Files go to
+// Cloudinary when keys are set (secure_url returned) else to UPLOAD_DIR and
+// are served at /uploads/<file>. Behind the admin guard above.
 const SITE_IMAGE_KINDS: Record<string, { exts: string[]; maxBytes: number; prefix: string; field: string }> = {
   logo: { exts: ["png", "jpg", "jpeg", "webp", "svg"], maxBytes: 2 * 1024 * 1024, prefix: "logo", field: "logoUrl" },
   authbg: { exts: ["png", "jpg", "jpeg", "webp"], maxBytes: 4 * 1024 * 1024, prefix: "authbg", field: "authBgImage" },
@@ -2042,9 +2079,11 @@ app.post("/api/admin/upload", async (req, res) => {
     }
 
     const fileName = `${spec.prefix}-${Date.now()}.${ext}`;
-    // Prune stale uploads for this kind so disk doesn't fill up. Field kinds
-    // drop one previous path; embedded kinds (milestone art) sweep files no
-    // task references anymore.
+    // Prune stale uploads for this kind so storage doesn't fill up. Field kinds
+    // drop one previous asset; embedded kinds (milestone art) sweep assets no
+    // task references anymore. Handles both legacy /uploads/* disk files and
+    // Cloudinary URLs.
+    const useCloudinary = cloudinaryConfigured;
     try {
       const config = await getSiteConfig();
       if (spec.field) {
@@ -2054,24 +2093,59 @@ app.post("/api/admin/upload", async (req, res) => {
           if (prevName.startsWith(`${spec.prefix}-`)) {
             fs.rmSync(path.join(UPLOAD_DIR, prevName), { force: true });
           }
+        } else {
+          await destroyCloudinaryUrl(prev);
         }
       } else {
         const tasks = Array.isArray((config as any).vipTasks) ? (config as any).vipTasks : [];
-        const live = new Set(
+        const liveDisk = new Set(
           tasks
             .map((t: any) => String(t?.imageUrl || ""))
             .filter((u: string) => u.startsWith("/uploads/"))
             .map((u: string) => path.basename(u.split("?")[0]))
         );
-        live.add(fileName);
+        if (!useCloudinary) liveDisk.add(fileName);
         for (const entry of fs.readdirSync(UPLOAD_DIR)) {
-          if (entry.startsWith(`${spec.prefix}-`) && !live.has(entry)) {
+          if (entry.startsWith(`${spec.prefix}-`) && !liveDisk.has(entry)) {
             fs.rmSync(path.join(UPLOAD_DIR, entry), { force: true });
+          }
+        }
+        if (useCloudinary) {
+          // Lazy sweep: runs before the new asset is uploaded, so anything
+          // still listed here that no task references is safe to destroy.
+          const liveIds = new Set(
+            tasks
+              .map((t: any) => String(t?.imageUrl || ""))
+              .map(cloudinaryPublicId)
+              .filter((id): id is string => Boolean(id))
+          );
+          try {
+            const listed = await cloudinary.api.resources({
+              type: "upload",
+              prefix: `${CLOUDINARY_FOLDER}/${spec.prefix}-`,
+              max_results: 100,
+            });
+            for (const asset of listed.resources || []) {
+              if (!liveIds.has(asset.public_id)) {
+                await cloudinary.uploader.destroy(asset.public_id, { resource_type: "image", invalidate: true });
+              }
+            }
+          } catch {
+            // best effort — listing/destroy failures never block the upload
           }
         }
       }
     } catch {
       // best effort — never block the new upload
+    }
+    if (useCloudinary) {
+      const uploaded = await cloudinary.uploader.upload(dataUrl, {
+        folder: CLOUDINARY_FOLDER,
+        public_id: `${spec.prefix}-${Date.now()}`,
+        resource_type: "auto",
+        overwrite: false,
+      });
+      return res.json({ success: true, url: uploaded.secure_url });
     }
     fs.writeFileSync(path.join(UPLOAD_DIR, fileName), buffer);
     res.json({ success: true, url: `/uploads/${fileName}` });
