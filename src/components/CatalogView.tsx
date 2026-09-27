@@ -220,14 +220,14 @@ export default function CatalogView({
                     className="relative flex flex-row items-stretch bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] overflow-hidden transition-all duration-150 group select-none shadow-sm hover:border-[var(--theme-primary)]/30"
                   >
                     {/* Left portion: Hardware Image — fills parent height */}
-                    <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="w-32 sm:w-36 md:w-44 self-stretch relative overflow-hidden rounded-l-[var(--theme-radius)] bg-transparent border-0 shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors p-4 flex items-center justify-center">
+                    <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="w-36 sm:w-40 md:w-48 self-stretch relative overflow-hidden rounded-l-[var(--theme-radius)] bg-transparent border-0 shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors p-2">
                       {item.imageUrl ? (
                         <img
                           src={item.imageUrl}
                           alt={item.name}
                           loading="lazy"
                           referrerPolicy="no-referrer"
-                          className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500"
+                          className="w-full h-full object-cover rounded-lg group-hover:scale-[1.02] transition-transform duration-500"
                         />
                       ) : (
                         <div className="w-full h-full bg-[var(--theme-bg)] flex items-center justify-center text-[var(--theme-text)] opacity-40 text-xs font-mono">
