@@ -1371,7 +1371,7 @@ Platform Config & Financial Parameters:
 - **Level 2 Referral Commission Rate**: ${siteConfig?.level2InviteIncomePct !== undefined ? siteConfig.level2InviteIncomePct : 5}%
 - **Level 3 Referral Commission Rate**: ${siteConfig?.level3InviteIncomePct !== undefined ? siteConfig.level3InviteIncomePct : 0}%
 - **Level 4 Referral Commission Rate**: ${siteConfig?.level4InviteIncomePct !== undefined ? siteConfig.level4InviteIncomePct : 0}%
-- **Registration Bonus**: UGX ${(siteConfig?.registrationBonus || 1000).toLocaleString()} Shs
+- **Registration Bonus**: UGX ${(siteConfig?.registrationBonus || 0).toLocaleString()} Shs
 - **Official WhatsApp Support Link**: ${siteConfig?.whatsappLink || "Not configured"}
 - **Official Telegram Group Link**: ${siteConfig?.telegramLink || "Not configured"}
 
@@ -1883,10 +1883,10 @@ app.get("/api/config/site", async (req, res) => {
       level4InviteIncomePct: Number(config.level4InviteIncomePct ?? 0),
       vipTasks: Array.isArray(config.vipTasks) ? config.vipTasks : [],
       vipTaskCategories: Array.isArray(config.vipTaskCategories) ? config.vipTaskCategories : [],
-      registrationBonus: config.registrationBonus !== undefined ? config.registrationBonus : 1000,
-      inviteBonus: config.inviteBonus !== undefined ? config.inviteBonus : 3000,
-      checkinBaseBonus: config.checkinBaseBonus !== undefined ? config.checkinBaseBonus : 100,
-      checkinIncrement: config.checkinIncrement !== undefined ? config.checkinIncrement : 50,
+      registrationBonus: config.registrationBonus !== undefined ? config.registrationBonus : 0,
+      inviteBonus: config.inviteBonus !== undefined ? config.inviteBonus : 0,
+      checkinBaseBonus: config.checkinBaseBonus !== undefined ? config.checkinBaseBonus : 0,
+      checkinIncrement: config.checkinIncrement !== undefined ? config.checkinIncrement : 0,
       themePreset: migratePresetServer(config.themePreset as string) || "hut12-light",
       themeMode: config.themeMode || "light",
       authBgImage: config.authBgImage || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1600&q=80",
@@ -2327,8 +2327,9 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // In production, server.cjs is located inside dist/
-    // So __dirname will be the dist/ folder.
-    const distPath = __dirname;
+    // so __dirname is the dist/ folder. Under tsx/ESM there is no __dirname —
+    // fall back to <cwd>/dist (repo root layout).
+    const distPath = typeof __dirname !== "undefined" ? (__dirname as string) : path.join(process.cwd(), "dist");
     app.use(express.static(distPath, {
       index: false,
       setHeaders: (res, filePath) => {

@@ -154,7 +154,7 @@ export default function DashboardView({
         if (ctrl.signal.aborted) return;
         const base = Number(cfg.checkinBaseBonus);
         const inc = Number(cfg.checkinIncrement);
-        setCheckinEcon({ base: Number.isFinite(base) ? base : 1000, inc: Number.isFinite(inc) ? inc : 100 });
+        setCheckinEcon({ base: Number.isFinite(base) ? base : 0, inc: Number.isFinite(inc) ? inc : 0 });
       })
       .catch(() => {});
     return () => ctrl.abort();
@@ -214,8 +214,8 @@ export default function DashboardView({
   // Button preview mirrors the server formula: base + (nextStreak - 1) * inc,
   // where the streak continues only from yesterday.
   const checkinAmount = useMemo(() => {
-    const base = checkinEcon && Number.isFinite(checkinEcon.base) ? checkinEcon.base : 1000;
-    const inc = checkinEcon && Number.isFinite(checkinEcon.inc) ? checkinEcon.inc : 100;
+    const base = checkinEcon && Number.isFinite(checkinEcon.base) ? checkinEcon.base : 0;
+    const inc = checkinEcon && Number.isFinite(checkinEcon.inc) ? checkinEcon.inc : 0;
     const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split("T")[0];
     const next = profile.lastCheckinDate === yesterday ? streak + 1 : 1;
     return base + (next - 1) * inc;

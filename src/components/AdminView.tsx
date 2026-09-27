@@ -1233,7 +1233,7 @@ export default function AdminView() {
     }
     const minimumDeposit = Number(siteConfig.minimumDeposit) > 0 ? Math.floor(Number(siteConfig.minimumDeposit)) : 20000;
     const maximumDeposit = Number(siteConfig.maximumDeposit) > 0 ? Math.floor(Number(siteConfig.maximumDeposit)) : 0;
-    const minimumWithdrawal = Number(siteConfig.minimumWithdrawal) > 0 ? Math.floor(Number(siteConfig.minimumWithdrawal)) : 10000;
+    const minimumWithdrawal = Number(siteConfig.minimumWithdrawal) > 0 ? Math.floor(Number(siteConfig.minimumWithdrawal)) : 0;
     const maximumWithdrawal = Number(siteConfig.maximumWithdrawal) > 0 ? Math.floor(Number(siteConfig.maximumWithdrawal)) : 0;
     if (maximumDeposit > 0 && maximumDeposit < minimumDeposit) {
       toast.error("Maximum deposit cannot be lower than minimum deposit.");
@@ -3013,7 +3013,7 @@ export default function AdminView() {
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={siteConfig.registrationBonus || 1000}
+                            value={siteConfig.registrationBonus || 0}
                             onChange={(e) => setSiteConfig({ ...siteConfig, registrationBonus: Number(e.target.value) })}
                             className="theme-input w-full px-4 py-3 text-sm"
                           />
@@ -3023,7 +3023,7 @@ export default function AdminView() {
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={siteConfig.inviteBonus || 3000}
+                            value={siteConfig.inviteBonus || 0}
                             onChange={(e) => setSiteConfig({ ...siteConfig, inviteBonus: Number(e.target.value) })}
                             className="theme-input w-full px-4 py-3 text-sm"
                           />
@@ -3114,10 +3114,10 @@ export default function AdminView() {
                       </div>
                       <div className="md:w-2/3 max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <label className="text-xs font-bold opacity-80 uppercase tracking-wider">Registration Bonus ({currency})
-                          <input type="text" inputMode="numeric" value={siteConfig.registrationBonus ?? 1000} onChange={(e) => setSiteConfig({ ...siteConfig, registrationBonus: Number(e.target.value) || 0 })} className="theme-input w-full px-4 py-3 text-sm mt-2" />
+                          <input type="text" inputMode="numeric" value={siteConfig.registrationBonus ?? 0} onChange={(e) => setSiteConfig({ ...siteConfig, registrationBonus: Number(e.target.value) || 0 })} className="theme-input w-full px-4 py-3 text-sm mt-2" />
                         </label>
                         <label className="text-xs font-bold opacity-80 uppercase tracking-wider">Base Invite Bonus ({currency})
-                          <input type="text" inputMode="numeric" value={siteConfig.inviteBonus ?? 3000} onChange={(e) => setSiteConfig({ ...siteConfig, inviteBonus: Number(e.target.value) || 0 })} className="theme-input w-full px-4 py-3 text-sm mt-2" />
+                          <input type="text" inputMode="numeric" value={siteConfig.inviteBonus ?? 0} onChange={(e) => setSiteConfig({ ...siteConfig, inviteBonus: Number(e.target.value) || 0 })} className="theme-input w-full px-4 py-3 text-sm mt-2" />
                         </label>
                       </div>
                     </div>
@@ -3882,7 +3882,7 @@ export default function AdminView() {
                             <input
                               type="number"
                               min="1"
-                              value={siteConfig.minimumWithdrawal ?? 10000}
+                              value={siteConfig.minimumWithdrawal ?? 0}
                               onChange={(e) => setSiteConfig({ ...siteConfig, minimumWithdrawal: Number(e.target.value) || 0 })}
                               className="theme-input w-full px-4 py-3 text-sm"
                             />
