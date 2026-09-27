@@ -2040,6 +2040,37 @@ export async function adminDeleteGiftCode(code: string) {
 }
 
 
+/**
+ * Count of gift codes the user can still act on: active, unexpired,
+ * redemptions left, and not already redeemed by this phone. Drives the
+ * profile gift-code pulse dot. Returns 0 when the DB is unreachable.
+ */
+export async function getAvailableGiftCodeCount(phone: string): Promise<number> {
+  const drizzleDb = getDb();
+  if (!drizzleDb) return 0;
+  try {
+    const cleanPhone = String(phone || "").trim();
+    const rows = await drizzleDb.select().from(schema.giftCodes);
+    const now = Date.now();
+    let redeemed: string[] = [];
+    if (cleanPhone) {
+      const userRows = await drizzleDb.select().from(schema.users).where(eq(schema.users.phone, cleanPhone));
+      if (userRows.length > 0) redeemed = ((userRows[0].redeemedGiftCodes as string[]) || []).map((c) => String(c).trim().toUpperCase());
+    }
+    return rows.filter((g: any) => {
+      if (String(g.status || "").toLowerCase() !== "active") return false;
+      const expiry = new Date(g.expiryDate).getTime();
+      if (Number.isFinite(expiry) && expiry <= now) return false;
+      if (Number(g.currentRedemptions || 0) >= Number(g.maxRedemptions || 1)) return false;
+      if (redeemed.includes(String(g.code || "").trim().toUpperCase())) return false;
+      return true;
+    }).length;
+  } catch (err) {
+    console.warn("[Database] getAvailableGiftCodeCount error:", err);
+    return 0;
+  }
+}
+
 export async function redeemGiftCode(phone: string, code: string) {
   const drizzleDb = getDb();
   if (drizzleDb) {
@@ -2475,6 +2506,24 @@ export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<
 
     if (Array.isArray(updated.vipTaskCategories)) {
       updated.vipTaskCategories = dedupeCategories(updated.vipTaskCategories);
+    }
+
+    if (Array.isArray((updated as any).categories)) {
+      (updated as any).categories = dedupeCategories((updated as any).categories);
+    }
+
+    if ((updated as any).categoryMeta && typeof (updated as any).categoryMeta === "object" && !Array.isArray((updated as any).categoryMeta)) {
+      const clean: Record<string, { description?: string }> = {};
+      for (const [key, value] of Object.entries((updated as any).categoryMeta)) {
+        const name = String(key).trim();
+        if (!name) continue;
+        const entry = (value ?? {}) as Record<string, unknown>;
+        const description = String(entry.description ?? "").trim().slice(0, 280);
+        if (description) {
+          clean[name] = { description };
+        }
+      }
+      (updated as any).categoryMeta = clean;
     }
 
     if ((updated as any).vipTierRewards && typeof (updated as any).vipTierRewards === "object" && !Array.isArray((updated as any).vipTierRewards)) {

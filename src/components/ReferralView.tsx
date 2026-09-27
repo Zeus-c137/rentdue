@@ -47,14 +47,6 @@ function CodePill({ inviteCode, onCopyCode, copiedCode }: { inviteCode: string; 
   );
 }
 
-function CopyLinkButton({ copied, onCopy }: { copied: boolean; onCopy: () => void }) {
-  return (
-    <Button variant="gold-glossy" size="sm" onClick={onCopy} className="shrink-0 !min-w-0 !px-3" glow={false}>
-      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-    </Button>
-  );
-}
-
 function ShareLinkBox({ inviteLink, inviteCode, copied, onCopy, copiedCode, onCopyCode }: { inviteLink: string; inviteCode: string; copied: boolean; onCopy: () => void; copiedCode: boolean; onCopyCode: () => void }) {
   const { cardStyle } = useTheme();
   const cardCls = twMerge(clsx("theme-card p-4 rounded-[var(--theme-radius)] space-y-3", CARD_VARIANTS[cardStyle]));
@@ -193,7 +185,7 @@ function HeroCard({ metrics, isLoading, amount, onViewTeam }: HeroCardProps & { 
 function ViewTeamButton({ onViewTeam }: { onViewTeam: () => void }) {
   return (
     <div className="flex justify-end">
-      <Button variant="gold-glossy" size="sm" onClick={onViewTeam} glow={false}>
+      <Button variant="primary" size="sm" onClick={onViewTeam}>
         <Users className="w-4 h-4" /> View Team
       </Button>
     </div>
