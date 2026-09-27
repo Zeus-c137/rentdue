@@ -14,9 +14,14 @@ export interface RunProgress {
 }
 
 /**
- * Catalog-aware totals: the live catalog item wins over the purchase-time
- * snapshot, so admin duration/yield edits apply to running runs on every
- * screen. Falls back to the node snapshot, then 15 days.
+ * Catalog match is display-only (thumbnails, names): economics always come
+ * from the purchase-time node snapshot. The server credits and expires runs
+ * from `sub.duration` / `sub.dailyYield` (see claimDailyReward), so the
+ * screens must read the same snapshot — otherwise an admin duration/yield
+ * edit would show a run as done while the server keeps paying it (or show
+ * it active after the server expired it). Admin edits therefore apply to
+ * new purchases only. Catalog is a last-resort fallback for legacy nodes
+ * missing snapshot fields, then 15 days.
  */
 export function getRunCatalogMatch(
   node: SubscribedNode,
@@ -31,7 +36,7 @@ export function getRunTotalDays(
   items?: SubscriptionItem[]
 ): number {
   const mapped = getRunCatalogMatch(node, items);
-  return Math.max(1, Math.floor(Number(mapped?.duration ?? node.duration) || 0) || 15);
+  return Math.max(1, Math.floor(Number(node.duration ?? mapped?.duration) || 0) || 15);
 }
 
 export function getRunDailyRate(
@@ -39,13 +44,14 @@ export function getRunDailyRate(
   items?: SubscriptionItem[]
 ): number {
   const mapped = getRunCatalogMatch(node, items);
-  const rate = mapped?.dailyYield !== undefined ? mapped.dailyYield : node.dailyYield;
+  const rate = node.dailyYield !== undefined ? node.dailyYield : mapped?.dailyYield;
   return Number(rate) || 0;
 }
 
 /**
  * Day-count estimate from credited earnings. Shared by Home and Income so
- * both screens agree, including after admin duration edits.
+ * both screens agree, reading the same purchase-time snapshot the server
+ * credits from.
  */
 export function getRunElapsedDays(node: SubscribedNode, items?: SubscriptionItem[]): number {
   const total = getRunTotalDays(node, items);
