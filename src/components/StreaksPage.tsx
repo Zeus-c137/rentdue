@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Flame } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
-import { formatClock, getTodayKey } from "../utils/runs";
+import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
 import type { TransactionRow, UserProfile } from "../types";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
@@ -53,7 +53,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
           if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
           const ts = new Date(tx.timestamp).getTime();
           if (!Number.isFinite(ts)) continue;
-          const key = new Date(ts).toISOString().split("T")[0];
+          const key = getPlatformDayKey(new Date(ts));
           days.add(key);
           ledger[key] = (ledger[key] || 0) + (Number(tx.amount) || 0);
         }
@@ -65,13 +65,16 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   }, [phone]);
 
   // Bounds: back to the join month (plus one behind when new), forward to today.
+  // Platform calendar — the grid lays out platform YMDs.
   const now = new Date();
+  const nowPlat = getPlatformDayParts(now);
   const bounds = useMemo(() => {
-    const max = { y: now.getUTCFullYear(), m: now.getUTCMonth() };
+    const max = { y: nowPlat.y, m: nowPlat.m };
     const joined = new Date(userProfile.createdAt || "").getTime();
     const baseDate = Number.isFinite(joined) ? new Date(joined) : now;
-    let y = baseDate.getUTCFullYear();
-    let m = baseDate.getUTCMonth();
+    const basePlat = getPlatformDayParts(baseDate);
+    let y = basePlat.y;
+    let m = basePlat.m;
     if (y === max.y && m === max.m) {
       m -= 1;
       if (m < 0) { m = 11; y -= 1; }
@@ -93,7 +96,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
     setCursor({ y, m });
   };
 
-  const isCurrentMonth = view.y === now.getUTCFullYear() && view.m === now.getUTCMonth();
+  const isCurrentMonth = view.y === nowPlat.y && view.m === nowPlat.m;
   const dim = new Date(Date.UTC(view.y, view.m + 1, 0)).getUTCDate();
   const lead = new Date(Date.UTC(view.y, view.m, 1)).getUTCDay();
   const monthName = new Date(Date.UTC(view.y, view.m, 1)).toLocaleString("default", { month: "long" });
@@ -108,10 +111,9 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
     }
   }
 
-  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const todayMs = Date.UTC(nowPlat.y, nowPlat.m, nowPlat.d);
   const tomorrowMs = todayMs + 86400000;
-  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-  const nextIn = Math.max(0, midnight - nowMs);
+  const nextIn = msUntilPlatformMidnight(nowMs);
   const todayStreak = checkedInToday ? streak : streak + 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
@@ -129,7 +131,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       if (!res.ok) throw new Error(data.error || "Check-in failed.");
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
-      const key = new Date().toISOString().split("T")[0];
+      const key = getTodayKey();
       setClaimedDays((prev) => new Set(prev).add(key));
       setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
       toast.success(bonus > 0 ? `Checked in! +${formatCurrency(bonus)}` : "Checked in! Streak kept alive.");
@@ -171,9 +173,11 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
           <p className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none mt-1.5">
             {formatCurrency(monthSum)}
           </p>
-          <p className={`text-[12px] font-sans font-bold mt-2 tabular-nums ${checkedInToday ? "text-[var(--theme-text)] opacity-70" : "text-[var(--theme-primary)]"}`}>
-            {checkedInToday ? `Next check-in ${formatClock(nextIn)}` : `Day ${todayStreak} reward • ${formatCurrency(todayAmount)}`}
-          </p>
+          {!checkedInToday && (
+            <p className="text-[12px] font-sans font-bold mt-2 tabular-nums text-[var(--theme-primary)]">
+              {`Day ${todayStreak} reward • ${formatCurrency(todayAmount)}`}
+            </p>
+          )}
         </div>
 
         {/* Month nav */}
@@ -250,6 +254,11 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--theme-primary)] shadow-[0_0_6px_var(--theme-primary)]" />Claimed</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />Missed</span>
           </div>
+          {checkedInToday && (
+            <p className="mt-2 text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
+              Come back in {formatClock(nextIn)}
+            </p>
+          )}
         </div>
       </div>
     </div>

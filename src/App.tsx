@@ -19,7 +19,6 @@ import ChatView from "./components/ChatView";
 import TransactionHistoryView from "./components/TransactionHistoryView";
 import VipTasksPage from "./components/VipTasksPage";
 import StreaksPage from "./components/StreaksPage";
-import ProductGuessGame from "./components/ProductGuessGame";
 import AlertsView from "./components/AlertsView";
 import AdminView from "./components/AdminView";
 import { BrandLogo } from "./components/BrandLogo";
@@ -63,7 +62,7 @@ import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
 import { LevelBadge } from "./components/LevelBadge";
-import { getDaypartGreeting } from "./utils/runs";
+import { getDaypartGreeting, getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
@@ -140,7 +139,7 @@ export default function App() {
       cancelled = true;
     };
   }, [isAdminRoute]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade" | "streaks">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [siteConfig, setSiteConfig] = useState<any>(null);
@@ -206,7 +205,7 @@ export default function App() {
 
   useEffect(() => {
     if (userProfile?.phone) {
-      const todayStr = new Date().toISOString().split("T")[0];
+      const todayStr = getTodayKey();
       if (userProfile.lastCheckinDate !== todayStr) {
         const timer = setTimeout(() => {
           setActiveTab("profile");
@@ -277,7 +276,7 @@ export default function App() {
     }
   }, [siteConfig]);
 
-  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "deposit" | "withdraw" | "arcade">("dashboard");
+  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "deposit" | "withdraw">("dashboard");
 
   useEffect(() => {
     if (activeTab !== "alerts") {
@@ -470,7 +469,7 @@ export default function App() {
           ? {
               ...n,
               status: "expired",
-              lastClaimedDate: new Date().toISOString().split("T")[0],
+              lastClaimedDate: getTodayKey(),
               totalEarned: (n.totalEarned || 0) + pointsEarned
             }
           : n
@@ -811,19 +810,6 @@ export default function App() {
                   siteConfig={siteConfig}
                   onBack={() => setActiveTab("profile")}
                 />
-              </motion.div>
-            )}
-
-            {(activeTab === "arcade" || (activeTab === "alerts" && previousTab === "arcade")) && (
-              <motion.div
-                key="arcade"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="w-full flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-1.5 sm:px-2 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              >
-                <ProductGuessGame items={items} onExit={() => setActiveTab("profile")} />
               </motion.div>
             )}
 

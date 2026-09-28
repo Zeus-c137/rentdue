@@ -185,7 +185,50 @@ export function getDaypartGreeting(now = new Date()): string {
   return "Good evening";
 }
 
-/** UTC day key — matches dailyCheckin and ProfileView's todayStr. */
+/** Platform timezone — Africa/Nairobi is EAT (UTC+3, no DST), Uganda wall time. */
+export const PLATFORM_TIME_ZONE = "Africa/Nairobi";
+
+/** Platform calendar parts for a given instant (m is 0-indexed like Date). */
+export function getPlatformDayParts(date = new Date()): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PLATFORM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return { y: Number(values.year), m: Number(values.month) - 1, d: Number(values.day) };
+}
+
+/** Platform day key YYYY-MM-DD for a given instant. */
+export function getPlatformDayKey(date = new Date()): string {
+  const { y, m, d } = getPlatformDayParts(date);
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Platform yesterday key. The platform offset is constant (no DST), so -24h
+ *  always lands on the previous platform calendar day. */
+export function getPlatformYesterdayKey(date = new Date()): string {
+  return getPlatformDayKey(new Date(date.getTime() - 24 * 3600 * 1000));
+}
+
+/** ms until the next platform midnight — the moment the check-in day resets. */
+export function msUntilPlatformMidnight(nowMs = Date.now()): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: PLATFORM_TIME_ZONE,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(nowMs)).map((part) => [part.type, part.value])
+  );
+  // hour12:false can report midnight as "24" — normalize to a 0-86399 range.
+  const elapsedSec = (Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second)) % 86400;
+  return Math.max(0, 86400 * 1000 - elapsedSec * 1000 - (nowMs % 1000));
+}
+
+/** Today on the platform calendar — matches dailyCheckin and ProfileView's todayStr. */
 export function getTodayKey(date = new Date()): string {
-  return date.toISOString().split("T")[0];
+  return getPlatformDayKey(date);
 }
