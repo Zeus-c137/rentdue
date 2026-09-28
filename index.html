@@ -33,6 +33,19 @@
       "inLanguage": "en"
     }
     </script>
+    <script>
+    // Paint the last-known theme background before React mounts so reloads
+    // never flash white. No cache (first visit) = untouched default.
+    try {
+      var __boot = JSON.parse(localStorage.getItem("rentdue_boot_shell") || "null");
+      if (__boot && __boot.bg) {
+        document.documentElement.style.background = __boot.bg;
+        document.addEventListener("DOMContentLoaded", function () {
+          document.body.style.background = __boot.bg;
+        });
+      }
+    } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
