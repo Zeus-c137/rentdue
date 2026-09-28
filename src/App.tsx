@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { UserProfile, SubscriptionItem, SubscribedNode, SystemStats, NotificationItem } from "./types";
 import AuthView from "./components/AuthView";
 import DashboardView from "./components/DashboardView";
@@ -69,6 +69,55 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useGatedInterval, useGatedTimeout, useAbortSignal } from "./hooks/useGatedInterval";
 import { fetchJsonWithSignal, abortableAll } from "./utils/abortableFetch";
+
+// Last-known shell (theme preset + logo) cached on every successful site-config
+// load. The boot splash reads it synchronously so the first paint already
+// wears the active theme instead of flashing the light-preset default while
+// the session and config are still being restored.
+interface BootShell {
+  themePreset?: string;
+  themeMode?: string;
+  logoUrl?: string;
+  brandName?: string;
+  bg?: string;
+}
+
+const BOOT_SHELL_KEY = "rentdue_boot_shell";
+
+function readBootShell(): BootShell | null {
+  try {
+    const raw = localStorage.getItem(BOOT_SHELL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const shell: BootShell = {};
+    for (const key of ["themePreset", "themeMode", "logoUrl", "brandName", "bg"] as const) {
+      if (typeof parsed[key] === "string" && parsed[key]) shell[key] = parsed[key];
+    }
+    return Object.keys(shell).length > 0 ? shell : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeBootShell(config: any) {
+  try {
+    const shell: BootShell = {};
+    if (typeof config?.themePreset === "string" && config.themePreset) shell.themePreset = config.themePreset;
+    if (typeof config?.themeMode === "string" && config.themeMode) shell.themeMode = config.themeMode;
+    if (typeof config?.logoUrl === "string" && config.logoUrl) shell.logoUrl = config.logoUrl;
+    if (typeof config?.brandName === "string" && config.brandName) shell.brandName = config.brandName;
+    // Resolved background (already applied by the theme layout effect), so an
+    // inline pre-React script can paint it before the first frame.
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--theme-bg").trim();
+    if (bg) shell.bg = bg;
+    if (Object.keys(shell).length > 0) {
+      localStorage.setItem(BOOT_SHELL_KEY, JSON.stringify(shell));
+    }
+  } catch {
+    // caching must never break the app
+  }
+}
 
 export default function App() {
   const { formatCurrency } = useCurrency();
@@ -143,6 +192,18 @@ export default function App() {
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [siteConfig, setSiteConfig] = useState<any>(null);
+  // Synchronous boot seed: theme + logo from the last successful load so the
+  // splash and first paint already match the active preset.
+  const [bootShell] = useState<BootShell | null>(readBootShell);
+  const themeSeed = useMemo(
+    () => siteConfig ?? (bootShell ? { themePreset: bootShell.themePreset, themeMode: bootShell.themeMode } : null),
+    [siteConfig, bootShell]
+  );
+
+  // Refresh the cached shell whenever live config lands.
+  useEffect(() => {
+    if (siteConfig) writeBootShell(siteConfig);
+  }, [siteConfig]);
   const chatUnread = useChatUnread(userProfile?.phone);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -488,11 +549,17 @@ export default function App() {
 
   const renderContent = () => {
     if (!isAdminRoute && isRestoringSession) {
+      const splashConfig = siteConfig ?? (bootShell ? { logoUrl: bootShell.logoUrl, brandName: bootShell.brandName } : null);
       return (
-        <div className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] flex items-center justify-center">
-          <div className="theme-card border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] px-5 py-4 text-sm opacity-75">
-            Restoring your session…
-          </div>
+        <div
+          role="status"
+          aria-label="Loading"
+          className="min-h-screen bg-[var(--theme-bg)] flex items-center justify-center"
+        >
+          <BrandLogo
+            siteConfig={splashConfig}
+            className="w-20 h-20 flex items-center justify-center shrink-0 splash-logo-pulse [&>img]:rounded-2xl"
+          />
         </div>
       );
     }
@@ -511,7 +578,7 @@ export default function App() {
   const isMainApp = !isAdminRoute && !isRestoringSession && !!userProfile;
 
   return (
-    <ThemeProvider siteConfig={siteConfig}>
+    <ThemeProvider siteConfig={themeSeed}>
       {!isMainApp ? renderContent() : (
       <div className="relative h-[100dvh] w-full bg-[var(--theme-bg)] text-[var(--theme-text)] font-sans selection:bg-blue-600/35 selection:text-white overflow-hidden flex items-center justify-center p-0 md:p-4">
       
