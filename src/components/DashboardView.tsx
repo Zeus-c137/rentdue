@@ -22,6 +22,9 @@ import {
   getRunState,
   formatClock,
   getTodayKey,
+  getPlatformDayParts,
+  getPlatformYesterdayKey,
+  msUntilPlatformMidnight,
 } from "../utils/runs";
 
 interface DashboardViewProps {
@@ -204,12 +207,8 @@ export default function DashboardView({
   // dimension-matched skeleton instead of flashing the empty state.
   const listsReady = items.length > 0;
 
-  // Next check-in opens at UTC midnight (check-ins settle on UTC days).
-  const nextCheckinIn = useMemo(() => {
-    const n = new Date(nowMs);
-    const midnight = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1);
-    return Math.max(0, midnight - nowMs);
-  }, [nowMs]);
+  // Next check-in opens at platform midnight (check-ins settle on platform days).
+  const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
 
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
@@ -219,7 +218,7 @@ export default function DashboardView({
   const checkinAmount = useMemo(() => {
     const base = checkinEcon && Number.isFinite(checkinEcon.base) ? checkinEcon.base : 0;
     const inc = checkinEcon && Number.isFinite(checkinEcon.inc) ? checkinEcon.inc : 0;
-    const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString().split("T")[0];
+    const yesterday = getPlatformYesterdayKey();
     const next = profile.lastCheckinDate === yesterday ? streak + 1 : 1;
     return base + (next - 1) * inc;
   }, [checkinEcon, profile.lastCheckinDate, streak]);
@@ -228,16 +227,16 @@ export default function DashboardView({
   // keeps streaks consecutive, so the live run is exactly `todayStreak` days
   // ending today (claimed) or yesterday (claimable). Tiles derive from it.
   const weekTiles = useMemo(() => {
-    const now = new Date();
-    const year = now.getUTCFullYear();
-    const month = now.getUTCMonth();
-    const todayMs = Date.UTC(year, month, now.getUTCDate());
+    // Platform calendar boundaries (Date.UTC is only a sortable day grid here —
+    // the y/m/d itself comes from the platform timezone).
+    const { y: year, m: month, d: day } = getPlatformDayParts();
+    const todayMs = Date.UTC(year, month, day);
     const todayStreak = checkedInToday ? streak : streak + 1;
     const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
     const tomorrowMs = todayMs + 86400000;
     const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     return {
-      month: now.toLocaleString("default", { month: "long" }),
+      month: new Date(Date.UTC(year, month, 1)).toLocaleString("default", { month: "long" }),
       days: Array.from({ length: daysInMonth }, (_, i) => {
         const ms = Date.UTC(year, month, i + 1);
         const key = new Date(ms).toISOString().split("T")[0];
@@ -512,14 +511,9 @@ export default function DashboardView({
             ) : checkinEcon === null ? (
               <span aria-hidden className="block h-[38px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
             ) : (
-              <button
-                type="button"
-                onClick={() => void handleCheckin("button")}
-                disabled={checkinBusy}
-                className="px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-bold tabular-nums transition-all active:scale-[0.97] disabled:opacity-60 cursor-pointer"
-              >
+              <span className="text-[13px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
                 {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
-              </button>
+              </span>
             )}
           </div>
         </div>

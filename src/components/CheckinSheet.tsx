@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ChevronLeft, ChevronRight, Loader2, Flame } from "lucide-react";
 import { useCurrency } from "../currency";
-import { formatClock } from "../utils/runs";
+import { formatClock, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
 export interface CheckinSheetProps {
@@ -58,16 +58,17 @@ export default function CheckinSheet({
   }, [open]);
 
   const today = useMemo(() => {
-    const now = new Date();
-    return { y: now.getUTCFullYear(), m: now.getUTCMonth(), d: now.getUTCDate() };
+    const { y, m, d } = getPlatformDayParts();
+    return { y, m, d };
   }, [open]);
 
   const bounds = useMemo(() => {
     const max = { y: today.y, m: today.m };
     const joined = new Date(createdAt || "").getTime();
     const base = Number.isFinite(joined) ? new Date(joined) : new Date();
-    let y = base.getUTCFullYear();
-    let m = base.getUTCMonth();
+    const basePlat = getPlatformDayParts(base);
+    let y = basePlat.y;
+    let m = basePlat.m;
     if (y === max.y && m === max.m) {
       m -= 1;
       if (m < 0) { m = 11; y -= 1; }
@@ -122,10 +123,7 @@ export default function CheckinSheet({
     };
   }, [view, claimedDays, claimedLedger, isCurrentMonth, runStartDay, today.d, checkedInToday]);
 
-  const nextIn = useMemo(() => {
-    const midnight = Date.UTC(today.y, today.m, today.d + 1);
-    return Math.max(0, midnight - nowMs);
-  }, [nowMs, today]);
+  const nextIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
 
   const dayState = (dayNum: number): { claimed: boolean; missed: boolean; isToday: boolean; isFuture: boolean } => {
     const isToday = isCurrentMonth && dayNum === today.d;

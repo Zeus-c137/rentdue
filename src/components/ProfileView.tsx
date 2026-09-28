@@ -39,11 +39,11 @@ import {
   Coins,
   Cpu,
   Trophy,
-  ChevronRight,
-  FlaskConical
+  ChevronRight
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { POLL_INTERVAL_MS } from "../utils/motion";
+import { getTodayKey } from "../utils/runs";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import gift3d2 from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
@@ -61,7 +61,7 @@ interface ProfileViewProps {
   onProfileUpdate: (newProfile: UserProfile) => void;
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw?: () => void;
-  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "arcade" | "streaks", chatRoom?: "shared" | "admin") => void;
+  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks", chatRoom?: "shared" | "admin") => void;
   onLogout: () => void;
   autoOpenWithdraw?: boolean;
   onCloseAutoWithdraw?: () => void;
@@ -132,7 +132,7 @@ export default function ProfileView({
     return day === 0 ? 6 : day - 1; // Map 0 (Sun) to 6, 1 to 0, 2 to 1, etc.
   };
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = getTodayKey();
   const checkedInToday = userProfile.lastCheckinDate === todayStr;
   const currentStreak = userProfile.checkinStreak || 0;
 
@@ -434,7 +434,7 @@ export default function ProfileView({
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Gift Code</span>
                 <span className={`block text-[13px] font-sans font-medium leading-none mt-1.5 ${giftAvailable ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60"}`}>
-                  {giftAvailable ? "New code available" : "Redeem a voucher code"}
+                  {giftAvailable ? "Gift codes available in community channels" : "Redeem a voucher code"}
                 </span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
@@ -476,16 +476,6 @@ export default function ProfileView({
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Guide</span>
                 <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">How Rentdue works</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => onNavigate("arcade")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-500/15 text-purple-500 shrink-0">
-                <FlaskConical className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Experimental</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Labs & mini games</span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>

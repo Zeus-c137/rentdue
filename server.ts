@@ -172,21 +172,84 @@ if (!cloudinaryConfigured) {
   console.error("[Uploads] No Cloudinary keys — /api/admin/upload will refuse uploads until CLOUDINARY_* is set.");
 }
 
-// Extracts e.g. "rentdue/logo-123" from a Cloudinary delivery URL so replaced
-// assets can be destroyed. Returns null for non-Cloudinary URLs.
+// ---------- Site-art lifecycle ----------
+// Uploads never destroy anything. Replaced art is retired only after the new
+// config is successfully saved (see PUT /api/admin/config); abandoned uploads
+// age out via collectImageOrphans(). This ordering makes "upload then don't
+// save" and "failed upload" incapable of 404ing the live site.
 function cloudinaryPublicId(url: string): string | null {
-  if (!url.includes("res.cloudinary.com")) return null;
-  const match = url.split("?")[0].match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z0-9]+$/i);
-  return match ? match[1] : null;
+  if (typeof url !== "string" || !url.includes("res.cloudinary.com")) return null;
+  const afterUpload = url.split("?")[0].split("/upload/")[1];
+  if (!afterUpload) return null;
+  // Our uploads always carry a version segment (secure_url includes /vNNN/),
+  // which unambiguously anchors the public_id even when transformation
+  // segments precede it. Without a version we fall back to the full path —
+  // a wrong guess only fails a destroy (asset kept), never deletes wrong art.
+  const versioned = afterUpload.match(/(?:^|\/)v\d+\/(.+)\.[a-z0-9]+$/i);
+  if (versioned) return versioned[1];
+  const bare = afterUpload.match(/^(.+)\.[a-z0-9]+$/i);
+  return bare ? bare[1] : null;
 }
 
-async function destroyCloudinaryUrl(url: string): Promise<void> {
-  const publicId = cloudinaryPublicId(url);
-  if (!publicId) return;
+function collectCloudinaryIds(value: unknown, into = new Set<string>()): Set<string> {
+  if (typeof value === "string") {
+    const id = cloudinaryPublicId(value);
+    if (id) into.add(id);
+  } else if (Array.isArray(value)) {
+    for (const entry of value) collectCloudinaryIds(entry, into);
+  } else if (value && typeof value === "object") {
+    for (const entry of Object.values(value)) collectCloudinaryIds(entry, into);
+  }
+  return into;
+}
+
+async function destroyPublicIds(ids: Iterable<string>): Promise<void> {
+  for (const id of ids) {
+    try {
+      await cloudinary.uploader.destroy(id, { resource_type: "image", invalidate: true });
+    } catch {
+      // best effort — a failed destroy must never break saves or uploads
+    }
+  }
+}
+
+const IMAGE_ORPHAN_GRACE_MS = 24 * 3600 * 1000;
+const IMAGE_ORPHAN_PAGE_SIZE = 200;
+
+// Destroys unreferenced site art older than the grace period so abandoned
+// uploads can't accumulate forever. Fresh drafts and everything referenced by
+// the saved config are always kept.
+async function collectImageOrphans(): Promise<void> {
+  if (!cloudinaryConfigured) return;
   try {
-    await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
-  } catch {
-    // best effort — never block the new upload
+    const config = await getSiteConfig().catch(() => ({} as any));
+    const live = collectCloudinaryIds(config);
+    const cutoff = Date.now() - IMAGE_ORPHAN_GRACE_MS;
+    let nextCursor: string | undefined = undefined;
+    do {
+      const params: Record<string, unknown> = {
+        type: "upload",
+        prefix: `${CLOUDINARY_FOLDER}/`,
+        max_results: IMAGE_ORPHAN_PAGE_SIZE,
+      };
+      if (nextCursor) params.next_cursor = nextCursor;
+      const page: any = await cloudinary.api.resources(params);
+      for (const asset of page.resources || []) {
+        const id = String(asset.public_id || "");
+        if (!id || live.has(id)) continue;
+        const created = new Date(asset.created_at || 0).getTime();
+        if (Number.isFinite(created) && created <= cutoff) {
+          try {
+            await cloudinary.uploader.destroy(id, { resource_type: "image", invalidate: true });
+          } catch {
+            // keep sweeping the rest
+          }
+        }
+      }
+      nextCursor = page.next_cursor;
+    } while (nextCursor);
+  } catch (err) {
+    console.warn("[Uploads] orphan sweep failed:", err);
   }
 }
 app.get("/healthz", (_req, res) => {
@@ -196,6 +259,187 @@ app.get("/healthz", (_req, res) => {
 app.get("/readyz", (_req, res) => {
   if (!databaseReady) return res.status(503).json({ ok: false, ready: false, message: "Database initialization is still in progress." });
   res.json({ ok: true, ready: true });
+});
+
+// ================= PUBLIC SEO =================
+// The main app (/) is a login-walled SPA, so bots see an empty shell.
+// These lightweight server-rendered pages give search engines indexable
+// content. They are registered before the SPA fallback, so they work in
+// both dev (Vite middleware) and production (dist + SPA fallback).
+// TODO(SEO placeholder): product catalog is intentionally hidden behind auth
+// and excluded from all public pages/sitemap until final copy is approved.
+const SEO_PUBLIC_PATHS = ["/welcome", "/faq"];
+
+// TODO(SEO placeholder): replace with final keywords + description before launch.
+const SEO_KEYWORDS = "rentdue, rentduestore, rentdue store, rentdue runs, rentdue store runs, rentdue products, rentdue income, rentdue returns, rentdue milestones, rentdue store invite, rentdue AI, rentdue machines";
+const SEO_PLACEHOLDER_DESCRIPTION = "RentDue Store is a multinational corporation manufacturer of motorcycles, engines, heavy equipment, aerospace and defense equipment, rolling stock and ships, headquartered in Minato, Tokyo, Japan and Uganda.";
+
+function getPublicBaseUrl(req: express.Request): string {
+  const configured = String(process.env.APP_URL || process.env.VITE_APP_URL || "").trim().replace(/\/$/, "");
+  if (/^https?:\/\//i.test(configured) && !/MY_APP_URL/i.test(configured)) return configured;
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim() || "https";
+  return `${proto}://${req.get("host") || "localhost:3000"}`.replace(/\/$/, "");
+}
+
+function escapeSeoHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatSeoUgx(_value: unknown): string {
+  return "0";
+}
+
+async function getSeoData(): Promise<{ brand: string; description: string; items: any[]; config: any }> {
+  try {
+    const config = await getSiteConfig().catch(() => ({} as any));
+    const brand = String((config as any)?.brandName || "").trim() || "RENTDUE";
+    // Placeholder format: fixed corporate description until final copy lands.
+    // Products stay hidden behind auth — no catalog fetch here by design.
+    return { brand, description: SEO_PLACEHOLDER_DESCRIPTION, items: [], config: config || {} };
+  } catch {
+    return {
+      brand: "RENTDUE",
+      description: SEO_PLACEHOLDER_DESCRIPTION,
+      items: [],
+      config: {},
+    };
+  }
+}
+
+function seoShell(opts: {
+  brand: string;
+  title: string;
+  description: string;
+  canonical: string;
+  jsonLd?: unknown;
+  body: string;
+  activePath: string;
+}): string {
+  const nav = (path: string, label: string) =>
+    `<a href="${path}"${path === opts.activePath ? ' aria-current="page"' : ""}>${label}</a>`;
+  const jsonLdTag = opts.jsonLd
+    ? `<script type="application/ld+json">${JSON.stringify(opts.jsonLd).replace(/</g, "\\u003c")}</script>`
+    : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${escapeSeoHtml(opts.title)}</title>
+<meta name="description" content="${escapeSeoHtml(opts.description)}" />
+<meta name="keywords" content="${escapeSeoHtml(SEO_KEYWORDS)}" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="${escapeSeoHtml(opts.canonical)}" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="${escapeSeoHtml(opts.brand)}" />
+<meta property="og:title" content="${escapeSeoHtml(opts.title)}" />
+<meta property="og:description" content="${escapeSeoHtml(opts.description)}" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="${escapeSeoHtml(opts.title)}" />
+<meta name="twitter:description" content="${escapeSeoHtml(opts.description)}" />
+${jsonLdTag}
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;color:#0f172a;background:#f8fafc}a{color:#0e7490}header,footer{background:#020617;color:#e2e8f0}header a,footer a{color:#e2e8f0}.wrap{max-width:760px;margin:0 auto;padding:20px 16px}nav{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}nav a[aria-current=page]{font-weight:700;text-decoration:underline}.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin:12px 0}h1{font-size:28px;line-height:1.2}h2{font-size:20px;margin-top:26px}.muted{color:#475569}.cta{display:inline-block;background:#0e7490;color:#fff!important;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700}details.card summary{cursor:pointer;font-weight:600}ul.tick{padding-left:18px}</style>
+</head>
+<body>
+<header><div class="wrap"><nav>${nav("/welcome", "About")}${nav("/faq", "FAQ")}<a href="/">Open app</a></nav></div></header>
+<main class="wrap">${opts.body}</main>
+<footer><div class="wrap"><p class="muted" style="color:#94a3b8">${escapeSeoHtml(opts.brand)} — ${escapeSeoHtml(SEO_PLACEHOLDER_DESCRIPTION)}</p><nav><a href="/welcome">About</a><a href="/faq">FAQ</a><a href="/">Open app</a></nav></div></footer>
+</body>
+</html>`;
+}
+
+const SEO_FAQS: Array<{ q: string; a: string }> = [
+  { q: "How does Rentdue work?", a: "Deposit funds into your rechargeable balance, use that balance to rent a product, and each product earns daily income into your withdrawable balance for the length of its cycle." },
+  { q: "How do withdrawals work?", a: "Withdrawals come from the withdrawable balance only, require at least one product, and are paid to MTN, Airtel or USDT. Fees and minimums are shown in the app before you confirm." },
+  { q: "How do referrals earn?", a: "Share your invite link. You earn Level 1–4 commissions when invitees activate products, paid while the invitee keeps an active product." },
+  { q: "What is the daily check-in?", a: "Open the app every day to claim a check-in bonus into your withdrawable balance. Longer streaks unlock bigger rewards." },
+  { q: "Do I need the app installed?", a: "No — the app works in the browser. You can also install it from your phone browser for faster access." },
+];
+
+// Private surfaces must never be indexed.
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/") || req.path.startsWith("/admin")) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  }
+  next();
+});
+
+app.get("/robots.txt", (req, res) => {
+  const base = getPublicBaseUrl(req);
+  res.type("text/plain").send(
+    ["User-agent: *", "Allow: /welcome", "Allow: /faq", "Disallow: /api/", "Disallow: /admin/", "Disallow: /products", "Disallow: /product/", "", `Sitemap: ${base}/sitemap.xml`, ""].join("\n")
+  );
+});
+
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const base = getPublicBaseUrl(req);
+    const today = new Date().toISOString().split("T")[0];
+    // Catalog intentionally excluded — products live behind authentication.
+    const urls = SEO_PUBLIC_PATHS.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly", priority: p === "/welcome" ? "0.9" : "0.7" }));
+    res.type("application/xml").send(
+      `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${escapeSeoHtml(u.loc)}</loc><lastmod>${today}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join("")}</urlset>`
+    );
+  } catch (err) {
+    console.error("[SEO] sitemap failed:", err);
+    res.status(500).type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);
+  }
+});
+
+app.get("/welcome", async (req, res) => {
+  const base = getPublicBaseUrl(req);
+  const { brand, description } = await getSeoData();
+  const body = `
+<h1>${escapeSeoHtml(brand)} — rentdue runs, products, income, returns &amp; milestones</h1>
+<p>${escapeSeoHtml(description)}</p>
+<p><a class="cta" href="/">Open the app</a></p>
+<h2>Rentdue store runs, income &amp; returns</h2>
+<p>Explore rentdue runs, rentdue store runs, rentdue products, rentdue income, rentdue returns, rentdue milestones and the rentdue store invite program — all inside the RentDue Store app.</p>
+<p><a href="/faq">FAQ →</a></p>`;
+  res.send(seoShell({
+    brand,
+    title: `${brand} — Rentdue Runs, Products, Income, Returns & Milestones`,
+    description,
+    canonical: `${base}/welcome`,
+    activePath: "/welcome",
+    jsonLd: { "@context": "https://schema.org", "@type": "WebSite", name: brand, description, inLanguage: "en", url: `${base}/welcome` },
+    body,
+  }));
+});
+
+// Former public catalog URLs now redirect here — products live behind auth.
+app.get(["/products", "/product/:id"], (_req, res) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.redirect(301, "/welcome");
+});
+
+// Former how-it-works URL redirects to FAQ — the app has no standalone
+// how-it-works page, only the in-dashboard guide/FAQ.
+app.get("/how-it-works", (_req, res) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.redirect(301, "/faq");
+});
+
+app.get("/faq", async (req, res) => {
+  const base = getPublicBaseUrl(req);
+  const { brand } = await getSeoData();
+  const body = `<h1>Frequently asked questions</h1>` +
+    SEO_FAQS.map((f) => `<details class="card"><summary>${escapeSeoHtml(f.q)}</summary><p>${escapeSeoHtml(f.a)}</p></details>`).join("") +
+    `<p><a class="cta" href="/">Open the app</a></p>`;
+  res.send(seoShell({
+    brand,
+    title: `FAQ — ${brand}`,
+    description: `Answers about ${brand}: how products earn, how withdrawals and referrals work, check-ins, and installing the app.`,
+    canonical: `${base}/faq`,
+    activePath: "/faq",
+    jsonLd: { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: SEO_FAQS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
+    body,
+  }));
 });
 
 function isValidDailyCreditJobRequest(req: express.Request): boolean {
@@ -2074,56 +2318,17 @@ app.post("/api/admin/upload", async (req, res) => {
     if (!cloudinaryConfigured) {
       return res.status(500).json({ error: "Image uploads need Cloudinary keys (CLOUDINARY_*)." });
     }
-    // Prune stale uploads for this kind so storage doesn't fill up. Field kinds
-    // drop one previous asset; embedded kinds (milestone art) sweep assets no
-    // task or tier references anymore. Runs before the new asset is uploaded,
-    // so anything still referenced is safe to keep.
-    try {
-      const config = await getSiteConfig();
-      if (spec.field) {
-        const prev = String((config as any)[spec.field] || "");
-        await destroyCloudinaryUrl(prev);
-      } else {
-        const tasks = Array.isArray((config as any).vipTasks) ? (config as any).vipTasks : [];
-        // Milestone art lives in TWO places: vipTasks[].imageUrl (per-task)
-        // and vipTierMeta[*].imageUrl (per-tier). Both must count as live —
-        // otherwise uploading any new art destroys every saved tier image.
-        const tierArtUrls = Object.values((config as any).vipTierMeta || {})
-          .map((m: any) => String(m?.imageUrl || ""))
-          .filter((u: string) => Boolean(u));
-        const liveIds = new Set([
-          ...tasks
-            .map((t: any) => String(t?.imageUrl || ""))
-            .map(cloudinaryPublicId)
-            .filter((id): id is string => Boolean(id)),
-          ...tierArtUrls
-            .map(cloudinaryPublicId)
-            .filter((id): id is string => Boolean(id)),
-        ]);
-        try {
-          const listed = await cloudinary.api.resources({
-            type: "upload",
-            prefix: `${CLOUDINARY_FOLDER}/${spec.prefix}-`,
-            max_results: 100,
-          });
-          for (const asset of listed.resources || []) {
-            if (!liveIds.has(asset.public_id)) {
-              await cloudinary.uploader.destroy(asset.public_id, { resource_type: "image", invalidate: true });
-            }
-          }
-        } catch {
-          // best effort — listing/destroy failures never block the upload
-        }
-      }
-    } catch {
-      // best effort — never block the new upload
-    }
+    // Pure upload: validate, store, return the URL. Nothing is destroyed here —
+    // replaced art is retired only after the new config saves successfully
+    // (PUT /api/admin/config), so failed or abandoned uploads cannot break
+    // the live site. Orphan aging runs fire-and-forget below.
     const uploaded = await cloudinary.uploader.upload(dataUrl, {
       folder: CLOUDINARY_FOLDER,
       public_id: `${spec.prefix}-${Date.now()}`,
       resource_type: "auto",
       overwrite: false,
     });
+    void collectImageOrphans();
     return res.json({ success: true, url: uploaded.secure_url });
   } catch (error: any) {
     console.error("[Upload] failed:", error);
@@ -2142,8 +2347,15 @@ app.get("/api/admin/config", async (req, res) => {
 
 app.put("/api/admin/config", async (req, res) => {
   try {
+    const previous = await getSiteConfig().catch(() => ({} as any));
+    const previouslyLive = collectCloudinaryIds(previous);
     const sanitized = sanitizeSiteConfigServer(req.body);
     const updated = await updateSiteConfig(sanitized);
+    // Retire replaced art only now that the new config is persisted. A failed
+    // or abandoned save destroys nothing, so the live site can never 404.
+    const stillLive = collectCloudinaryIds(updated);
+    const retired = [...previouslyLive].filter((id) => !stillLive.has(id));
+    if (retired.length) void destroyPublicIds(retired);
     res.json({ success: true, config: updated });
   } catch (err: any) {
     const response = errorResponse(err, "Unable to save site configuration.", 500);
@@ -2326,9 +2538,37 @@ async function startServer() {
         }
       },
     }));
-    app.get("*", (req, res) => {
+    app.get("*", async (req, res) => {
       res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(distPath, "index.html"));
+      if (req.path.startsWith("/admin")) {
+        res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+      }
+      try {
+        const indexPath = path.join(distPath, "index.html");
+        let html = await fs.promises.readFile(indexPath, "utf8");
+        // Dynamic brand injection so the app shell title matches Site Config.
+        // Failure falls back to the static file — never break the app for SEO.
+        // TODO(SEO placeholder): placeholder title format until final copy lands.
+        try {
+          const config = await getSiteConfig().catch(() => ({} as any));
+          const brand = String((config as any)?.brandName || "").trim();
+          if (brand && brand !== "RENTDUE") {
+            html = html
+              .replace(/<title>.*?<\/title>/, `<title>${escapeSeoHtml(brand)}</title>`)
+              .replace(/<meta property="og:site_name" content=".*?"/, `<meta property="og:site_name" content="${escapeSeoHtml(brand)}"`);
+          }
+          const base = getPublicBaseUrl(req);
+          html = html.replace('<link rel="canonical" href="/" />', `<link rel="canonical" href="${escapeSeoHtml(base + "/")}" />`);
+          if (req.path.startsWith("/admin")) {
+            html = html.replace('<meta name="robots" content="index, follow, max-image-preview:large" />', '<meta name="robots" content="noindex, nofollow, noarchive" />');
+          }
+        } catch {
+          // ignore SEO injection errors — serve the shell as-is
+        }
+        res.type("html").send(html);
+      } catch {
+        res.sendFile(path.join(distPath, "index.html"));
+      }
     });
   }
 
