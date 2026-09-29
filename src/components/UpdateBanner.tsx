@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { registerSW } from "virtual:pwa-register";
 import { motion, AnimatePresence } from "motion/react";
-import { RefreshCw, CheckCircle2 } from "lucide-react";
+import { Download, CheckCircle2 } from "lucide-react";
 
 const UPDATE_CHECK_MS = 30 * 60 * 1000;
 // Staged download pacing. The new bundle is in fact already precached by the
@@ -155,12 +155,12 @@ export default function UpdateBanner() {
                 {phase === "complete" ? (
                   <CheckCircle2 className="w-4 h-4" />
                 ) : (
-                  <RefreshCw className={`w-4 h-4 ${phase === "downloading" && !reducedMotion ? "animate-spin" : ""}`} />
+                  <Download className={`w-4 h-4 ${phase === "downloading" && !reducedMotion ? "animate-bounce" : ""}`} />
                 )}
               </span>
               <span className="flex-1 text-xs font-bold leading-snug text-[var(--theme-text)]">
                 {phase === "idle" && "A new version of the app is ready."}
-                {phase === "downloading" && `Downloading update… ${pct}%`}
+                {phase === "downloading" && "Downloading update…"}
                 {phase === "complete" && "Update complete — restarting…"}
               </span>
               {phase === "idle" ? (
