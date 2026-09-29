@@ -25,16 +25,16 @@ const DEFAULT_WELCOME_HERO =
 
 const WELCOME_SLIDES = [
   {
-    title: "Built for operators.",
-    sub: "Complete tasks. Earn rewards. Grow on your terms.",
+    title: "Runs that pay daily.",
+    sub: "Start a run and collect returns every single day.",
   },
   {
-    title: "Track progress daily.",
-    sub: "Watch every run accrue, day after day.",
+    title: "Milestones that move you up.",
+    sub: "Finish achievements, unlock new stages, grow your status.",
   },
   {
-    title: "Cash out on your terms.",
-    sub: "Top up in seconds, withdraw when it suits you.",
+    title: "One tap keeps the streak.",
+    sub: "Check in daily and watch your bonus grow with it.",
   },
 ];
 
@@ -227,7 +227,8 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
         toast.success(
           Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 0) > 0
             ? "Registration successful! Log in to claim your registration bonus."
-            : "Registration successful! You can now log in."
+            : "Registration successful! You can now log in.",
+          { duration: 6000 }
         );
         setTimeout(() => {
           goTo("login");

@@ -141,9 +141,9 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
           else if (cat === "register") { categoryIcon3d = medal3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (cat === "checkin" || cat.includes("checkin") || title.includes("check-in")) { categoryIcon3d = calendar3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (cat.includes("vip") || cat.includes("milestone") || title.includes("vip") || title.includes("milestone")) { categoryIcon3d = trophy3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (title.includes("product activated")) { categoryIcon3d = flash3d; modalBadgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
+          else if (title.includes("new run activated")) { categoryIcon3d = flash3d; modalBadgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
           else if (cat.includes("referral") || title.includes("referral")) { categoryIcon3d = link3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
-          else if (cat === "rewards" || cat === "daily accumulation" || title.includes("daily income")) { categoryIcon3d = giftBox3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
+          else if (cat === "rewards" || cat === "daily accumulation" || title.includes("daily returns")) { categoryIcon3d = giftBox3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
           else if (cat === "system") { categoryIcon3d = shield3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]"; }
           else if (cat === "announcement") { categoryIcon3d = megaphone3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]"; }
 
@@ -281,13 +281,13 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                 } else if (lcat.includes("vip") || lcat.includes("milestone") || ltitle.includes("vip") || ltitle.includes("milestone")) {
                   categoryIcon3dList = trophy3d;
                   badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (ltitle.includes("product activated")) {
+                } else if (ltitle.includes("new run activated")) {
                   categoryIcon3dList = flash3d;
                   badgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
                 } else if (lcat.includes("referral") || ltitle.includes("referral")) {
                   categoryIcon3dList = link3d;
                   badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
-                } else if (lcat === "rewards" || lcat === "daily accumulation" || ltitle.includes("daily income")) {
+                } else if (lcat === "rewards" || lcat === "daily accumulation" || ltitle.includes("daily returns")) {
                   categoryIcon3dList = giftBox3d;
                   badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
                 } else if (logs.category === "system") {

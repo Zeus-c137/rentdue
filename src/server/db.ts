@@ -721,8 +721,8 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
   // Create alert/notification for renting the product!
   await createNotification(
     phone,
-    "Product Activated!",
-    `🎉 Congratulations! You successfully rented "${item.name}". Your product is active and Day 1 yield of UGX ${immediateYield.toLocaleString()} has been immediately credited to your withdrawable balance.`,
+    "New run activated",
+    `🎉 Congratulations! You successfully rented "${item.name}". Your run is active and Day 1 returns of UGX ${immediateYield.toLocaleString()} has been immediately credited to your withdrawable balance.`,
     "rewards"
   );
 
@@ -1000,8 +1000,8 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
   if (reward > 0) {
     await createNotification(
       userId,
-      "Daily Income Credited",
-      `Your daily yield of UGX ${reward.toLocaleString()} from ${itemName} was credited to your withdrawable balance for ${today}.`,
+      "Daily returns credited",
+      `Your daily returns of UGX ${reward.toLocaleString()} from ${itemName} was credited to your withdrawable balance for ${today}.`,
       "daily accumulation",
       reward
     );

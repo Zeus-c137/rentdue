@@ -11,6 +11,7 @@ import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
 import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { getMilestoneBoard } from "./VipTasksPage";
+import CellsProgress from "./CellsProgress";
 import { tierMetaFor } from "../utils/vip";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -47,42 +48,96 @@ interface FlightCoin {
   delay: number;
 }
 
-function WeekSpark({ data }: { data: number[] }) {
+/* Week climb — the week starts at zero and steps up day by day, ending at
+   the total shown above. Each vertex is a day; the endpoint is where the
+   user stands. Monotonic by construction (daily earnings are >= 0). */
+function WeekClimb({ data }: { data: number[] }) {
   const W = 300;
-  const H = 56;
-  const P = 4;
-  const max = Math.max(...data, 0);
-  const min = Math.min(...data, 0);
-  const span = max - min || 1;
-  const pts = data.map((v, i) => {
-    const x = P + (i * (W - P * 2)) / Math.max(1, data.length - 1);
-    const y = H - P - ((v - min) / span) * (H - P * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const [lastX, lastY] = pts[pts.length - 1].split(",");
+  const H = 74;
+  const P = 6;
+  const LABEL_H = 12;
+  const plotH = H - P - LABEL_H;
+  const cum: number[] = [];
+  let acc = 0;
+  for (const v of data) {
+    acc += Number(v) || 0;
+    cum.push(acc);
+  }
+  const total = cum.length > 0 ? cum[cum.length - 1] : 0;
+  const max = Math.max(total, 1);
+  const span = Math.max(1, data.length - 1);
+  const x = (i: number) => P + (i * (W - P * 2)) / span;
+  const y = (v: number) => P + plotH - (Math.max(0, v) / max) * plotH;
+  const base = P + plotH;
+  const last = Math.max(0, data.length - 1);
+  // Rise at Monday from the baseline, then flat-then-rise per day.
+  let d = `M ${x(0).toFixed(1)},${base.toFixed(1)} L ${x(0).toFixed(1)},${y(cum[0] ?? 0).toFixed(1)}`;
+  for (let i = 1; i < data.length; i++) {
+    d += ` L ${x(i).toFixed(1)},${y(cum[i - 1]).toFixed(1)} L ${x(i).toFixed(1)},${y(cum[i]).toFixed(1)}`;
+  }
+  const fill = `${d} L ${x(last).toFixed(1)},${base.toFixed(1)} Z`;
+  const days = ["M", "T", "W", "T", "F", "S", "S"];
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      className="w-full h-14 overflow-visible"
+      className="w-full h-[76px] overflow-visible"
       aria-hidden
     >
-      <polygon
-        points={`${P},${H} ${pts.join(" ")} ${W - P},${H}`}
-        fill="var(--theme-primary)"
-        opacity="0.12"
+      <line
+        x1={P}
+        x2={W - P}
+        y1={base}
+        y2={base}
+        stroke="var(--theme-text)"
+        strokeWidth="1"
+        strokeDasharray="2 3"
+        opacity="0.25"
       />
-      <polyline
-        points={pts.join(" ")}
+      <path d={fill} fill="var(--theme-primary)" opacity="0.12" />
+      <path
+        d={d}
         fill="none"
         stroke="var(--theme-primary)"
-        strokeWidth="2"
-        vectorEffect="non-scaling-stroke"
+        strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="spark-draw"
+        pathLength={1}
+        className="climb-draw"
       />
-      <circle cx={lastX} cy={lastY} r="3" fill="var(--theme-primary)" className="spark-dot" />
+      {data.map((_, i) => {
+        const isEnd = i === data.length - 1;
+        return (
+          <g key={i}>
+            {isEnd && (
+              <>
+                <circle cx={x(i)} cy={y(cum[i])} r="8" fill="var(--theme-primary)" opacity="0.2" />
+                <circle cx={x(i)} cy={y(cum[i])} r="4" fill="none" stroke="var(--theme-primary)" strokeWidth="1.5" className="runway-ping" style={{ animationDelay: "1.3s" }} />
+              </>
+            )}
+            <circle
+              cx={x(i)}
+              cy={y(cum[i])}
+              r={isEnd ? 4 : 2.5}
+              fill="var(--theme-primary)"
+              className="climb-dot"
+              style={{ animationDelay: `${0.15 + i * 0.18}s` }}
+            />
+            {days[i] && (
+              <text
+                x={x(i)}
+                y={H - 1}
+                textAnchor="middle"
+                fontSize="8"
+                fontWeight="700"
+                style={{ fill: "var(--theme-text-muted)" }}
+              >
+                {days[i]}
+              </text>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -103,7 +158,6 @@ export default function DashboardView({
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
-  const [barsIn, setBarsIn] = useState(false);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
   const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
   const [claimedDays, setClaimedDays] = useState<Set<string> | null>(null);
@@ -129,11 +183,6 @@ export default function DashboardView({
   }, [msBoard]);
   const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
   const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "account_created" ? "" : "runs");
-  useEffect(() => {
-    setBarsIn(false);
-    const frame = requestAnimationFrame(() => setBarsIn(true));
-    return () => cancelAnimationFrame(frame);
-  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
   const todayKey = getTodayKey();
@@ -271,7 +320,13 @@ export default function DashboardView({
     });
     setCheckedInLocal(true);
     setCoins(null);
-    toast.success(bonus > 0 ? `Checked in! +${formatCurrency(bonus)}` : "Checked in! Streak kept alive.");
+    toast.success("Daily check-in complete", {
+      description:
+        bonus > 0
+          ? `Day ${streak}: +${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
+          : "Streak kept alive. See you tomorrow.",
+      duration: 6000,
+    });
   };
 
   const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
@@ -379,112 +434,12 @@ export default function DashboardView({
         </p>
         {weekSeries ? (
           <div className="mt-2">
-            <WeekSpark data={weekSeries} />
+            <WeekClimb data={weekSeries} />
           </div>
         ) : (
           <div aria-hidden="true" className="mt-2 h-14 rounded-xl bg-[var(--theme-text)]/10 animate-pulse" />
         )}
       </section>
-
-      {/* Next milestone — flat header, card body. Body taps route to the stage. */}
-      {!nextMilestone && msBoard === null && (
-        <section aria-hidden="true" className="animate-pulse">
-          <div className="flex items-start justify-between mb-3 px-1">
-            <div>
-              <div className="h-[18px] w-32 rounded-md bg-[var(--theme-text)]/10" />
-              <div className="mt-1.5 h-[14px] w-52 max-w-full rounded-md bg-[var(--theme-text)]/10" />
-            </div>
-            <div className="mt-0.5 h-4 w-16 rounded-md bg-[var(--theme-text)]/10 shrink-0" />
-          </div>
-          <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="h-3 w-20 rounded bg-[var(--theme-text)]/10" />
-                <div className="mt-1.5 h-[18px] w-3/4 rounded bg-[var(--theme-text)]/10" />
-                <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10" />
-                <div className="mt-1.5 flex items-center justify-between gap-2">
-                  <div className="h-[14px] w-16 rounded bg-[var(--theme-text)]/10" />
-                  <div className="h-[14px] w-24 rounded bg-[var(--theme-text)]/10" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-      {nextMilestone && (
-        <section>
-          <div className="flex items-start justify-between mb-3 px-1">
-            <div>
-              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
-              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigateToMilestones()}
-              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
-            >
-              View all <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          {nextMilestone.done ? (
-            <p className="px-1 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
-          ) : (() => {
-            const task = nextMilestone.task;
-            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
-            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
-            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
-            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
-            const counts = msIsMoney(task.metric)
-              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
-              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
-            return (
-              <button
-                type="button"
-                onClick={() => onNavigateToMilestones(task.category)}
-                aria-label="View journey stage"
-                className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
-                    {tierArt ? (
-                      <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                    ) : (
-                      <Trophy className="w-5 h-5 text-[var(--theme-primary)]" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-sans font-black uppercase tracking-wider text-[var(--theme-primary)]">
-                      {task.category}
-                    </span>
-                    <p className="text-[15px] font-display font-black truncate mt-0.5">{task.title}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
-                        <div
-                          className="h-full run-progress-fill transition-[width] duration-700 ease-out"
-                          style={{ width: barsIn ? `${pct}%` : "0%" }}
-                        />
-                      </div>
-                      <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
-                        {Math.round(pct)}%
-                      </span>
-                    </div>
-                    <p className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Progress</span>
-                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
-                        {counts}
-                      </span>
-                    </p>
-                  </div>
-                  <span className="shrink-0 p-2 rounded-full opacity-60">
-                    <ChevronRight className="w-4 h-4" />
-                  </span>
-                </div>
-              </button>
-            );
-          })()}
-        </section>
-      )}
 
       {/* Daily streak — mini 7-day run, Mon–Sun */}
       <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
@@ -574,6 +529,102 @@ export default function DashboardView({
         </div>
       </section>
 
+      {/* Next milestone — flat header, card body. Body taps route to the stage. */}
+      {!nextMilestone && msBoard === null && (
+        <section aria-hidden="true" className="animate-pulse">
+          <div className="flex items-start justify-between mb-3 px-1">
+            <div>
+              <div className="h-[18px] w-32 rounded-md bg-[var(--theme-text)]/10" />
+              <div className="mt-1.5 h-[14px] w-52 max-w-full rounded-md bg-[var(--theme-text)]/10" />
+            </div>
+            <div className="mt-0.5 h-4 w-16 rounded-md bg-[var(--theme-text)]/10 shrink-0" />
+          </div>
+          <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="h-[18px] w-1/2 rounded bg-[var(--theme-text)]/10" />
+                  <div className="h-[12px] w-12 rounded bg-[var(--theme-text)]/10 shrink-0" />
+                </div>
+                <div className="mt-2 flex gap-[3px]" aria-hidden="true">
+                  {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                    <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+      {nextMilestone && (
+        <section>
+          <div className="flex items-start justify-between mb-3 px-1">
+            <div>
+              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToMilestones()}
+              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+            >
+              View all <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          {nextMilestone.done ? (
+            <p className="px-1 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+          ) : (() => {
+            const task = nextMilestone.task;
+            const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
+            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
+            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
+            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
+            const counts = msIsMoney(task.metric)
+              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
+              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
+            return (
+              <button
+                type="button"
+                onClick={() => onNavigateToMilestones(task.category)}
+                aria-label={`View milestone: ${task.title}`}
+                className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
+                    {tierArt ? (
+                      <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    ) : (
+                      <Trophy className="w-6 h-6 text-[var(--theme-primary)]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[15px] font-display font-black truncate min-w-0">{task.title}</p>
+                      <span className="shrink-0 font-display font-bold tabular-nums text-[11px] text-[var(--theme-text-muted)]">
+                        {counts}
+                      </span>
+                    </div>
+                    {/* Cells — battery blocks charge left to right; the boundary
+                        cell fills fractionally. Percent rides at the end. */}
+                    <div className="mt-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <CellsProgress pct={pct} />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
+                          {Math.round(pct)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })()}
+        </section>
+      )}
+
       {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
       {!listsReady ? (
         <section aria-hidden="true" className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4 animate-pulse">
@@ -585,10 +636,14 @@ export default function DashboardView({
             {[0, 1].map((i) => (
               <div key={i} className="py-3.5">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
-                    <div className="mt-2 h-2.5 rounded-full bg-[var(--theme-text)]/10" />
+                    <div className="mt-2 flex gap-[3px]" aria-hidden="true">
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
+                      ))}
+                    </div>
                     <div className="mt-1.5 flex items-center justify-between gap-2">
                       <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
                       <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
@@ -617,12 +672,12 @@ export default function DashboardView({
         <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
             <h2 className="font-display font-black text-[15px] truncate min-w-0">
-              {showCompletedRuns ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownRuns.length}</span>
+              {showCompletedRuns ? "Completed Runs" : "Active Runs"}
             </h2>
             <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                onClick={() => { setShowCompletedRuns((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+                onClick={() => setShowCompletedRuns((v) => !v)}
                 aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
                 className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
               >
@@ -633,7 +688,7 @@ export default function DashboardView({
                 onClick={onNavigateToIncome}
                 className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
               >
-                View all
+                View all {shownRuns.length}
               </button>
             </div>
           </div>
@@ -656,9 +711,9 @@ export default function DashboardView({
               >
                 <div className="flex items-center gap-3">
                   {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-11 h-11 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-14 h-14 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
                   ) : (
-                    <span className="w-11 h-11 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-lg flex items-center justify-center">
+                    <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
                       {node.itemName.charAt(0).toUpperCase()}
                     </span>
                   )}
@@ -667,19 +722,16 @@ export default function DashboardView({
                         <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
                       </div>
                       <div className="mt-2 flex items-center gap-2">
-                        <div className="flex-1 min-w-0 h-2.5 rounded-full bg-[var(--theme-text)]/10 overflow-hidden">
-                          <div
-                            className="h-full run-progress-fill transition-[width] duration-1000 ease-out"
-                            style={{ width: barsIn ? `${progress.percent}%` : "0%" }}
-                          />
+                        <div className="flex-1 min-w-0">
+                          <CellsProgress pct={progress.percent} />
                         </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-text)] opacity-80">
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
                           {Math.round(progress.percent)}%
                         </span>
                       </div>
                     <p className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Accrued</span>
-                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-text-muted)]">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
+                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-primary)]">
                         +{formatCurrency(node.totalEarned || 0)}
                       </span>
                     </p>

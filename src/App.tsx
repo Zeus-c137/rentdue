@@ -265,19 +265,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (userProfile?.phone) {
-      const todayStr = getTodayKey();
-      if (userProfile.lastCheckinDate !== todayStr) {
-        const timer = setTimeout(() => {
-          setActiveTab("profile");
-          toast.info("Reminder: Daily check-in bonus is available now!");
-        }, 5 * 60 * 1000); // 5 minutes delay!
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [userProfile?.phone]);
-
-  useEffect(() => {
     const ctrl = new AbortController();
     fetch("/api/config/site", { signal: ctrl.signal })
       .then(r => r.json())
@@ -344,6 +331,14 @@ export default function App() {
       setPreviousTab(activeTab as any);
     }
   }, [activeTab]);
+
+  // Leaving the journey resets the deep link: coming back always lands on
+  // the tier list, never a stale stage detail. The alerts overlay keeps the
+  // underlying tab mounted, so focus survives a peek at alerts.
+  const vipVisible = activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip");
+  useEffect(() => {
+    if (!vipVisible) setJourneyStage(null);
+  }, [vipVisible]);
   const [chatRoomDefault, setChatRoomDefault] = useState<"shared" | "admin" | "ai">("shared");
   const [autoOpenWithdraw, setAutoOpenWithdraw] = useState(false);
   const [preselectedGpuRent, setPreselectedGpuRent] = useState<SubscriptionItem | null>(null);
@@ -550,16 +545,23 @@ export default function App() {
   const renderContent = () => {
     if (!isAdminRoute && isRestoringSession) {
       const splashConfig = siteConfig ?? (bootShell ? { logoUrl: bootShell.logoUrl, brandName: bootShell.brandName } : null);
+      // Never show the fallback mark here: it flashes for a frame before the
+      // real logo arrives. No known logo yet = empty stage, logo pops in.
+      const splashLogoUrl = (splashConfig as any)?.logoUrl;
       return (
         <div
           role="status"
           aria-label="Loading"
           className="min-h-screen bg-[var(--theme-bg)] flex items-center justify-center"
         >
-          <BrandLogo
-            siteConfig={splashConfig}
-            className="w-20 h-20 flex items-center justify-center shrink-0 splash-logo-pulse [&>img]:rounded-2xl"
-          />
+          {splashLogoUrl ? (
+            <BrandLogo
+              siteConfig={splashConfig}
+              className="w-20 h-20 flex items-center justify-center shrink-0 splash-logo-pulse [&>img]:rounded-2xl"
+            />
+          ) : (
+            <div className="w-20 h-20" aria-hidden="true" />
+          )}
         </div>
       );
     }

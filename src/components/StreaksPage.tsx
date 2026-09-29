@@ -134,7 +134,13 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       const key = getTodayKey();
       setClaimedDays((prev) => new Set(prev).add(key));
       setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
-      toast.success(bonus > 0 ? `Checked in! +${formatCurrency(bonus)}` : "Checked in! Streak kept alive.");
+      toast.success("Daily check-in complete", {
+        description:
+          bonus > 0
+            ? `Day ${nextStreak}: +${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
+            : "Streak kept alive. See you tomorrow.",
+        duration: 6000,
+      });
       if (onClaimSuccess) {
         onClaimSuccess({ ...userProfile, points: (Number(userProfile.points) || 0) + bonus, lastCheckinDate: key, checkinStreak: nextStreak });
       }
