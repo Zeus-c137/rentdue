@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Lock, ChevronRight, Trophy, User, Users, Play, Calend
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { calcVipProgress, normalizeVipTaskboard, metricMeta, tierRewardFor, tierMetaFor } from "@/src/utils/vip";
+import CellsProgress from "./CellsProgress";
 import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
 import { useAbortSignal } from "@/src/hooks/useGatedInterval";
 import type { VipTask, VipTaskboard } from "@/src/types";
@@ -207,8 +208,8 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                     <div className="flex-1 min-w-0">
                       <h4 className="text-[14px] font-sans font-bold leading-tight text-[var(--theme-text)]">{task.title}</h4>
                       {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
-                      <div className="mt-2 h-2 rounded-full bg-black/25 border border-white/5 overflow-hidden">
-                        <div className={`h-full run-progress-fill transition-[width] duration-1000 ease-out ${task.stageLocked ? "opacity-50 saturate-50" : ""}`} style={{ width: barsIn ? `${p}%` : "0%" }} />
+                      <div className={`mt-2 ${task.stageLocked ? "opacity-50 saturate-50" : ""}`}>
+                        <CellsProgress pct={p} />
                       </div>
                       {!met && !detail.claimedTier && task.stageLocked && (
                         <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-50 mt-1">{fmtRange(task)}</p>
@@ -311,8 +312,8 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                           <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
                         </span>
                         {stage.description && <span className="block text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-0.5 truncate">{stage.description}</span>}
-                        <span className="mt-2 h-2 rounded-full bg-black/25 border border-white/5 overflow-hidden flex">
-                          <span className={`h-full run-progress-fill transition-[width] duration-1000 ease-out ${muted ? "opacity-50 saturate-50" : ""}`} style={{ width: barsIn ? `${barPct}%` : "0%" }} />
+                        <span className={`mt-2 block ${muted ? "opacity-50 saturate-50" : ""}`}>
+                          <CellsProgress pct={barPct} />
                         </span>
                         <span className="mt-1.5 flex items-center justify-between gap-2">
                           <span className="text-[10px] font-sans font-bold tracking-[0.12em] text-[var(--theme-text)] opacity-60">{stage.done}/{stage.total} COMPLETE</span>

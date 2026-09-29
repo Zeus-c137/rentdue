@@ -502,6 +502,43 @@ input:-webkit-autofill::first-line { font-size: 14px; }
 @keyframes spark-dot-in {
   to { opacity: 1; }
 }
+
+/* Runway sonar ping — reused by the week-climb endpoint ("you stand here").
+   Solid theme colors, geometry only (no gradients). */
+@keyframes runway-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.runway-ping {
+  animation: runway-ping 1.8s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Week climb — cumulative step chart traces itself (pathLength-normalized),
+   day vertices pop in staggered. Reuses spark-dot-in. */
+.climb-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: climb-draw-x 1.4s ease-out forwards;
+}
+@keyframes climb-draw-x {
+  to { stroke-dashoffset: 0; }
+}
+.climb-dot {
+  opacity: 0;
+  animation: spark-dot-in 0.3s ease-out forwards;
+}
+
+/* Battery cells — lit cells breathe in a left-to-right chase while charging.
+   Per-cell animation-delay (inline) turns the pulse into a traveling wave. */
+@keyframes cell-charge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.cell-charge {
+  animation: cell-charge 2.4s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .spark-draw, .spark-dot { animation: none; }
   .spark-draw { stroke-dashoffset: 0; }
@@ -571,6 +608,10 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   .animate-shimmer { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
   .animate-shimmer-slow { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
   .splash-logo-pulse { animation: none; }
+  .runway-ping { animation: none; opacity: 0.35; }
+  .climb-draw { animation: none; stroke-dashoffset: 0; }
+  .climb-dot { animation: none; opacity: 1; }
+  .cell-charge { animation: none; }
 }
 
 /* Boot splash logo: grows then settles, looping until the session resolves.

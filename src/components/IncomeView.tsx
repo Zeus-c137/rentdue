@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { SubscribedNode, SubscriptionItem, UserProfile } from "../types";
 import {
   Lock,
@@ -12,6 +12,7 @@ import {
   SlidersHorizontal
 } from "lucide-react";
 import MetricCard from "./MetricCard";
+import CellsProgress from "./CellsProgress";
 import { Button } from "./ui/button";
 import { useCurrency } from "../currency";
 import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";
@@ -39,12 +40,6 @@ export default function IncomeView({
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-  // Re-run bar fill-ins whenever the filter flips.
-  const [barsIn, setBarsIn] = useState(false);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setBarsIn(true));
-    return () => cancelAnimationFrame(frame);
-  }, []);
   const shownNodes = showCompleted
     ? activeNodes.filter((n) => getRunState(n, items) !== "active")
     : activeNodes.filter((n) => getRunState(n, items) === "active");
@@ -115,7 +110,7 @@ export default function IncomeView({
           </h3>
           <button
             type="button"
-            onClick={() => { setShowCompleted((v) => !v); setBarsIn(false); requestAnimationFrame(() => requestAnimationFrame(() => setBarsIn(true))); }}
+            onClick={() => setShowCompleted((v) => !v)}
             aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
             className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
           >
@@ -202,7 +197,7 @@ export default function IncomeView({
                             <p className="font-display font-black text-[13px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield)}</p>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Earned (to date)</p>
+                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Collected (to date)</p>
                             <p className="font-display font-black text-[13px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(node.totalEarned || (dailyYield * elapsedDays))}</p>
                           </div>
                         </div>
@@ -213,18 +208,13 @@ export default function IncomeView({
                       </div>
                     </div>
 
-                    {/* Progress Bar with percentage at the end */}
+                    {/* Cells with percentage at the end */}
                     <div className="pt-1.5">
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-0 bg-[var(--theme-text)]/10 h-2.5 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full run-progress-fill transition-all duration-500 ${
-                              isExpired ? "opacity-30 saturate-50" : ""
-                            }`}
-                            style={{ width: barsIn ? `${progressPercent}%` : "0%" }}
-                          />
+                        <div className="flex-1 min-w-0">
+                          <CellsProgress pct={progressPercent} />
                         </div>
-                        <span className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-70 tabular-nums shrink-0">
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
                           {isExpired ? "Completed" : `${Math.round(progressPercent)}%`}
                         </span>
                       </div>
