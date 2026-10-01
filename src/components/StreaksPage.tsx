@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Flame } from "lucide-react";
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "motion/react";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
@@ -30,16 +29,6 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [activeTip, setActiveTip] = useState<{ key: string; kind: "claimed" | "next" } | null>(null);
-  const tipTimer = useRef<number | null>(null);
-  const showTip = (tip: { key: string; kind: "claimed" | "next" } | null) => {
-    if (tipTimer.current) window.clearTimeout(tipTimer.current);
-    setActiveTip(tip);
-    if (tip) {
-      tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
-    }
-  };
-  useEffect(() => () => { if (tipTimer.current) window.clearTimeout(tipTimer.current); }, []);
   useEffect(() => {
     const timer = setInterval(() => { if (!document.hidden) setNowMs(Date.now()); }, 1000);
     return () => clearInterval(timer);
@@ -208,32 +197,6 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
 
         {/* Home-style day tiles — frosted, bigger coins/dates to match Home */}
         <div className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-3">
-          <AnimatePresence>
-            {activeTip && (
-              <motion.div
-                key={activeTip.key + activeTip.kind}
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.16, ease: "easeOut" }}
-                className="absolute left-3 right-3 top-2 z-30 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/80 backdrop-blur-[20px] backdrop-saturate-[180%] px-3 py-2 shadow-lg flex items-center justify-between gap-2"
-              >
-                <span className="text-[12px] font-sans font-bold text-[var(--theme-text)] leading-tight">
-                  {activeTip.kind === "claimed"
-                    ? `Day ${activeTip.key.slice(8)} • Already checked-in`
-                    : `Day ${activeTip.key.slice(8)} • Come back in ${formatClock(nextIn)}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => showTip(null)}
-                  aria-label="Dismiss"
-                  className="shrink-0 w-6 h-6 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 active:scale-95 cursor-pointer"
-                >
-                  ×
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
               <span key={i} className="text-[12px] font-sans font-black opacity-50 py-1">{d}</span>
@@ -281,7 +244,6 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                     key={key}
                     type="button"
                     onClick={(e) => {
-                      showTip(null);
                       void handleCheckin(e);
                     }}
                     disabled={claimBusy}
@@ -297,14 +259,9 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                   <button
                     key={key}
                     type="button"
-                    onClick={() =>
-                      setActiveTip((prev) => {
-                        const next = prev?.key === key ? null : { key, kind: "claimed" as const };
-                        if (tipTimer.current) window.clearTimeout(tipTimer.current);
-                        if (next) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
-                        return next;
-                      })
-                    }
+                    onClick={() => {
+                      toast.info(`Day ${day} • Already checked-in`);
+                    }}
                     aria-label={`Claimed day ${day}`}
                     className={`${cls} cursor-pointer active:scale-95 transition-transform`}
                   >
@@ -317,14 +274,9 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                   <button
                     key={key}
                     type="button"
-                    onClick={() =>
-                      setActiveTip((prev) => {
-                        const next = prev?.key === key ? null : { key, kind: "next" as const };
-                        if (tipTimer.current) window.clearTimeout(tipTimer.current);
-                        if (next) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
-                        return next;
-                      })
-                    }
+                    onClick={() => {
+                      toast.info(`Day ${day} • Come back in ${formatClock(nextIn)}`);
+                    }}
                     aria-label="Next check-in"
                     className={`${cls} cursor-pointer active:scale-95 transition-transform`}
                   >

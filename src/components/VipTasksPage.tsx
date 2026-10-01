@@ -8,6 +8,7 @@ import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
 import { useAbortSignal } from "@/src/hooks/useGatedInterval";
 import type { VipTask, VipTaskboard } from "@/src/types";
 import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
+import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
 let vipCache: { phone: string; board: VipTaskboard; at: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
@@ -194,7 +195,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 <div className="mt-3">
                   {detail.claimedTier ? (
                     <span className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)] text-[12px] font-sans font-black">
-                      <Trophy className="w-4 h-4" /> + UGX {detail.tierReward.toLocaleString()} CLAIMED
+                      <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-5 h-5 object-contain" /> UGX {detail.tierReward.toLocaleString()} CLAIMED
                     </span>
                   ) : (
                     <button
@@ -204,8 +205,8 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                       aria-label={detail.claimable ? `Claim stage reward of UGX ${detail.tierReward.toLocaleString()}` : "Stage reward locked"}
                       className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-sans font-black transition-transform active:scale-[0.97] cursor-pointer ${detail.claimable ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-[0_3px_0_0_var(--theme-primary-shadow)]" : "bg-[var(--theme-card-bg)]/60 border border-white/10 text-[var(--theme-text)] opacity-70"}`}
                     >
-                      <Trophy className={`w-4 h-4 ${detail.claimable ? "" : "opacity-60"}`} />
-                      {claiming ? "CLAIMING…" : `+ UGX ${detail.tierReward.toLocaleString()}`}
+                      <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-5 h-5 object-contain" />
+                      {claiming ? "CLAIMING…" : `UGX ${detail.tierReward.toLocaleString()}`}
                     </button>
                   )}
                 </div>
@@ -214,7 +215,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
           </div>
 
           <div className="px-4 mt-3">
-            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">ACHIEVEMENTS</h2>
+            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} task list.</h2>
             <div className="flex flex-col gap-2.5">
               {detail.tasks.map((task) => {
                 const met = Number(task.progress || 0) >= Number(task.requiredBonus || 0);

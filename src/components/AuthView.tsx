@@ -493,7 +493,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               className="flex-1 flex flex-col pt-10"
             >
               <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight whitespace-nowrap">
-                Create your account.
+                Let's get started
               </h1>
               <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
                 Fill in your details...
