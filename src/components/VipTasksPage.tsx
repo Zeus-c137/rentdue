@@ -130,7 +130,11 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
 
   // CLAIM LEVEL REWARD: the single one-time payout for the whole stage.
   const handleClaimStage = async(stage: StageGroup)=>{
-    if (!stage.claimable || bulkStage) return;
+    if (bulkStage) return;
+    if (!stage.claimable) {
+      toast.info(`Complete ${stage.done}/${stage.total} tasks to unlock the stage reward.`);
+      return;
+    }
     setBulkStage(stage.name); const s=renew();
     try{
       const data=await fetchJsonWithSignal<{bonus:number; claimedTierRewards?:string[]}>(`/api/profile/vip-tasks/claim`, s, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({phone, category: stage.name})});
@@ -165,28 +169,47 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     return (
       <div className="w-full flex-1 flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
-          {/* Hero */}
-          <div className="relative overflow-hidden">
-            {detail.art ? (
-              <img src={detail.art} alt="" className="absolute inset-0 w-full h-full object-contain bg-black/60" />
-            ) : (
-              <div className="absolute inset-0" style={{ background: "radial-gradient(600px 220px at 80% 0%, var(--theme-primary), transparent), linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.75))" }} />
+          {/* Hero — frosted continuation, borderless so it blends into the page
+              and adapts to any system-wide background image */}
+          <div className="relative overflow-hidden border-0">
+            {detail.art && (
+              <img src={detail.art} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-[var(--theme-card-bg)]" />
-            <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent" />
-            <div className="relative p-4">
-              <div className="flex items-center justify-between">
-                <button type="button" onClick={() => setSelectedStage(null)} aria-label="Back to journey" className="w-9 h-9 rounded-full bg-black/40 border border-white/15 flex items-center justify-center text-white cursor-pointer"><ArrowLeft className="w-4 h-4" /></button>
+            <div className="absolute inset-0 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] pointer-events-none" />
+            <div className="relative px-4 pb-4 pt-2">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" onClick={() => setSelectedStage(null)} aria-label="Back to journey" className="w-9 h-9 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-transform"><ArrowLeft className="w-4 h-4" /></button>
+                <p className="text-[11px] font-sans font-bold tracking-[0.22em] text-[var(--theme-text)] opacity-60">STAGE {idx + 1} OF {stages.length}</p>
               </div>
-              <div className="mt-6">
-                <p className="text-[11px] font-sans font-bold tracking-[0.22em] text-white/70">STAGE {idx + 1} OF {stages.length}</p>
-                <h1 className="font-display font-black text-[32px] leading-none tracking-tight text-white mt-1">{detail.name.toUpperCase()}</h1>
+              <div className="mt-2">
+                <h1 className="font-display font-black text-[32px] leading-none tracking-tight text-[var(--theme-text)] mt-1">{detail.name.toUpperCase()}</h1>
                 {detail.description ? (
-                  <p className="text-[13px] font-sans text-white/70 leading-snug mt-2 max-w-[300px]">{detail.description}</p>
+                  <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug mt-2 max-w-[300px]">{detail.description}</p>
                 ) : (
-                  <p className="text-[12px] font-sans text-white/65 leading-snug mt-2 max-w-[300px]">Complete these achievements{next ? ` to unlock ${next}.` : "."}</p>
+                  <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-snug mt-2 max-w-[300px]">Complete these achievements{next ? ` to unlock ${next}.` : "."}</p>
                 )}
               </div>
+              {/* Stage reward — lives in the hero now: trophy + amount pill */}
+              {(detail.tierReward > 0 || detail.claimedTier) && (
+                <div className="mt-3">
+                  {detail.claimedTier ? (
+                    <span className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)] text-[12px] font-sans font-black">
+                      <Trophy className="w-4 h-4" /> + UGX {detail.tierReward.toLocaleString()} CLAIMED
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleClaimStage(detail)}
+                      disabled={claiming}
+                      aria-label={detail.claimable ? `Claim stage reward of UGX ${detail.tierReward.toLocaleString()}` : "Stage reward locked"}
+                      className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-sans font-black transition-transform active:scale-[0.97] cursor-pointer ${detail.claimable ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-[0_3px_0_0_var(--theme-primary-shadow)]" : "bg-[var(--theme-card-bg)]/60 border border-white/10 text-[var(--theme-text)] opacity-70"}`}
+                    >
+                      <Trophy className={`w-4 h-4 ${detail.claimable ? "" : "opacity-60"}`} />
+                      {claiming ? "CLAIMING…" : `+ UGX ${detail.tierReward.toLocaleString()}`}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -196,8 +219,9 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
               {detail.tasks.map((task) => {
                 const met = Number(task.progress || 0) >= Number(task.requiredBonus || 0);
                 const p = calcVipProgress(task.progress, task.requiredBonus);
+                const locked = task.stageLocked && !met && !detail.claimedTier;
                 return (
-                  <div key={task.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 flex items-center gap-3">
+                  <div key={task.id} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] p-3.5 flex items-center gap-3">
                     <span className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
                       {task.imageUrl ? (
                         <img src={task.imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
@@ -206,48 +230,28 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                       )}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-[14px] font-sans font-bold leading-tight text-[var(--theme-text)]">{task.title}</h4>
-                      {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
-                      <div className={`mt-2 ${task.stageLocked ? "opacity-50 saturate-50" : ""}`}>
-                        <CellsProgress pct={p} />
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <h4 className="text-[14px] font-sans font-bold leading-tight text-[var(--theme-text)] truncate min-w-0 flex-1">{task.title}</h4>
+                        {locked && <Lock className="w-3.5 h-3.5 text-[var(--theme-text)] opacity-40 shrink-0" />}
+                        {(detail.claimedTier || met) && (
+                          <span className="w-5 h-5 rounded-full bg-[var(--theme-primary)] flex items-center justify-center shrink-0">
+                            <Check className="w-3 h-3 text-black" strokeWidth={3} />
+                          </span>
+                        )}
                       </div>
-                      {!met && !detail.claimedTier && task.stageLocked && (
-                        <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-50 mt-1">{fmtRange(task)}</p>
-                      )}
-                    </div>
-                    <div className="shrink-0 flex flex-col items-center gap-1">
-                      {detail.claimedTier || met ? (
-                        <><span className="w-6 h-6 rounded-full bg-[var(--theme-primary)] flex items-center justify-center"><Check className="w-3.5 h-3.5 text-black" strokeWidth={3} /></span><span className="text-[9px] font-sans font-black tracking-wider text-[var(--theme-primary)]">{detail.claimedTier ? "COMPLETED" : "DONE"}</span></>
-                      ) : task.stageLocked ? (
-                        <Lock className="w-5 h-5 text-[var(--theme-text)] opacity-35" />
-                      ) : (
-                        <span className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-60 text-center leading-tight">{fmtRange(task)}</span>
-                      )}
+                      {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className={`flex-1 min-w-0 ${locked ? "opacity-50 saturate-50" : ""}`}>
+                          <CellsProgress pct={p} />
+                        </div>
+                        <span className="shrink-0 text-[11px] font-sans font-bold tabular-nums leading-none text-[var(--theme-primary)]">
+                          {detail.claimedTier ? "COMPLETED" : met ? "DONE" : fmtRange(task)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
               })}
-            </div>
-
-            {/* Total stage reward bar */}
-            <div className="mt-4 rounded-2xl border border-[var(--theme-primary)]/25 bg-[var(--theme-primary)]/[0.06] p-4 flex items-center gap-3">
-              <Trophy className="w-6 h-6 text-[var(--theme-primary)] shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-sans font-black tracking-[0.16em] text-[var(--theme-text)] opacity-60">TOTAL STAGE REWARD</p>
-                <p className="text-[15px] font-sans font-black text-[var(--theme-primary)]">+ UGX {detail.tierReward.toLocaleString()}</p>
-              </div>
-              {detail.claimedTier ? (
-                <span className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)] text-[12px] font-sans font-black"><Check className="w-4 h-4" strokeWidth={3} /> CLAIMED</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleClaimStage(detail)}
-                  disabled={claiming || !detail.claimable}
-                  className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black cursor-pointer active:scale-[0.97] disabled:opacity-40"
-                >
-                  {claiming ? "CLAIMING…" : "CLAIM LEVEL REWARD"} {!claiming && <ChevronRight className="w-4 h-4" strokeWidth={3} />}
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -299,7 +303,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                     <button
                       type="button"
                       onClick={() => setSelectedStage(stage.name)}
-                      className={`flex-1 min-w-0 text-left rounded-2xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-all ${isCurrent ? "border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/[0.05] shadow-[0_0_24px_rgba(0,0,0,0.25)]" : "border-white/10 bg-white/[0.03]"} ${muted ? "opacity-70" : ""}`}
+                      className={`flex-1 min-w-0 text-left rounded-2xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-[transform] duration-[160ms] ease-out bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] ${isCurrent ? "border-[var(--theme-primary)]/70 shadow-[0_0_24px_rgba(0,0,0,0.18)]" : "border-white/10"} ${muted ? "opacity-70" : ""}`}
                     >
                       {stage.art ? (
                         <img src={stage.art} alt="" loading="lazy" decoding="async" className="w-14 h-[72px] rounded-xl object-contain shrink-0 bg-black/20" />

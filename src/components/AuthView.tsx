@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Gift } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Gift, Link2, Mail, Send, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
@@ -18,10 +18,8 @@ interface AuthViewProps {
 
 type AuthScreen = "welcome" | "login" | "register" | "support";
 
-// Welcome hero: admin-customizable via Custom Wallpapers (authBgImage),
-// otherwise a verified neon-city night photo (Unsplash, ZHENYU LUO).
-const DEFAULT_WELCOME_HERO =
-  "https://images.unsplash.com/photo-1749916883754-a7b3fc88d4a7?auto=format&fit=crop&w=900&q=70";
+// Welcome hero: admin-customizable via Custom Wallpapers (authBgImage).
+// Blank until siteconfig loads — no flashing fallback image.
 
 const WELCOME_SLIDES = [
   {
@@ -97,6 +95,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Fire-and-forget recovery desk: phone is the ticket key (direct_<phone>),
+  // email + message ride inside the text — no schema change.
+  const [recoveryPhone, setRecoveryPhone] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryMsg, setRecoveryMsg] = useState("");
+  const [recoverySending, setRecoverySending] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
 
   const [localSiteConfig, setLocalSiteConfig] = useState<any>(null);
 
@@ -199,7 +204,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       // matching confirmPassword, so echo it.
       const payload =
         mode === "register"
-          ? { phone, password, confirmPassword: password, inviteCode, username: username.trim() || undefined }
+          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined }
           : { phone, password };
 
       const res = await fetch(endpoint, {
@@ -245,7 +250,51 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     }
   };
 
-  const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage) || DEFAULT_WELCOME_HERO;
+  // Welcome hero comes from siteconfig only — blank until it loads, no
+  // flashing fallback image and no placeholder logo.
+  const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage || "");
+
+  // Fire-and-forget recovery: lands in the admin Support Desk as a
+  // direct_<phone> ticket. No polling here — support reaches out.
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const tel = recoveryPhone.trim();
+    const mail = recoveryEmail.trim();
+    const msg = recoveryMsg.trim();
+    if (!PHONE_PATTERN.test(tel)) {
+      toast.error("Enter the 9–10 digit phone number on your account.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+    if (msg.length < 10) {
+      toast.error("Describe the issue in a few words (min 10 characters).");
+      return;
+    }
+    setRecoverySending(true);
+    try {
+      const res = await fetch("/api/chat/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: `direct_${tel}`,
+          sender: tel,
+          senderName: "Recovery Guest",
+          text: `[recovery] Phone: ${tel} | Email: ${mail} | ${msg}`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || "Could not reach support. Try again.");
+      setRecoverySent(true);
+      toast.success("Sent to support. They'll reach out — typical response time is 15 mins.", { duration: 6000 });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Could not reach support. Try again.");
+    } finally {
+      setRecoverySending(false);
+    }
+  };
   const brandName = activeConfig?.brandName || "Loading";
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
   const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 0);
@@ -318,20 +367,18 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               </div>
 
               <div className="mt-6 flex-1 min-h-[220px] rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
-                {!heroFailed ? (
-                  <img
-                    src={heroSrc}
-                    alt="Operators at work at night"
-                    loading="eager"
-                    onError={() => setHeroFailed(true)}
-                    className="absolute inset-0 w-full h-full object-cover block"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--theme-primary)_0%,transparent_70%)] opacity-90">
-                    <BrandLogo siteConfig={activeConfig} className="w-24 h-24 flex items-center justify-center" />
-                  </div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+                {heroSrc && !heroFailed ? (
+                  <>
+                    <img
+                      src={heroSrc}
+                      alt="Operators at work at night"
+                      loading="eager"
+                      onError={() => setHeroFailed(true)}
+                      className="absolute inset-0 w-full h-full object-cover block"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+                  </>
+                ) : null}
               </div>
 
               <div className="space-y-3 mt-6">
@@ -355,11 +402,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               transition={{ duration: 0.25 }}
               className="flex-1 flex flex-col pt-10"
             >
-              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
-                Welcome
-                <br />
-                back.
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight whitespace-nowrap">
+                Welcome back.
               </h1>
+              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                Sign in to continue.
+              </p>
 
               <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
                 <AuthField
@@ -408,7 +456,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
                     {isLoading ? (
-                      <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        Processing..
+                      </>
                     ) : (
                       <>
                         Login <ArrowRight className="w-4 h-4" />
@@ -441,11 +492,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               transition={{ duration: 0.25 }}
               className="flex-1 flex flex-col pt-10"
             >
-              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
-                Create your
-                <br />
-                account.
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight whitespace-nowrap">
+                Create your account.
               </h1>
+              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                Fill in your details...
+              </p>
 
               <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
                 <AuthField
@@ -490,14 +542,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </div>
                 <div>
                   <AuthField
-                    icon={<User className="w-5 h-5" />}
+                    icon={<Link2 className="w-5 h-5" />}
                     type="text"
                     autoComplete="off"
-                    aria-label="Invite Code"
-                    placeholder="Invite Code"
+                    aria-label="Invite code"
+                    placeholder="Invite code"
                     value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                    className="uppercase font-mono tracking-wide"
+                    onChange={(e) => setInviteCode(e.target.value)}
                   />
                   {inviteBonus > 0 && (
                     <p className="mt-1.5 text-xs font-sans text-[var(--theme-primary)] font-semibold">
@@ -509,7 +560,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="flex-1" />
 
                 {regBonus > 0 && (
-                  <div className="rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5">
+                  <div className="relative overflow-hidden rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 tile-shimmer-5s">
                     <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
                       <Gift className="w-3.5 h-3.5 text-[var(--theme-primary)]" />
                       Plus UGX {regBonus.toLocaleString()} welcome bonus on sign-up.
@@ -520,7 +571,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
                     {isLoading ? (
-                      <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        Processing..
+                      </>
                     ) : (
                       <>
                         Register <ArrowRight className="w-4 h-4" />
@@ -558,10 +612,77 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 hand?
               </h1>
               <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                Talk to a live agent to recover your account.
+                Send a note to the support desk to recover your account.
               </p>
 
-              <div className="mt-8 space-y-3.5">
+              {/* Primary: fire-and-forget recovery form */}
+              {recoverySent ? (
+                <div className="mt-8 rounded-2xl border border-[var(--theme-primary)]/30 bg-[var(--theme-primary)]/10 px-5 py-6 text-center">
+                  <CheckCircle2 className="w-10 h-10 mx-auto text-[var(--theme-primary)]" />
+                  <p className="mt-3 font-display font-black text-lg tracking-tight">Message sent.</p>
+                  <p className="mt-2 text-[14px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                    Support will reach out on your email or phone. Typical response time is 15 mins. Keep them handy.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setRecoverySent(false); setRecoveryMsg(""); }}
+                    className="mt-4 text-[13px] font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer"
+                  >
+                    Send another message
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleRecoverySubmit} className="mt-8 space-y-3.5">
+                  <AuthField
+                    icon={<Phone className="w-5 h-5" />}
+                    type="tel"
+                    required
+                    autoComplete="tel"
+                    aria-label="Account phone number"
+                    placeholder="Account phone number"
+                    value={recoveryPhone}
+                    onChange={(e) => setRecoveryPhone(e.target.value)}
+                  />
+                  <AuthField
+                    icon={<Mail className="w-5 h-5" />}
+                    type="email"
+                    required
+                    autoComplete="email"
+                    aria-label="Email address"
+                    placeholder="Email address"
+                    value={recoveryEmail}
+                    onChange={(e) => setRecoveryEmail(e.target.value)}
+                  />
+                  <textarea
+                    required
+                    aria-label="Describe the issue"
+                    placeholder="Describe the issue e.g. locked out after number change"
+                    value={recoveryMsg}
+                    onChange={(e) => setRecoveryMsg(e.target.value)}
+                    rows={4}
+                    maxLength={1000}
+                    className="w-full px-4 py-4 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text resize-none"
+                  />
+                  <PrimaryButton type="submit" disabled={recoverySending}>
+                    {recoverySending ? (
+                      <>
+                        <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        Sending..
+                      </>
+                    ) : (
+                      <>
+                        Send message <Send className="w-4 h-4" />
+                      </>
+                    )}
+                  </PrimaryButton>
+                </form>
+              )}
+
+              {/* Secondary: external channels */}
+              <p className="mt-8 mb-2 text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+                Or try a channel
+              </p>
+              <div className="space-y-3 opacity-80">
                 <a
                   href={activeConfig?.whatsappLink || "https://t.me/#"}
                   target="_blank"

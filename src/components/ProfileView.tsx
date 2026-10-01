@@ -61,6 +61,7 @@ interface ProfileViewProps {
   onProfileUpdate: (newProfile: UserProfile) => void;
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw?: () => void;
+  onNavigateToTeamRevenue?: () => void;
   onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks", chatRoom?: "shared" | "admin") => void;
   onLogout: () => void;
   autoOpenWithdraw?: boolean;
@@ -75,6 +76,7 @@ export default function ProfileView({
   onProfileUpdate,
   onNavigateToDeposit,
   onNavigateToWithdraw,
+  onNavigateToTeamRevenue,
   onNavigate,
   onLogout,
   autoOpenWithdraw,
@@ -390,6 +392,16 @@ export default function ProfileView({
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Transaction history</span>
                 <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Transactions & activity</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => (onNavigateToTeamRevenue ? onNavigateToTeamRevenue() : onNavigate("referral"))} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-500 shrink-0">
+                <Users className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Team revenue</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Level tables & earnings</span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>

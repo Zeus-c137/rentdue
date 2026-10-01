@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Flame } from "lucide-react";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "motion/react";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
@@ -29,6 +30,16 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [activeTip, setActiveTip] = useState<{ key: string; kind: "claimed" | "next" } | null>(null);
+  const tipTimer = useRef<number | null>(null);
+  const showTip = (tip: { key: string; kind: "claimed" | "next" } | null) => {
+    if (tipTimer.current) window.clearTimeout(tipTimer.current);
+    setActiveTip(tip);
+    if (tip) {
+      tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
+    }
+  };
+  useEffect(() => () => { if (tipTimer.current) window.clearTimeout(tipTimer.current); }, []);
   useEffect(() => {
     const timer = setInterval(() => { if (!document.hidden) setNowMs(Date.now()); }, 1000);
     return () => clearInterval(timer);
@@ -165,7 +176,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
             </button>
           )}
           <Flame className="w-8 h-8 text-[var(--theme-primary)] shrink-0" fill="currentColor" />
-          <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">Streaks</h1>
+          <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">Daily check-in</h1>
         </div>
 
         {/* Accrued — days then amount, follows the viewed month */}
@@ -195,11 +206,37 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
           <button type="button" onClick={() => step(1)} disabled={atMax} aria-label="Next month" className="w-9 h-9 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center cursor-pointer disabled:opacity-30 active:scale-95 transition-all"><ChevronRight className="w-4 h-4" /></button>
         </div>
 
-        {/* Home-style day tiles */}
-        <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-3">
+        {/* Home-style day tiles — frosted, bigger coins/dates to match Home */}
+        <div className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-3">
+          <AnimatePresence>
+            {activeTip && (
+              <motion.div
+                key={activeTip.key + activeTip.kind}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
+                className="absolute left-3 right-3 top-2 z-30 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/80 backdrop-blur-[20px] backdrop-saturate-[180%] px-3 py-2 shadow-lg flex items-center justify-between gap-2"
+              >
+                <span className="text-[12px] font-sans font-bold text-[var(--theme-text)] leading-tight">
+                  {activeTip.kind === "claimed"
+                    ? `Day ${activeTip.key.slice(8)} • Already checked-in`
+                    : `Day ${activeTip.key.slice(8)} • Come back in ${formatClock(nextIn)}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => showTip(null)}
+                  aria-label="Dismiss"
+                  className="shrink-0 w-6 h-6 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 active:scale-95 cursor-pointer"
+                >
+                  ×
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <span key={i} className="text-[10px] font-sans font-black opacity-40 py-1">{d}</span>
+              <span key={i} className="text-[12px] font-sans font-black opacity-50 py-1">{d}</span>
             ))}
             {cells.map((day, i) => {
               if (day === null) return <span key={`blank-${i}`} />;
@@ -219,15 +256,15 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    className={`w-6 h-6 object-contain ${dimmed ? "grayscale" : ""}`}
+                    className={`w-10 h-10 object-contain ${dimmed ? "grayscale" : ""}`}
                   />
                   {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
-                  <span className={`text-[8px] font-sans font-black uppercase tracking-wide ${claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"}`}>
+                  <span className={`text-[11px] font-sans font-black uppercase tracking-wide ${claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"}`}>
                     {day}
                   </span>
                 </>
               );
-              const cls = `relative rounded-xl w-full aspect-[4/5] flex flex-col items-center justify-center gap-0.5 ${
+              const cls = `relative rounded-xl w-full min-h-[78px] py-2 flex flex-col items-center justify-center gap-1 ${
                 claimed
                   ? ""
                   : active
@@ -238,30 +275,76 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                         ? "opacity-40"
                         : ""
               }`;
-              return active ? (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={(e) => void handleCheckin(e)}
-                  disabled={claimBusy}
-                  aria-label="Check in today"
-                  className={`${cls} cursor-pointer active:scale-95 transition-transform`}
-                >
-                  {claimBusy ? <span className="text-[10px] font-black text-[var(--theme-primary)]">…</span> : inner}
-                </button>
-              ) : (
+              if (active) {
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={(e) => {
+                      showTip(null);
+                      void handleCheckin(e);
+                    }}
+                    disabled={claimBusy}
+                    aria-label="Check in today"
+                    className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+                  >
+                    {claimBusy ? <span className="text-[10px] font-black text-[var(--theme-primary)]">…</span> : inner}
+                  </button>
+                );
+              }
+              if (claimed) {
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() =>
+                      setActiveTip((prev) => {
+                        const next = prev?.key === key ? null : { key, kind: "claimed" as const };
+                        if (tipTimer.current) window.clearTimeout(tipTimer.current);
+                        if (next) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
+                        return next;
+                      })
+                    }
+                    aria-label={`Claimed day ${day}`}
+                    className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+                  >
+                    {inner}
+                  </button>
+                );
+              }
+              if (isNext) {
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() =>
+                      setActiveTip((prev) => {
+                        const next = prev?.key === key ? null : { key, kind: "next" as const };
+                        if (tipTimer.current) window.clearTimeout(tipTimer.current);
+                        if (next) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
+                        return next;
+                      })
+                    }
+                    aria-label="Next check-in"
+                    className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+                  >
+                    {inner}
+                  </button>
+                );
+              }
+              return (
                 <div key={key} className={cls}>
                   {inner}
                 </div>
               );
             })}
           </div>
-          <div className="flex items-center gap-4 mt-3 text-[11px] font-sans font-bold opacity-70">
+          <div className="flex items-center gap-4 mt-3 text-[12px] font-sans font-medium opacity-70">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--theme-primary)] shadow-[0_0_6px_var(--theme-primary)]" />Claimed</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />Missed</span>
           </div>
           {checkedInToday && (
-            <p className="mt-2 text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
+            <p className="mt-3 text-center text-[15px] font-sans font-medium tabular-nums text-[var(--theme-primary)]">
               Come back in {formatClock(nextIn)}
             </p>
           )}

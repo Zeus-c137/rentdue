@@ -190,6 +190,7 @@ export default function App() {
   }, [isAdminRoute]);
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
+  const [referralView, setReferralView] = useState<"overview" | "team">("overview");
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [siteConfig, setSiteConfig] = useState<any>(null);
   // Synchronous boot seed: theme + logo from the last successful load so the
@@ -597,10 +598,10 @@ export default function App() {
               onClick={handleCloseWelcomeModal}
             />
             <motion.div
-              initial={{ scale: 0.9, y: 15, opacity: 0 }}
+              initial={{ scale: 0.95, y: 8, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, y: 15, opacity: 0 }}
-              transition={{ type: "spring", damping: 20, stiffness: 225 }}
+              exit={{ scale: 0.95, y: 8, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0.2 }}
               className="relative w-full max-w-sm bg-white dark:bg-[#1a1a1a] border border-black/10 dark:border-white/10 text-[var(--theme-text)] rounded-[var(--theme-radius)] p-6 pt-7 text-center space-y-4 shadow-2xl z-[210] overflow-hidden font-[var(--theme-font-family)]"
             >
               <div className="absolute top-0 inset-x-0 h-36 bg-gradient-to-b from-[var(--theme-primary)]/20 to-transparent pointer-events-none" />
@@ -824,7 +825,7 @@ export default function App() {
                 transition={{ duration: 0.12 }}
                 className="w-full flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-1.5 sm:px-2 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
-                <ReferralView userProfile={userProfile} siteConfig={siteConfig} onBack={() => setActiveTab("profile")} />
+                <ReferralView userProfile={userProfile} siteConfig={siteConfig} initialView={referralView} onBack={() => setActiveTab("profile")} />
               </motion.div>
             )}
 
@@ -916,11 +917,15 @@ export default function App() {
                   onProfileUpdate={handleProfileChange}
                   onNavigateToDeposit={() => setActiveTab("deposit")}
                   onNavigateToWithdraw={() => setActiveTab("withdraw")}
+                  onNavigateToTeamRevenue={() => { setReferralView("team"); setActiveTab("referral"); }}
                   autoOpenWithdraw={autoOpenWithdraw}
                   onCloseAutoWithdraw={() => setAutoOpenWithdraw(false)}
                   onNavigate={(tab, room) => {
                     if (tab === "streaks") {
                       setStreaksReturn("profile");
+                    }
+                    if (tab === "referral") {
+                      setReferralView("overview");
                     }
                     if (room) {
                       setChatRoomDefault(room);
