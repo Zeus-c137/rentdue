@@ -23,7 +23,6 @@ import {
   getRunState,
   formatClock,
   getTodayKey,
-  getPlatformDayKey,
   getPlatformDayParts,
   getPlatformYesterdayKey,
   msUntilPlatformMidnight,
@@ -161,16 +160,6 @@ export default function DashboardView({
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
   const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
-  const [claimedDays, setClaimedDays] = useState<Set<string> | null>(null);
-  const [claimedLedger, setClaimedLedger] = useState<Record<string, number>>({});
-  const [activeTip, setActiveTip] = useState<{ key: string; kind: "claimed" | "next" } | null>(null);
-  const tipTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (tipTimer.current) window.clearTimeout(tipTimer.current); }, []);
-  const showTip = (tip: { key: string; kind: "claimed" | "next" } | null) => {
-    if (tipTimer.current) window.clearTimeout(tipTimer.current);
-    setActiveTip(tip);
-    if (tip) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
-  };
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();
@@ -248,27 +237,6 @@ export default function DashboardView({
       .catch(() => {});
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.phone]);
-
-  // Check-in ledger per platform day — powers claimed-day tooltips on Home.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
-      .then((rows) => {
-        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
-        const ledger: Record<string, number> = {};
-        for (const tx of rows) {
-          if (String(tx.type || "").toLowerCase() !== "daily_checkin_bonus") continue;
-          if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
-          const ts = new Date((tx as TransactionRow).timestamp).getTime();
-          if (!Number.isFinite(ts)) continue;
-          const key = getPlatformDayKey(new Date(ts));
-          ledger[key] = (ledger[key] || 0) + (Number(tx.amount) || 0);
-        }
-        setClaimedLedger(ledger);
-      })
-      .catch(() => {});
-    return () => ctrl.abort();
   }, [profile.phone]);
 
   const activeRuns = useMemo(() => {
@@ -479,7 +447,7 @@ export default function DashboardView({
             <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
             <div className="mt-1 min-h-[20px]">
               {checkedInToday ? (
-                <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
+                <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-primary)]">
                   {formatClock(nextCheckinIn)}
                 </span>
               ) : checkinEcon === null ? (
@@ -503,33 +471,6 @@ export default function DashboardView({
             </button>
           </div>
         </div>
-        {/* Frosted day tooltip — claimed amount or next-day countdown */}
-        <AnimatePresence>
-          {activeTip && (
-            <motion.div
-              key={activeTip.key + activeTip.kind}
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-              className="absolute left-4 right-4 top-2 z-30 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/80 backdrop-blur-[20px] backdrop-saturate-[180%] px-3 py-2 shadow-lg flex items-center justify-between gap-2"
-            >
-              <span className="text-[12px] font-sans font-bold text-[var(--theme-text)] leading-tight">
-                {activeTip.kind === "claimed"
-                  ? `Day ${activeTip.key.slice(8)} • Already checked-in`
-                  : `Day ${activeTip.key.slice(8)} • Come back in ${formatClock(nextCheckinIn)}`}
-              </span>
-              <button
-                type="button"
-                onClick={() => showTip(null)}
-                aria-label="Dismiss"
-                className="shrink-0 w-6 h-6 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 active:scale-95 cursor-pointer"
-              >
-                ×
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
         <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
             const isNext = (d as { isNext?: boolean }).isNext === true;
@@ -571,7 +512,6 @@ export default function DashboardView({
                 key={d.key}
                 type="button"
                 onClick={(e) => {
-                  showTip(null);
                   void handleCheckin("tile", e);
                 }}
                 disabled={checkinBusy}
@@ -585,11 +525,9 @@ export default function DashboardView({
               <button
                 key={d.key}
                 type="button"
-                onClick={() =>
-                  showTip(
-                    activeTip?.key === d.key ? null : { key: d.key, kind: "claimed" }
-                  )
-                }
+                onClick={() => {
+                  toast.info(`Day ${d.label} • Already checked-in`);
+                }}
                 aria-label={`Claimed day ${d.label}`}
                 className={`${cls} cursor-pointer active:scale-95 transition-transform`}
               >
@@ -599,9 +537,9 @@ export default function DashboardView({
               <button
                 key={d.key}
                 type="button"
-                onClick={() =>
-                  showTip(activeTip?.key === d.key ? null : { key: d.key, kind: "next" })
-                }
+                onClick={() => {
+                  toast.info(`Day ${d.label} • Come back in ${formatClock(nextCheckinIn)}`);
+                }}
                 aria-label="Next check-in"
                 data-next="true"
                 className={`${cls} cursor-pointer active:scale-95 transition-transform`}

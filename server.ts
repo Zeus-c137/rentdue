@@ -2017,8 +2017,8 @@ app.get("/api/manifest.json", async (req, res) => {
     const config = await getSiteConfig();
     const manifest = {
       id: "/",
-      name: config.brandName || "Canan AI",
-      short_name: config.manifestShortName || config.brandName || "Canan AI",
+      name: config.brandName || "RentDue Store",
+      short_name: config.manifestShortName || config.brandName || "RentDue Store",
       description: config.manifestDescription || "Uganda High-Yield AI GPU Mining Network",
       start_url: "/",
       display: "standalone",
@@ -2066,8 +2066,8 @@ app.get("/api/manifest.json", async (req, res) => {
     console.error("[PWA] Manifest configuration lookup failed:", err);
     res.json({
       id: "/",
-      name: "Canan AI",
-      short_name: "Canan AI",
+      name: "RentDue Store",
+      short_name: "RentDue Store",
       description: "Uganda High-Yield AI GPU Mining Network",
       start_url: "/",
       display: "standalone",
@@ -2548,17 +2548,26 @@ async function startServer() {
         let html = await fs.promises.readFile(indexPath, "utf8");
         // Dynamic brand injection so the app shell title matches Site Config.
         // Failure falls back to the static file — never break the app for SEO.
-        // TODO(SEO placeholder): placeholder title format until final copy lands.
+        // Link-preview scrapers (WhatsApp/Telegram/X/Facebook) don't run JS,
+        // so the brand, absolute share URL and absolute share image must be
+        // baked into the served HTML here — client-side document.title updates
+        // happen too late for them.
+        // TODO(SEO placeholder): placeholder description until final copy lands.
         try {
           const config = await getSiteConfig().catch(() => ({} as any));
-          const brand = String((config as any)?.brandName || "").trim();
-          if (brand && brand !== "RENTDUE") {
-            html = html
-              .replace(/<title>.*?<\/title>/, `<title>${escapeSeoHtml(brand)}</title>`)
-              .replace(/<meta property="og:site_name" content=".*?"/, `<meta property="og:site_name" content="${escapeSeoHtml(brand)}"`);
-          }
+          const brand = String((config as any)?.brandName || "").trim() || "RentDue Store";
           const base = getPublicBaseUrl(req);
-          html = html.replace('<link rel="canonical" href="/" />', `<link rel="canonical" href="${escapeSeoHtml(base + "/")}" />`);
+          const escBrand = escapeSeoHtml(brand);
+          const escBase = escapeSeoHtml(base);
+          html = html
+            .replace(/<title>.*?<\/title>/, `<title>${escBrand}</title>`)
+            .replace(/<meta property="og:site_name" content=".*?"/, `<meta property="og:site_name" content="${escBrand}"`)
+            .replace(/<meta property="og:title" content=".*?"/, `<meta property="og:title" content="${escBrand}"`)
+            .replace(/<meta name="twitter:title" content=".*?"/, `<meta name="twitter:title" content="${escBrand}"`)
+            .replace(/<meta property="og:url" content=".*?"/, `<meta property="og:url" content="${escBase}/"`)
+            .replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${escBase}/icon-512.png"`)
+            .replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${escBase}/icon-512.png"`);
+          html = html.replace('<link rel="canonical" href="/" />', `<link rel="canonical" href="${escBase}/" />`);
           if (req.path.startsWith("/admin")) {
             html = html.replace('<meta name="robots" content="index, follow, max-image-preview:large" />', '<meta name="robots" content="noindex, nofollow, noarchive" />');
           }
