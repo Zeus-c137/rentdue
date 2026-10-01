@@ -22,6 +22,7 @@ type Props = {
   userProfile: UserProfile;
   siteConfig?: SiteConfig | null;
   onBack?: () => void;
+  initialView?: View;
 };
 
 type View = "overview" | "team";
@@ -67,7 +68,10 @@ function InviteHero({ inviteCode, inviteLink, copiedLink, onCopyLink, copiedCode
           onClick={onCopyCode}
           className="w-full flex items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--theme-primary)]/40 bg-[var(--theme-card-bg)]/70 px-4 py-3 cursor-pointer hover:border-[var(--theme-primary)] transition-colors group"
         >
-          <span className="min-w-0 text-left">
+          <span className="shrink-0 w-9 h-9 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center text-[var(--theme-primary)]">
+            <Link2 className="w-4 h-4" />
+          </span>
+          <span className="min-w-0 text-left flex-1">
             <span className="block text-[10px] font-black uppercase tracking-[0.14em] opacity-50">Your invite code</span>
             <span className="block font-mono font-black text-xl tracking-[0.2em] truncate">{inviteCode || "N/A"}</span>
           </span>
@@ -249,11 +253,12 @@ function useReferralFetch(phone: string, initialConfig?: SiteConfig | null) {
   return { stats, isLoading, loadError, liveSiteConfig };
 }
 
-export default function ReferralView({ userProfile, siteConfig, onBack }: Props) {
+export default function ReferralView({ userProfile, siteConfig, onBack, initialView = "overview" }: Props) {
   const { stats, isLoading, loadError, liveSiteConfig } = useReferralFetch(userProfile.phone, siteConfig ?? null);
   const { copied: copiedLink, copy: copyLink } = useClipboard();
   const { copied: copiedCode, copy: copyCode } = useClipboard();
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>(initialView);
+  useEffect(() => { setView(initialView); }, [initialView]);
   const [activeLevel, setActiveLevel] = useState<1 | 2 | 3 | 4>(1);
   const inviteCode = userProfile.inviteCode || "";
   const inviteLink = buildInviteLink(inviteCode);

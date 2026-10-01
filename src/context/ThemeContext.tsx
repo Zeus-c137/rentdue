@@ -183,7 +183,7 @@ export const ThemeProvider: React.FC<{
     }
     root.style.setProperty("--theme-font-family", `'${fontFamily}', 'Outfit', sans-serif`);
 
-    const fontScaleMap = { sm: "14px", md: "16px", lg: "18px", xl: "20px" };
+    const fontScaleMap = { sm: "15px", md: "17px", lg: "19px", xl: "21px" };
     root.style.setProperty("--theme-font-base", fontScaleMap[fontSizeScale as keyof typeof fontScaleMap] || "16px");
 
     if (textColor) {

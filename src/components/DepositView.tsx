@@ -307,56 +307,59 @@ export default function DepositView({
   );
 
   return (
-    <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] space-y-4 select-none p-4 min-h-[100dvh]">
-      {/* Top bar — back */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onBack}
-          aria-label="Go back"
-          className="w-10 h-10 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/40 active:scale-95 transition-all cursor-pointer"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Title — below back */}
-      <div className="px-1">
-        <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)]">Recharge account</h1>
-        <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-2">Top up instantly with mobile money or USDT.</p>
-      </div>
-
-      {/* Selected product strip — theme-aware */}
-      {payType === "gpu" && selectedGpu && (
-        <div className="flex items-center gap-3 p-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-sm">
-          <div className="w-12 h-12 rounded-xl overflow-hidden border border-[var(--theme-card-border)] bg-[var(--theme-bg)] shrink-0">
-            {selectedGpu.imageUrl ? (
-              <img src={selectedGpu.imageUrl} alt={selectedGpu.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-[var(--theme-primary)] opacity-60">
-                <Cpu className="w-6 h-6" />
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-sans font-medium opacity-60 leading-none">Paying for</p>
-            <p className="text-[15px] font-sans font-extrabold leading-tight truncate mt-1">{selectedGpu.name}</p>
-            <p className="text-[11px] font-bold text-[var(--theme-primary)] leading-none mt-1">
-              Earns {formatCurrency(selectedGpu.dailyYield)}/day • {selectedGpu.duration} days
-            </p>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-[12px] font-sans font-medium opacity-60">Price</p>
-            <p className="text-sm font-black text-[var(--theme-primary)]">{formatCurrency(selectedGpu.amount)}</p>
-          </div>
+    <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] space-y-4 select-none p-4 pt-0 min-h-[100dvh]">
+      {/* Sticky top — back + title + product + balance stay, method tabs scroll below */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 pt-4 pb-3 bg-[var(--theme-bg)]/85 backdrop-blur-[20px] space-y-4">
+        {/* Top bar — back */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            aria-label="Go back"
+            className="w-10 h-10 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/40 active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
         </div>
-      )}
 
-      {/* Visa balance card — rechargeable only */}
-      <VisaMetricCard
-        mode="single"
-        leftLabel="Recharge balance"
-        leftValue={formatCurrency(userProfile.rechargeBalance || 0)}
-      />
+        {/* Title — below back */}
+        <div className="px-1">
+          <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)]">Recharge account</h1>
+          <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-2">Top up instantly with mobile money or USDT.</p>
+        </div>
+
+        {/* Selected product strip — theme-aware */}
+        {payType === "gpu" && selectedGpu && (
+          <div className="flex items-center gap-3 p-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-sm">
+            <div className="w-12 h-12 rounded-xl overflow-hidden border border-[var(--theme-card-border)] bg-[var(--theme-bg)] shrink-0">
+              {selectedGpu.imageUrl ? (
+                <img src={selectedGpu.imageUrl} alt={selectedGpu.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[var(--theme-primary)] opacity-60">
+                  <Cpu className="w-6 h-6" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-sans font-medium opacity-60 leading-none">Paying for</p>
+              <p className="text-[15px] font-sans font-extrabold leading-tight truncate mt-1">{selectedGpu.name}</p>
+              <p className="text-[11px] font-bold text-[var(--theme-primary)] leading-none mt-1">
+                Earns {formatCurrency(selectedGpu.dailyYield)}/day • {selectedGpu.duration} days
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-[12px] font-sans font-medium opacity-60">Price</p>
+              <p className="text-sm font-black text-[var(--theme-primary)]">{formatCurrency(selectedGpu.amount)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Visa balance card — rechargeable only */}
+        <VisaMetricCard
+          mode="single"
+          leftLabel="Recharge balance"
+          leftValue={formatCurrency(userProfile.rechargeBalance || 0)}
+        />
+      </div>
 
       {paymentStatus === "IDLE" ? (
         <div className="rounded-[var(--theme-radius)] overflow-hidden">

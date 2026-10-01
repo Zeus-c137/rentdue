@@ -6,23 +6,23 @@
   --font-display: var(--theme-font-family), "Sora", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --text-xs: 0.8625rem;
-  --text-xs--line-height: 1.125rem;
-  --text-sm: 0.9875rem;
-  --text-sm--line-height: 1.375rem;
-  --text-base: 1.1625rem;
-  --text-base--line-height: 1.625rem;
-  --text-lg: 1.4875rem;
-  --text-lg--line-height: 1.875rem;
-  --text-xl: 1.675rem;
-  --text-xl--line-height: 2rem;
+  --text-xs: 0.9375rem;
+  --text-xs--line-height: 1.2rem;
+  --text-sm: 1.0625rem;
+  --text-sm--line-height: 1.45rem;
+  --text-base: 1.25rem;
+  --text-base--line-height: 1.7rem;
+  --text-lg: 1.5625rem;
+  --text-lg--line-height: 1.95rem;
+  --text-xl: 1.75rem;
+  --text-xl--line-height: 2.1rem;
 }
 
 /* Dynamic Theme CSS Variables Defaults — operator light */
 :root {
   color-scheme: light dark;
   --theme-font-family: 'Sora', 'Outfit', sans-serif;
-  --theme-font-base: 16px;
+  --theme-font-base: 17px;
   --theme-primary: #65A30D;
   --theme-primary-shadow: #3F6212;
   --theme-accent: #4D7C0F;
@@ -564,6 +564,29 @@ input:-webkit-autofill::first-line { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tile-shimmer::after { animation: none; display: none; }
+}
+
+/* Gated tile sheen — one sweep every 5s (2.2s sweep, then idle).
+   Same look as .tile-shimmer, for surfaces that shouldn't shimmer forever. */
+.tile-shimmer-5s {
+  position: relative;
+  overflow: hidden;
+}
+.tile-shimmer-5s::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  animation: tile-shimmer-5s-x 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tile-shimmer-5s-x {
+  0% { transform: translateX(-100%); }
+  44% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-shimmer-5s::after { animation: none; display: none; }
 }
 
 /* AI thinking shimmer — gradient sweep across text (apple-design: calm, non-vestibular feedback) */

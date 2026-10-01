@@ -23,6 +23,7 @@ import {
   getRunState,
   formatClock,
   getTodayKey,
+  getPlatformDayKey,
   getPlatformDayParts,
   getPlatformYesterdayKey,
   msUntilPlatformMidnight,
@@ -161,6 +162,15 @@ export default function DashboardView({
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
   const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
   const [claimedDays, setClaimedDays] = useState<Set<string> | null>(null);
+  const [claimedLedger, setClaimedLedger] = useState<Record<string, number>>({});
+  const [activeTip, setActiveTip] = useState<{ key: string; kind: "claimed" | "next" } | null>(null);
+  const tipTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (tipTimer.current) window.clearTimeout(tipTimer.current); }, []);
+  const showTip = (tip: { key: string; kind: "claimed" | "next" } | null) => {
+    if (tipTimer.current) window.clearTimeout(tipTimer.current);
+    setActiveTip(tip);
+    if (tip) tipTimer.current = window.setTimeout(() => setActiveTip(null), 4000);
+  };
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();
@@ -238,6 +248,27 @@ export default function DashboardView({
       .catch(() => {});
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.phone]);
+
+  // Check-in ledger per platform day — powers claimed-day tooltips on Home.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
+      .then((rows) => {
+        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
+        const ledger: Record<string, number> = {};
+        for (const tx of rows) {
+          if (String(tx.type || "").toLowerCase() !== "daily_checkin_bonus") continue;
+          if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
+          const ts = new Date((tx as TransactionRow).timestamp).getTime();
+          if (!Number.isFinite(ts)) continue;
+          const key = getPlatformDayKey(new Date(ts));
+          ledger[key] = (ledger[key] || 0) + (Number(tx.amount) || 0);
+        }
+        setClaimedLedger(ledger);
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
   }, [profile.phone]);
 
   const activeRuns = useMemo(() => {
@@ -409,7 +440,7 @@ export default function DashboardView({
                 initial={{ x: 0, y: 0, scale: 0.7, opacity: 1 }}
                 animate={{ x: coin.dx, y: coin.dy, scale: 0.25, opacity: 0 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.85, delay: coin.delay, ease: "easeIn" }}
+                transition={{ duration: 0.6, delay: coin.delay, ease: "easeOut" }}
                 className="absolute w-9 h-9 object-contain"
                 style={{ left: coin.startX - 18, top: coin.startY - 18 }}
               />
@@ -441,37 +472,64 @@ export default function DashboardView({
         )}
       </section>
 
-      {/* Daily streak — mini 7-day run, Mon–Sun */}
-      <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
-        <div className="flex items-center justify-between mb-3">
+      {/* Daily streak — frosted to match Store/Runs */}
+      <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
+        <div className="flex items-start justify-between gap-2 mb-3">
           <div className="min-w-0">
             <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
-            <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">
-              {weekTiles.month}
-            </p>
+            <div className="mt-1 min-h-[20px]">
+              {checkedInToday ? (
+                <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
+                  {formatClock(nextCheckinIn)}
+                </span>
+              ) : checkinEcon === null ? (
+                <span aria-hidden className="block h-[20px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
+              ) : (
+                <span className="text-[13px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
+                  {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="shrink-0 flex items-center gap-1">
+          <div className="shrink-0 flex items-center">
             <button
               type="button"
               onClick={onNavigateToStreaks}
               aria-label="Open streaks"
-              className="text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-all shrink-0 p-1"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform shrink-0"
             >
               <CalendarDays className="w-5 h-5" />
+              <span className="text-[13px] font-sans font-bold leading-none">{weekTiles.month}</span>
             </button>
-            {checkedInToday ? (
-              <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-text)]">
-                {formatClock(nextCheckinIn)}
-              </span>
-            ) : checkinEcon === null ? (
-              <span aria-hidden className="block h-[38px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
-            ) : (
-              <span className="text-[13px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
-                {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
-              </span>
-            )}
           </div>
         </div>
+        {/* Frosted day tooltip — claimed amount or next-day countdown */}
+        <AnimatePresence>
+          {activeTip && (
+            <motion.div
+              key={activeTip.key + activeTip.kind}
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              className="absolute left-4 right-4 top-2 z-30 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/80 backdrop-blur-[20px] backdrop-saturate-[180%] px-3 py-2 shadow-lg flex items-center justify-between gap-2"
+            >
+              <span className="text-[12px] font-sans font-bold text-[var(--theme-text)] leading-tight">
+                {activeTip.kind === "claimed"
+                  ? `Day ${activeTip.key.slice(8)} • Already checked-in`
+                  : `Day ${activeTip.key.slice(8)} • Come back in ${formatClock(nextCheckinIn)}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => showTip(null)}
+                aria-label="Dismiss"
+                className="shrink-0 w-6 h-6 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 active:scale-95 cursor-pointer"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
             const isNext = (d as { isNext?: boolean }).isNext === true;
@@ -485,11 +543,11 @@ export default function DashboardView({
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  className={`w-7 h-7 object-contain ${dimmed ? "grayscale" : ""}`}
+                  className={`w-8 h-8 object-contain ${dimmed ? "grayscale" : ""}`}
                 />
                 {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
                 <span
-                  className={`text-[8px] font-sans font-black uppercase tracking-wide ${
+                  className={`text-[9px] font-sans font-black uppercase tracking-wide ${
                     d.claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
                   }`}
                 >
@@ -512,7 +570,10 @@ export default function DashboardView({
               <button
                 key={d.key}
                 type="button"
-                onClick={(e) => void handleCheckin("tile", e)}
+                onClick={(e) => {
+                  showTip(null);
+                  void handleCheckin("tile", e);
+                }}
                 disabled={checkinBusy}
                 aria-label="Check in today"
                 data-today="true"
@@ -520,8 +581,35 @@ export default function DashboardView({
               >
                 {inner}
               </button>
+            ) : d.claimed ? (
+              <button
+                key={d.key}
+                type="button"
+                onClick={() =>
+                  showTip(
+                    activeTip?.key === d.key ? null : { key: d.key, kind: "claimed" }
+                  )
+                }
+                aria-label={`Claimed day ${d.label}`}
+                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+              >
+                {inner}
+              </button>
+            ) : isNext ? (
+              <button
+                key={d.key}
+                type="button"
+                onClick={() =>
+                  showTip(activeTip?.key === d.key ? null : { key: d.key, kind: "next" })
+                }
+                aria-label="Next check-in"
+                data-next="true"
+                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
+              >
+                {inner}
+              </button>
             ) : (
-              <div key={d.key} data-today={d.isToday || undefined} data-next={isNext || undefined} title={isNext ? "Next check-in" : undefined} className={cls}>
+              <div key={d.key} data-today={d.isToday || undefined} data-next={isNext || undefined} className={cls}>
                 {inner}
               </div>
             );
@@ -529,17 +617,17 @@ export default function DashboardView({
         </div>
       </section>
 
-      {/* Next milestone — flat header, card body. Body taps route to the stage. */}
+      {/* Next milestone — title + body live inside one frosted card */}
       {!nextMilestone && msBoard === null && (
-        <section aria-hidden="true" className="animate-pulse">
-          <div className="flex items-start justify-between mb-3 px-1">
+        <section aria-hidden="true" className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4 animate-pulse">
+          <div className="flex items-start justify-between gap-2">
             <div>
               <div className="h-[18px] w-32 rounded-md bg-[var(--theme-text)]/10" />
               <div className="mt-1.5 h-[14px] w-52 max-w-full rounded-md bg-[var(--theme-text)]/10" />
             </div>
             <div className="mt-0.5 h-4 w-16 rounded-md bg-[var(--theme-text)]/10 shrink-0" />
           </div>
-          <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4">
+          <div className="mt-3 rounded-2xl border border-white/10 p-3">
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
               <div className="min-w-0 flex-1">
@@ -558,22 +646,22 @@ export default function DashboardView({
         </section>
       )}
       {nextMilestone && (
-        <section>
-          <div className="flex items-start justify-between mb-3 px-1">
-            <div>
+        <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
               <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
               <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
             </div>
             <button
               type="button"
               onClick={() => onNavigateToMilestones()}
-              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer"
+              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer active:scale-95 transition-transform"
             >
               View all <ChevronRight className="w-4 h-4" />
             </button>
           </div>
           {nextMilestone.done ? (
-            <p className="px-1 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+            <p className="mt-3 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
           ) : (() => {
             const task = nextMilestone.task;
             const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
@@ -588,7 +676,7 @@ export default function DashboardView({
                 type="button"
                 onClick={() => onNavigateToMilestones(task.category)}
                 aria-label={`View milestone: ${task.title}`}
-                className="w-full text-left rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-4 transition-all active:scale-[0.99] cursor-pointer"
+                className="mt-3 w-full text-left rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-3 transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
@@ -627,7 +715,7 @@ export default function DashboardView({
 
       {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
       {!listsReady ? (
-        <section aria-hidden="true" className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4 animate-pulse">
+        <section aria-hidden="true" className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
           <div className="flex items-center justify-between py-2.5">
             <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
             <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
@@ -656,7 +744,7 @@ export default function DashboardView({
         </section>
       ) : activeNodes.length === 0 ? (
         /* Empty state — the loop entry, kept with its runs card */
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-5 text-center">
+        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
           <p className="font-display font-black text-lg">No active runs.</p>
           <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
           <button
@@ -669,7 +757,7 @@ export default function DashboardView({
         </section>
       ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
         /* Runs — one card, two rows, overflow as a count */
-        <section className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] px-4 pb-2 pt-4">
+        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
             <h2 className="font-display font-black text-[15px] truncate min-w-0">
               {showCompletedRuns ? "Completed Runs" : "Active Runs"}
