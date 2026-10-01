@@ -1,5 +1,5 @@
 import React from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Link2 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { BrandLogo } from "./BrandLogo";
 import { useShimmerPulse } from "../hooks/useShimmerPulse";
@@ -59,6 +59,7 @@ export default function VisaMetricCard({
                 : "bg-black/5 text-[#1a1a1a] border-black/10 hover:bg-black/10"
             }`}
           >
+            <Link2 className="w-3 h-3 opacity-60 shrink-0" />
             {inviteCode}
             {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 opacity-60" />}
           </button>

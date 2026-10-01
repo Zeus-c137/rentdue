@@ -26,6 +26,7 @@ import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "motion/react";
 import { useCurrency } from "../currency";
 import { toast } from "sonner";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 
 interface CatalogViewProps {
   items: SubscriptionItem[];
@@ -51,6 +52,7 @@ export default function CatalogView({
   onNavigateToDeposit
 }: CatalogViewProps) {
   const { formatCurrency } = useCurrency();
+  const prefersReducedMotion = useReducedMotion();
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [selectedItem, setSelectedItem] = useState<SubscriptionItem | null>(null);
   const [submittingItemId, setSubmittingItemId] = useState<string | null>(null);
@@ -123,12 +125,14 @@ export default function CatalogView({
   const DEFAULT_STORE_TITLE = "The Store";
   const DEFAULT_STORE_DESC = "Choose your runs and begin your journey from our carefully curated categories.";
   const activeTitle = activeCategory === "All" ? DEFAULT_STORE_TITLE : getCategoryLabel(activeCategory);
+  // Category copy comes from the DB (siteConfig.categoryMeta) — All keeps its
+  // hardcoded hero. Short DB descriptions still reserve two lines so the
+  // tab row below never shifts.
   const activeDesc =
     activeCategory === "All"
       ? DEFAULT_STORE_DESC
       : (siteConfig?.categoryMeta?.[activeCategory]?.description?.trim() ||
-        `Choose your runs from ${getCategoryLabel(activeCategory)}.`);
-
+        `Choose your runs from ${getCategoryLabel(activeCategory)}. Explore live inventory below.`);
 
   return (
     <div className="w-full bg-transparent text-[var(--theme-text)] select-none pb-16 relative">
@@ -159,7 +163,7 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* Shifting title + description — swaps with the active category tab */}
+            {/* Shifting title + description — fixed 2-line slot so tabs never shift */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeCategory}
@@ -167,9 +171,10 @@ export default function CatalogView({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+                className="min-h-[76px]"
               >
                 <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">{activeTitle}</h1>
-                <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] mt-1.5">{activeDesc}</p>
+                <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] mt-1.5 min-h-[2.75em] line-clamp-2">{activeDesc}</p>
               </motion.div>
             </AnimatePresence>
 
@@ -214,9 +219,9 @@ export default function CatalogView({
                 return (
                   <motion.div
                     key={item.id}
-                    initial={{ opacity: 0, y: 15 }}
+                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.03, duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+                    transition={{ delay: prefersReducedMotion ? 0 : Math.min(idx, 5) * 0.03, duration: prefersReducedMotion ? 0.15 : 0.25, ease: [0.23, 1, 0.32, 1] }}
                     className="relative flex flex-row items-stretch bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] overflow-hidden transition-all duration-150 group select-none shadow-sm hover:border-[var(--theme-primary)]/30"
                   >
                     {/* Left portion: Hardware Image — fills parent height */}
