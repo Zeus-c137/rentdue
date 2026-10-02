@@ -6,6 +6,7 @@ import { calcVipProgress, normalizeVipTaskboard, metricMeta, tierRewardFor, tier
 import CellsProgress from "./CellsProgress";
 import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
 import { useAbortSignal } from "@/src/hooks/useGatedInterval";
+import { optimizedImageUrl } from "@/src/utils/imageUtils";
 import type { VipTask, VipTaskboard } from "@/src/types";
 import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -174,7 +175,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
               and adapts to any system-wide background image */}
           <div className="relative overflow-hidden border-0">
             {detail.art && (
-              <img src={detail.art} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none" />
+              <img src={optimizedImageUrl(detail.art, 900)} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none" />
             )}
             <div className="absolute inset-0 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] pointer-events-none" />
             <div className="relative px-4 pb-4 pt-2">
@@ -225,7 +226,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                   <div key={task.id} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] p-3.5 flex items-center gap-3">
                     <span className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
                       {task.imageUrl ? (
-                        <img src={task.imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                        <img src={optimizedImageUrl(task.imageUrl, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       ) : (
                         <AchievementGlyph metric={task.metric} />
                       )}
@@ -307,7 +308,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                       className={`flex-1 min-w-0 text-left rounded-2xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-[transform] duration-[160ms] ease-out bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] ${isCurrent ? "border-[var(--theme-primary)]/70 shadow-[0_0_24px_rgba(0,0,0,0.18)]" : "border-white/10"} ${muted ? "opacity-70" : ""}`}
                     >
                       {stage.art ? (
-                        <img src={stage.art} alt="" loading="lazy" decoding="async" className="w-14 h-[72px] rounded-xl object-contain shrink-0 bg-black/20" />
+                        <img src={optimizedImageUrl(stage.art, 200)} alt="" loading="lazy" decoding="async" className="w-14 h-[72px] rounded-xl object-contain shrink-0 bg-black/20" />
                       ) : (
                         <span className="w-14 h-[72px] rounded-xl shrink-0 bg-black/20 border border-white/10" aria-hidden />
                       )}

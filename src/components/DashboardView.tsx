@@ -14,6 +14,7 @@ import { getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
 import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
 import { tierMetaFor } from "../utils/vip";
+import { optimizedImageUrl } from "../utils/imageUtils";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
@@ -661,7 +662,7 @@ export default function DashboardView({
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
                     {tierArt ? (
-                      <img src={tierArt} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                      <img src={optimizedImageUrl(tierArt, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <Trophy className="w-6 h-6 text-[var(--theme-primary)]" />
                     )}

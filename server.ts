@@ -2151,6 +2151,8 @@ app.get("/api/config/site", async (req, res) => {
       level4InviteIncomePct: Number(config.level4InviteIncomePct ?? 0),
       vipTasks: Array.isArray(config.vipTasks) ? config.vipTasks : [],
       vipTaskCategories: Array.isArray(config.vipTaskCategories) ? config.vipTaskCategories : [],
+      categories: Array.isArray((config as any).categories) ? (config as any).categories : [],
+      categoryMeta: ((config as any).categoryMeta && typeof (config as any).categoryMeta === "object") ? (config as any).categoryMeta : {},
       registrationBonus: config.registrationBonus !== undefined ? config.registrationBonus : 0,
       inviteBonus: config.inviteBonus !== undefined ? config.inviteBonus : 0,
       checkinBaseBonus: config.checkinBaseBonus !== undefined ? config.checkinBaseBonus : 0,
@@ -2355,12 +2357,22 @@ app.post("/api/admin/upload", async (req, res) => {
     // replaced art is retired only after the new config saves successfully
     // (PUT /api/admin/config), so failed or abandoned uploads cannot break
     // the live site. Orphan aging runs fire-and-forget below.
-    const uploaded = await cloudinary.uploader.upload(dataUrl, {
+    const uploadOpts: Record<string, unknown> = {
       folder: CLOUDINARY_FOLDER,
       public_id: `${spec.prefix}-${Date.now()}`,
       resource_type: "auto",
       overwrite: false,
-    });
+    };
+    if (kind === "viptask") {
+      // Milestone art renders at thumbnail sizes; pre-warm light variants so
+      // the first paint is fast even on bad connections. Clients request
+      // f_auto,q_auto widths (see optimizedImageUrl), which then hit cache.
+      uploadOpts.eager = [
+        { width: 200, crop: "limit", quality: "auto", fetch_format: "auto" },
+        { width: 900, crop: "limit", quality: "auto", fetch_format: "auto" },
+      ];
+    }
+    const uploaded = await cloudinary.uploader.upload(dataUrl, uploadOpts);
     void collectImageOrphans();
     return res.json({ success: true, url: uploaded.secure_url });
   } catch (error: any) {
