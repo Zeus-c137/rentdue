@@ -195,10 +195,18 @@ export default function CatalogView({
   const DEFAULT_STORE_TITLE = "The Store";
   const DEFAULT_STORE_DESC = "Choose your runs and begin your journey from our carefully curated categories.";
   const activeTitle = activeCategory === "All" ? DEFAULT_STORE_TITLE : getCategoryLabel(activeCategory);
+  // Backend descriptions win; keys match case-insensitively so "ds" finds "DS".
+  const backendDesc = (() => {
+    const meta = siteConfig?.categoryMeta;
+    if (!meta || typeof meta !== "object") return "";
+    const want = String(activeCategory || "").trim().toLowerCase();
+    const hit = Object.keys(meta).find((k) => String(k).trim().toLowerCase() === want);
+    return hit ? String(meta[hit]?.description ?? "").trim() : "";
+  })();
   const activeDesc =
     activeCategory === "All"
       ? DEFAULT_STORE_DESC
-      : (siteConfig?.categoryMeta?.[activeCategory]?.description?.trim() ||
+      : (backendDesc ||
         `Choose your runs from ${getCategoryLabel(activeCategory)}. Explore live inventory below.`);
   const activeArt = React.useMemo(() => {
     const pool = activeCategory === "All" ? items : items.filter((i) => i.category === activeCategory);

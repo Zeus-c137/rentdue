@@ -2495,33 +2495,9 @@ export async function getVipTaskboard(phone: string) {
     if (!open) task.unlocked = false;
   }
 
-  // Prototype Collector track: progress reuses the runs-finished primitive
-  // (claimed collectibles), so no admin configuration is required. Always
-  // open — collecting is its own onboarding.
-  if (!tasks.some((t) => String((t as any).metric) === "collectibles_claimed")) {
-    if (!stageOrder.includes("Collector")) stageOrder.push("Collector");
-    const defs = [
-      { id: "collector-1", title: "First collectible", description: "Claim your first finished run as a collectible.", requiredBonus: 1 },
-      { id: "collector-3", title: "Growing vault", description: "Claim 3 finished runs as collectibles.", requiredBonus: 3 },
-      { id: "collector-5", title: "Seasoned collector", description: "Claim 5 finished runs as collectibles.", requiredBonus: 5 },
-    ];
-    for (const d of defs) {
-      tasks.push({
-        id: d.id,
-        title: d.title,
-        description: d.description,
-        category: "Collector",
-        metric: "collectibles_claimed",
-        requiredBonus: d.requiredBonus,
-        reward: 0,
-        progress: collectiblesClaimed,
-        unlocked: collectiblesClaimed >= d.requiredBonus,
-        claimed: false as boolean,
-        stageIndex: Math.max(0, stageOrder.indexOf("Collector")),
-        stageLocked: false as boolean,
-      });
-    }
-  }
+  // Collector track is admin-managed like every other track: it appears only
+  // when the admin configures tasks with metric collectibles_claimed. No
+  // hardcoded seeding here so admin adds, renames, or removes it freely.
 
   // Journey rank = number of claimed stage rewards.
 

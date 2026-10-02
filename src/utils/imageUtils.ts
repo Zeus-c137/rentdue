@@ -13,3 +13,17 @@ export function fixGitHubImageUrl(url?: string): string {
   }
   return clean;
 }
+
+/**
+ * Request a lightweight Cloudinary variant (auto format + auto quality +
+ * bounded width). Non-Cloudinary URLs pass through untouched, so existing
+ * heavy milestone art already in the DB gets small fast variants without
+ * re-upload — a 1.5MB PNG thumb becomes tens of KB. Already-transformed
+ * URLs are returned as-is.
+ */
+export function optimizedImageUrl(url: string | undefined, width = 400): string {
+  const clean = fixGitHubImageUrl(url);
+  if (!clean || !clean.includes("res.cloudinary.com")) return clean;
+  if (/\/upload\/(.*\/)?(f_auto|w_\d+|q_auto)/.test(clean)) return clean;
+  return clean.replace("/upload/", `/upload/f_auto,q_auto,w_${Math.max(1, Math.floor(width))}/`);
+}
