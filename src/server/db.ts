@@ -2,7 +2,8 @@ import crypto from "crypto";
 import path from "path";
 import { ensureDatabaseSchema, getDb, schema } from "../db/index";
 import { and, eq, desc, asc, isNull, inArray, sql } from "drizzle-orm";
-import { UserProfile, SubscriptionItem, SubscribedNode, ChatMessage, ReferralStat, NotificationItem, SiteConfig } from "../types";
+import { UserProfile, SubscriptionItem, SubscribedNode, Collectible, CollectibleRarity, ChatMessage, ReferralStat, NotificationItem, SiteConfig } from "../types";
+import { normalizeRarity, rarityForItem } from "../utils/rarity";
 import { sanitizeSiteConfig } from "../utils/themeTokens";
 import { canonicalTypeOf } from "../utils/transactionMeta";
 import { dedupeCategories, normalizeVipTask } from "../utils/vip";
@@ -871,6 +872,186 @@ export async function getUserSubscriptions(phone: string): Promise<SubscribedNod
   return [];
 }
 
+// ================= COLLECTIBLES (virtual, off-chain) =================
+// Autocredit runs till the cycle is done; the finished run is minted with
+// claimedAt NULL, and the "Claim collectible" tap completes ownership.
+
+function collectibleIdFor(subscriptionId: string): string {
+  return `clm_${String(subscriptionId).replace(/^sub_/, "").slice(0, 56)}`;
+}
+
+function toPublicCollectible(r: any): Collectible {
+  return {
+    id: String(r.id),
+    userId: String(r.userId),
+    subscriptionId: String(r.subscriptionId),
+    itemId: String(r.itemId),
+    itemName: String(r.itemName),
+    image: String(r.image || ""),
+    amount: Number(r.amount || 0),
+    duration: Number(r.duration || 0),
+    totalEarned: Number(r.totalEarned || 0),
+    completedAt: String(r.completedAt || ""),
+    serial: Number(r.serial || 0),
+    rarity: normalizeRarity(r.rarity),
+    claimedAt: r.claimedAt ? String(r.claimedAt) : null,
+  };
+}
+
+async function resolveCollectibleImage(sub: any): Promise<string> {
+  try {
+    const drizzleDb = getDb();
+    if (drizzleDb) {
+      const rows = await drizzleDb.select().from(schema.catalogProducts)
+        .where(eq(schema.catalogProducts.id, sub.itemId))
+        .limit(1);
+      const catalogImage = String((rows[0] as any)?.imageUrl || (rows[0] as any)?.image || "");
+      if (isUrlLikeImage(catalogImage)) return catalogImage;
+    }
+  } catch {
+    // fall through to the snapshot image
+  }
+  return isUrlLikeImage(sub.image) ? String(sub.image) : "";
+}
+
+function rarityForNode(catalog: SubscriptionItem[], itemId: string): CollectibleRarity {
+  const hit = catalog.find((c) => c.id === itemId);
+  if (!hit) return "common";
+  try {
+    return rarityForItem(
+      { id: hit.id, category: hit.category, amount: hit.amount },
+      catalog.map((c) => ({ id: c.id, category: c.category, amount: c.amount }))
+    );
+  } catch {
+    return "common";
+  }
+}
+
+/** Idempotently flips a finished node to expired and mints its collectible. */
+export async function markNodeExpiredAndMint(sub: any): Promise<Collectible | null> {
+  const drizzleDb = getDb();
+  if (!drizzleDb || !sub?.id) return null;
+  const now = new Date().toISOString();
+  try {
+    await drizzleDb.update(schema.subscribedNodes)
+      .set({ status: "expired" })
+      .where(eq(schema.subscribedNodes.id, sub.id));
+  } catch (err) {
+    console.warn("[Collectibles] status flip failed:", err);
+  }
+  try {
+    const existing = await drizzleDb.select().from(schema.collectibles)
+      .where(eq(schema.collectibles.subscriptionId, sub.id))
+      .limit(1);
+    if ((existing as any[])[0]) return toPublicCollectible((existing as any[])[0]);
+    const countResult: any = await drizzleDb.execute(
+      sql`SELECT COALESCE(COUNT(*), 0) AS n FROM collectibles WHERE item_id = ${sub.itemId}`
+    );
+    const countRows = Array.isArray(countResult?.[0]) ? countResult[0] : [];
+    const serial = Number(countRows?.[0]?.n || 0) + 1;
+    let rarity: CollectibleRarity = "common";
+    try {
+      rarity = rarityForNode(await getSubscriptionItems(), sub.itemId);
+    } catch {
+      // keep common
+    }
+    const row = {
+      id: collectibleIdFor(sub.id),
+      userId: sub.userId,
+      subscriptionId: sub.id,
+      itemId: sub.itemId,
+      itemName: sub.itemName,
+      image: await resolveCollectibleImage(sub),
+      amount: Number(sub.amount || 0),
+      duration: Number(sub.duration || 0),
+      totalEarned: Number(sub.totalEarned || 0),
+      completedAt: now,
+      serial,
+      rarity,
+      claimedAt: null,
+    };
+    try {
+      await drizzleDb.insert(schema.collectibles).values(row as any);
+    } catch (err: any) {
+      // A concurrent mint won the race — return the winner.
+      const again = await drizzleDb.select().from(schema.collectibles)
+        .where(eq(schema.collectibles.subscriptionId, sub.id))
+        .limit(1);
+      if ((again as any[])[0]) return toPublicCollectible((again as any[])[0]);
+      throw err;
+    }
+    return toPublicCollectible(row);
+  } catch (err) {
+    console.warn("[Collectibles] mint failed:", err);
+    return null;
+  }
+}
+
+export async function getUserCollectibles(phone: string): Promise<Collectible[]> {
+  const drizzleDb = getDb();
+  if (!drizzleDb) return [];
+  // Lazy backfill: every finished node owns a collectible row, even ones
+  // that expired before this feature shipped.
+  try {
+    const nodes = await drizzleDb.select().from(schema.subscribedNodes)
+      .where(eq(schema.subscribedNodes.userId, phone));
+    const today = getPlatformDateKey();
+    for (const node of nodes as any[]) {
+      const activation = getPlatformDateKey(new Date(node.startDate));
+      const finalEarn = addPlatformDays(activation, Math.max(0, Number(node.duration || 1) - 1));
+      const finished = String(node.status).toLowerCase() !== "active" || today > finalEarn;
+      if (!finished) continue;
+      const existing = await drizzleDb.select().from(schema.collectibles)
+        .where(eq(schema.collectibles.subscriptionId, node.id))
+        .limit(1);
+      if ((existing as any[]).length === 0) await markNodeExpiredAndMint(node);
+    }
+  } catch (err) {
+    console.warn("[Collectibles] backfill failed:", err);
+  }
+  try {
+    const rows = await drizzleDb.select().from(schema.collectibles)
+      .where(eq(schema.collectibles.userId, phone));
+    return (rows as any[]).map(toPublicCollectible).sort((a, b) => (b.serial || 0) - (a.serial || 0));
+  } catch (err) {
+    console.warn("[Collectibles] read failed:", err);
+    return [];
+  }
+}
+
+export async function claimCollectible(phone: string, subscriptionId: string): Promise<{ success: boolean; collectible: Collectible }> {
+  const drizzleDb = requireDatabase("claim the collectible");
+  const rows = await drizzleDb.select().from(schema.subscribedNodes)
+    .where(and(
+      eq(schema.subscribedNodes.id, subscriptionId),
+      eq(schema.subscribedNodes.userId, phone)
+    ))
+    .limit(1);
+  const node: any = (rows as any[])[0];
+  if (!node) throw new Error("Run not found.");
+  const today = getPlatformDateKey();
+  const activation = getPlatformDateKey(new Date(node.startDate));
+  const finalEarn = addPlatformDays(activation, Math.max(0, Number(node.duration || 1) - 1));
+  const finished = String(node.status).toLowerCase() !== "active" || today > finalEarn;
+  if (!finished) throw new Error("This run is still active. Collectibles unlock when the cycle ends.");
+  let collectible = await markNodeExpiredAndMint(node);
+  if (!collectible) throw new Error("Could not prepare your collectible. Please try again.");
+  if (!collectible.claimedAt) {
+    const now = new Date().toISOString();
+    await drizzleDb.update(schema.collectibles)
+      .set({ claimedAt: now })
+      .where(eq(schema.collectibles.subscriptionId, subscriptionId));
+    collectible = { ...collectible, claimedAt: now };
+    await createNotification(
+      phone,
+      "Collectible claimed",
+      `Your "${node.itemName}" collectible #${String(collectible.serial).padStart(3, "0")} is now permanently yours.`,
+      "rewards"
+    );
+  }
+  return { success: true, collectible };
+}
+
 export async function getUserTransactions(phone: string): Promise<any[]> {
   let list: any[] = [];
   const drizzleDb = getDb();
@@ -912,6 +1093,11 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
   let userId = phone;
   let itemName = "your product";
 
+  // A node past its final earn date is finished: the in-transaction status
+  // flip below is rolled back by the throw, so the flip + collectible mint
+  // are applied idempotently outside the transaction instead.
+  let finishedNode: any = null;
+  try {
   await drizzleDb.transaction(async (tx) => {
     // Lock the node before checking its date. This makes a cron run and a
     // user-triggered retry mutually exclusive, so the same node cannot pay
@@ -934,9 +1120,7 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
     const activationDate = getPlatformDateKey(new Date(sub.startDate));
     const finalEarnDate = addPlatformDays(activationDate, Math.max(0, Number(sub.duration || 1) - 1));
     if (today > finalEarnDate) {
-      await tx.update(schema.subscribedNodes)
-        .set({ status: "expired" })
-        .where(eq(schema.subscribedNodes.id, sub.id));
+      finishedNode = sub;
       throw new Error("This product subscription has expired.");
     }
     if (sub.lastClaimedDate === today) {
@@ -996,6 +1180,12 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
       timestamp: creditedAt
     });
   });
+  } catch (error: any) {
+    if (finishedNode) {
+      await markNodeExpiredAndMint(finishedNode).catch((err) => console.warn("[Collectibles] expiry mint failed:", err));
+    }
+    throw error;
+  }
 
   if (reward > 0) {
     await createNotification(
@@ -2215,11 +2405,21 @@ export async function getVipTaskboard(phone: string) {
   } catch {
     // Metrics default to zero; the points ladder still works.
   }
+  // Collector track reuses the runs-finished primitive: claimed collectibles.
+  let collectiblesClaimed = 0;
+  try {
+    const clResult: any = await drizzleDb.execute(sql`SELECT COUNT(*) AS n FROM collectibles WHERE user_id = ${phone} AND claimed_at IS NOT NULL`);
+    const clRows = Array.isArray(clResult?.[0]) ? clResult[0] : [];
+    collectiblesClaimed = Number(clRows?.[0]?.n || 0);
+  } catch {
+    // Table predates migration on exotic hosts; milestones still work.
+  }
   const metricValue = (metric: string): number => {
     switch (metric) {
       case "runs_started": return runsStarted;
       case "active_runs": return activeRuns;
       case "completed_runs": return completedRuns;
+      case "collectibles_claimed": return collectiblesClaimed;
       case "streak_days": return streakDays;
       case "lifetime_yield": return lifetimeYield;
       case "invites_count": return invitesCount;
@@ -2293,6 +2493,34 @@ export async function getVipTaskboard(phone: string) {
     const open = idx < stageOpen.length ? stageOpen[idx] : true;
     (task as any).stageLocked = !open;
     if (!open) task.unlocked = false;
+  }
+
+  // Prototype Collector track: progress reuses the runs-finished primitive
+  // (claimed collectibles), so no admin configuration is required. Always
+  // open — collecting is its own onboarding.
+  if (!tasks.some((t) => String((t as any).metric) === "collectibles_claimed")) {
+    if (!stageOrder.includes("Collector")) stageOrder.push("Collector");
+    const defs = [
+      { id: "collector-1", title: "First collectible", description: "Claim your first finished run as a collectible.", requiredBonus: 1 },
+      { id: "collector-3", title: "Growing vault", description: "Claim 3 finished runs as collectibles.", requiredBonus: 3 },
+      { id: "collector-5", title: "Seasoned collector", description: "Claim 5 finished runs as collectibles.", requiredBonus: 5 },
+    ];
+    for (const d of defs) {
+      tasks.push({
+        id: d.id,
+        title: d.title,
+        description: d.description,
+        category: "Collector",
+        metric: "collectibles_claimed",
+        requiredBonus: d.requiredBonus,
+        reward: 0,
+        progress: collectiblesClaimed,
+        unlocked: collectiblesClaimed >= d.requiredBonus,
+        claimed: false as boolean,
+        stageIndex: Math.max(0, stageOrder.indexOf("Collector")),
+        stageLocked: false as boolean,
+      });
+    }
   }
 
   // Journey rank = number of claimed stage rewards.

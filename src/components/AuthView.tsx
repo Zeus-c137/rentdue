@@ -5,10 +5,11 @@
 
 import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ArrowRight, Gift, Link2, Mail, Send, CheckCircle2 } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ChevronDown, ArrowRight, Gift, Link2, Mail, Send, CheckCircle2, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
+import { GUIDE_SECTIONS } from "./GuideView";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 
 interface AuthViewProps {
@@ -16,7 +17,7 @@ interface AuthViewProps {
   siteConfig?: any;
 }
 
-type AuthScreen = "welcome" | "login" | "register" | "support";
+type AuthScreen = "welcome" | "login" | "register" | "support" | "about";
 
 // Welcome hero: admin-customizable via Custom Wallpapers (authBgImage).
 // Blank until siteconfig loads — no flashing fallback image.
@@ -25,6 +26,10 @@ const WELCOME_SLIDES = [
   {
     title: "Runs that pay daily.",
     sub: "Start a run and collect returns every single day.",
+  },
+  {
+    title: "Finished runs become collectibles.",
+    sub: "Claim completed cycles as collectibles you own permanently.",
   },
   {
     title: "Milestones that move you up.",
@@ -87,7 +92,10 @@ function GhostButton({
 export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [screen, setScreen] = useState<AuthScreen>("welcome");
   const [slide, setSlide] = useState(0);
-  const [heroFailed, setHeroFailed] = useState(false);
+  // Per-slide failure flags — one broken URL must never blank the other slides.
+  const [failedSlides, setFailedSlides] = useState<Record<number, boolean>>({});
+  // About-page FAQ accordion.
+  const [faqOpen, setFaqOpen] = useState<number | null>(0);
 
   const [phone, setPhone] = useState("");
   const [username, setUsername] = useState("");
@@ -115,6 +123,21 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   }, []);
 
   const activeConfig = localSiteConfig || siteConfig;
+
+  // Landing carousel art: per-slide URLs from siteconfig only.
+  const rawSlideImages: string[] = Array.isArray((activeConfig as any)?.authSlideImages)
+    ? (activeConfig as any).authSlideImages
+    : [];
+  const slides = WELCOME_SLIDES.map((s, i) => ({
+    ...s,
+    image: fixGitHubImageUrl(String(rawSlideImages[i] || "").trim()),
+  }));
+
+  // When the admin config resolves, a previous per-slide failure must not
+  // permanently blank that slot.
+  useEffect(() => {
+    setFailedSlides({});
+  }, [rawSlideImages.join("|")]);
 
   // Invite-link landing: ?ref=CODE (search or hash) jumps straight to
   // register with the code applied, then cleans the URL.
@@ -167,9 +190,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   useEffect(() => {
     if (screen !== "welcome") return;
     const timer = setInterval(() => {
-      setSlide((s) => (s + 1) % WELCOME_SLIDES.length);
-    }, 6000);
+      setSlide((s) => (s + 1) % slides.length);
+    }, 9000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
   const goTo = (next: AuthScreen) => {
@@ -250,9 +274,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     }
   };
 
-  // Welcome hero comes from siteconfig only — blank until it loads, no
-  // flashing fallback image and no placeholder logo.
-  const heroSrc = fixGitHubImageUrl(activeConfig?.authBgImage || "");
+  // (slide art now comes from authSlideImages, one image per slide.)
 
   // Fire-and-forget recovery: lands in the admin Support Desk as a
   // direct_<phone> ticket. No polling here — support reaches out.
@@ -288,7 +310,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { error?: string }).error || "Could not reach support. Try again.");
       setRecoverySent(true);
-      toast.success("Sent to support. They'll reach out — typical response time is 15 mins.", { duration: 6000 });
+      toast.success("Sent to support. They'll reach out. Typical response time is 15 mins.", { duration: 6000 });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Could not reach support. Try again.");
     } finally {
@@ -299,14 +321,14 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const inviteBonus = Number(activeConfig?.inviteBonus ?? 0);
   const regBonus = Number(activeConfig?.registrationBonus ?? activeConfig?.welcomeBonus ?? 0);
 
-  const currentSlide = WELCOME_SLIDES[slide];
+  const currentSlide = slides[slide] || slides[0];
 
   return (
     <div className="min-h-[100dvh] bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] transition-colors">
       <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col px-6 pt-6 pb-8">
         {/* Brand header */}
         <div className="flex items-center gap-3">
-          {(screen === "login" || screen === "register" || screen === "support") && (
+          {(screen === "login" || screen === "register" || screen === "support" || screen === "about") && (
             <button
               type="button"
               aria-label="Back"
@@ -318,20 +340,38 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
           )}
           <BrandLogo siteConfig={activeConfig} className="w-9 h-9 flex items-center justify-center shrink-0" />
           <span className="font-display font-black text-lg tracking-tight uppercase">{brandName}</span>
+          <div className="flex-1" />
+          {screen !== "about" && (
+            <button
+              type="button"
+              onClick={() => goTo("about")}
+              className="shrink-0 px-4 py-2 rounded-full border border-[var(--theme-card-border)] text-[12px] font-sans font-black uppercase tracking-wider opacity-80 hover:opacity-100 active:scale-[0.97] transition-all cursor-pointer"
+            >
+              About us
+            </button>
+          )}
         </div>
 
         {screen === "welcome" && (
           <div className="flex items-center gap-1.5 pt-5">
-            {WELCOME_SLIDES.map((_, i) => (
+            {slides.map((_, i) => (
               <button
                 key={i}
                 type="button"
                 aria-label={`Go to slide ${i + 1}`}
                 onClick={() => setSlide(i)}
-                className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                  i === slide ? "w-5 bg-[var(--theme-primary)]" : "w-1.5 bg-[var(--theme-text)] opacity-20"
-                }`}
-              />
+                className="h-1.5 rounded-full cursor-pointer relative"
+              >
+                {i === slide ? (
+                  <motion.span
+                    layoutId="auth-dot"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.5 }}
+                    className="block h-1.5 w-5 rounded-full bg-[var(--theme-primary)]"
+                  />
+                ) : (
+                  <span className="block h-1.5 w-1.5 rounded-full bg-[var(--theme-text)] opacity-20" />
+                )}
+              </button>
             ))}
           </div>
         )}
@@ -366,22 +406,102 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </AnimatePresence>
               </div>
 
-              <div className="mt-6 flex-1 min-h-[220px] rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative">
-                {heroSrc && !heroFailed ? (
-                  <>
-                    <img
-                      src={heroSrc}
-                      alt="Operators at work at night"
-                      loading="eager"
-                      onError={() => setHeroFailed(true)}
-                      className="absolute inset-0 w-full h-full object-cover block"
+              <div className="mt-6 flex-1 min-h-[220px] rounded-[24px] overflow-hidden border border-[var(--theme-card-border)] relative bg-[var(--theme-card-bg)]">
+                <AnimatePresence mode="wait">
+                  {currentSlide.image && !failedSlides[slide] ? (
+                    <motion.div
+                      key={slide}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                      className="absolute inset-0"
+                    >
+                      <img
+                        src={fixGitHubImageUrl(currentSlide.image)}
+                        alt=""
+                        loading="eager"
+                        referrerPolicy="no-referrer"
+                        onError={() => setFailedSlides((p) => ({ ...p, [slide]: true }))}
+                        className="absolute inset-0 w-full h-full object-cover block"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key={`blank-${slide}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 bg-gradient-to-br from-[var(--theme-primary)]/20 via-transparent to-transparent"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
-                  </>
-                ) : null}
+                  )}
+                </AnimatePresence>
               </div>
 
               <div className="space-y-3 mt-6">
+                <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
+                  Register
+                </PrimaryButton>
+                <GhostButton onClick={() => goTo("login")} disabled={isLoading}>
+                  Login
+                </GhostButton>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ============ ABOUT US (public FAQ page) ============ */}
+          {screen === "about" && (
+            <motion.div
+              key="about"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col pt-10"
+            >
+              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
+                About us.
+              </h1>
+              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                {brandName === "Loading" ? "How it works." : `How ${brandName} works.`} Everything about balances, runs, withdrawals and rewards.
+              </p>
+              <div className="mt-6 space-y-1 flex-1">
+                {GUIDE_SECTIONS.map((s, i) => (
+                  <div key={s.title} className="border-b border-[var(--theme-card-border)]/60 last:border-0">
+                    <button
+                      type="button"
+                      onClick={() => setFaqOpen(faqOpen === i ? null : i)}
+                      className="w-full flex items-center justify-between gap-3 py-3 text-left cursor-pointer"
+                    >
+                      <span className="text-[15px] font-display font-black tracking-tight">{s.title}</span>
+                      <ChevronDown className={`w-4 h-4 text-[var(--theme-primary)] shrink-0 transition-transform ${faqOpen === i ? "rotate-180" : ""}`} />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {faqOpen === i && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ type: "spring", damping: 26, stiffness: 300 }}
+                          className="overflow-hidden"
+                        >
+                          <ul className="pb-3 space-y-1.5">
+                            {s.body.map((line, j) => (
+                              <li key={j} className="text-[14px] font-sans opacity-80 leading-relaxed flex gap-2">
+                                <span className="text-[var(--theme-primary)] font-black shrink-0">•</span>
+                                <span>{line}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-3 mt-8">
                 <PrimaryButton onClick={() => goTo("register")} disabled={isLoading}>
                   Register
                 </PrimaryButton>

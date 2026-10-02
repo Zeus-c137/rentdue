@@ -2951,6 +2951,37 @@ export default function AdminView() {
                                 </label>
                               </div>
                               <div>
+                                <span className="text-[11px] opacity-70 block mb-1">Landing carousel images (4 slides, no fallback)</span>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[0, 1, 2, 3].map((i) => {
+                                    const slides = Array.isArray(siteConfig.authSlideImages) ? siteConfig.authSlideImages : [];
+                                    const value = String(slides[i] || "");
+                                    return (
+                                      <div key={i} className="flex gap-2 items-center">
+                                        <input
+                                          type="text"
+                                          value={value}
+                                          onChange={(e) => {
+                                            const next = [0, 1, 2, 3].map((j) => String((Array.isArray(siteConfig.authSlideImages) ? siteConfig.authSlideImages : [])[j] || ""));
+                                            next[i] = e.target.value.trim();
+                                            setSiteConfig({ ...siteConfig, authSlideImages: next });
+                                          }}
+                                          placeholder={`Slide ${i + 1} image URL`}
+                                          className="theme-input flex-1 px-3 py-2 text-xs font-mono min-w-0"
+                                        />
+                                        <div className="w-10 h-10 rounded-lg bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">
+                                          {value ? (
+                                            <img src={fixGitHubImageUrl(value)} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt={`Slide ${i + 1} preview`} />
+                                          ) : (
+                                            <div className="w-full h-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-400">{i + 1}</div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
                                 <span className="text-[11px] opacity-70 block mb-1">Dashboard Wallpaper / Pattern URL</span>
                                 <div className="flex gap-3 items-center">
                                   <input
@@ -3418,6 +3449,7 @@ export default function AdminView() {
                               <option value="runs_started">Runs started</option>
                               <option value="active_runs">Active runs</option>
                               <option value="completed_runs">Completed runs</option>
+                              <option value="collectibles_claimed">Collectibles claimed</option>
                               <option value="streak_days">Check-in streak (days)</option>
                               <option value="lifetime_yield">Lifetime run yield ({currency})</option>
                               <option value="invites_count">Invites (count)</option>
@@ -3425,7 +3457,7 @@ export default function AdminView() {
                               <option value="account_created">Account created (auto)</option>
                             </select>
                           </label>
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "collectibles_claimed" ? "(collectibles)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
                             <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                           </label>
                         </div>

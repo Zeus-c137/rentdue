@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { SubscribedNode, SubscriptionItem, UserProfile } from "../types";
+import React, { useCallback, useEffect, useState } from "react";
+import { SubscribedNode, SubscriptionItem, UserProfile, Collectible } from "../types";
 import {
   Lock,
   Clock,
@@ -9,13 +9,21 @@ import {
   ShoppingCartIcon,
   Zap,
   Coins,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Calendar,
+  Percent,
+  ChevronRight,
+  Loader2,
+  Award,
+  TrendingUp
 } from "lucide-react";
 import MetricCard from "./MetricCard";
 import CellsProgress from "./CellsProgress";
 import { Button } from "./ui/button";
 import { useCurrency } from "../currency";
 import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";
+import { rarityMapForCatalog } from "../utils/rarity";
+import RarityBadge from "./RarityBadge";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 
@@ -24,8 +32,16 @@ interface IncomeViewProps {
   activeNodes: SubscribedNode[];
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
+  onNavigateToCollection?: () => void;
   onRenew?: (item: SubscriptionItem) => void;
   onClaimSuccess?: (pointsEarned: number, newBalance: number, subId: string) => void;
+  onCollectibleClaimed?: () => void;
+}
+
+function dailyPct(daily: number, amount: number): string {
+  if (!(amount > 0)) return "-";
+  const pct = (Number(daily || 0) / amount) * 100;
+  return `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% Daily`;
 }
 
 export default function IncomeView({
@@ -33,22 +49,50 @@ export default function IncomeView({
   activeNodes,
   items,
   onNavigateToCatalog,
+  onNavigateToCollection,
   onRenew,
-  onClaimSuccess
+  onClaimSuccess,
+  onCollectibleClaimed
 }: IncomeViewProps) {
   const { formatCurrency } = useCurrency();
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimingCollectibleId, setClaimingCollectibleId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [collectibles, setCollectibles] = useState<Record<string, Collectible>>({});
+
   const shownNodes = showCompleted
     ? activeNodes.filter((n) => getRunState(n, items) !== "active")
     : activeNodes.filter((n) => getRunState(n, items) === "active");
+
+  const rarityMap = React.useMemo(() => rarityMapForCatalog(items), [items]);
+
+  const loadCollectibles = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/collectibles/${profile.phone}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) return;
+      const map: Record<string, Collectible> = {};
+      for (const c of data as Collectible[]) map[c.subscriptionId] = c;
+      setCollectibles(map);
+    } catch {
+      // gallery still works without the claimed flags
+    }
+  }, [profile.phone]);
+
+  useEffect(() => {
+    void loadCollectibles();
+  }, [loadCollectibles, activeNodes.length]);
 
   // Cumulative total earnings — purchase-time snapshot first (same source the
   // server credits from); live catalog only as a legacy fallback.
   const rateOf = (node: SubscribedNode) => getRunDailyRate(node, items);
   const nodeStatus = (node: SubscribedNode): string => String(node.status || "").toLowerCase();
   const totalDailyYield = activeNodes.filter(n => nodeStatus(n) === "active").reduce((acc, node) => acc + rateOf(node), 0);
+  const activeCount = activeNodes.filter((n) => getRunState(n, items) === "active").length;
+  const completedNodes = activeNodes.filter((n) => getRunState(n, items) !== "active");
+  const completedCount = completedNodes.length;
+  const completedTotalCollected = completedNodes.reduce((acc, n) => acc + (Number(n.totalEarned) || 0), 0);
 
   const handleClaim = async (subId: string) => {
     setClaimingId(subId);
@@ -82,22 +126,60 @@ export default function IncomeView({
     }
   };
 
+  const handleClaimCollectible = async (node: SubscribedNode) => {
+    setClaimingCollectibleId(node.id);
+    try {
+      const res = await fetch("/api/collectibles/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: profile.phone, subscriptionId: node.id })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not claim this collectible.");
+      }
+      confetti({
+        particleCount: 130,
+        spread: 75,
+        origin: { y: 0.6 }
+      });
+      toast.success(`Collectible #${String(data.collectible?.serial || 0).padStart(3, "0")} is now permanently yours!`);
+      setCollectibles((prev) => ({ ...prev, [node.id]: data.collectible }));
+      onCollectibleClaimed?.();
+    } catch (err: any) {
+      toast.error(err.message || "Could not claim this collectible.");
+    } finally {
+      setClaimingCollectibleId(null);
+    }
+  };
+
   return (
     <div className="space-y-5 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-[var(--theme-radius)] relative">
-      
-      <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)] px-1">My Active Runs</h1>
-      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] px-1">Your runs are working. Watch your returns grow daily and move to your withdrawable balance.</p>
+
+      <div className="flex items-center justify-between gap-2 px-1">
+        <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">My Runs</h1>
+        {onNavigateToCollection && (
+          <button
+            type="button"
+            onClick={onNavigateToCollection}
+            className="shrink-0 inline-flex items-center gap-1 px-3.5 py-2 rounded-full border border-[var(--theme-primary)]/40 text-[var(--theme-primary)] text-[12px] font-sans font-black cursor-pointer active:scale-95 transition-all"
+          >
+            <Award className="w-4 h-4" /> My Collections
+          </button>
+        )}
+      </div>
+      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] px-1 -mt-3">Track your active runs, view progress, and see your daily earnings.</p>
 
       {/* Aggregate Stats — sticky so run list scrolls below */}
       <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
         <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 grid grid-cols-2 gap-2">
           <div className="min-w-0">
-            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">Today&apos;s Returns</p>
-            <p className="font-display font-black text-[18px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(totalDailyYield)}</p>
+            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Completed Runs" : "Active Runs"}</p>
+            <p className="font-display font-black text-[18px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{showCompleted ? completedCount : activeCount}</p>
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">Withdrawable</p>
-            <p className="font-display font-black text-[18px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{formatCurrency(Number(profile.points) || 0)}</p>
+            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Total Earnings" : "Today's Earnings"}</p>
+            <p className="font-display font-black text-[18px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(showCompleted ? completedTotalCollected : totalDailyYield)}</p>
           </div>
         </div>
       </div>
@@ -106,16 +188,18 @@ export default function IncomeView({
       <div className="space-y-4">
         <div className="flex items-center justify-between pb-2">
           <h3 className="font-display font-black text-[15px] text-[var(--theme-text)]">
-            {showCompleted ? "Completed Runs" : "Active Runs"} <span className="text-[var(--theme-text-muted)] font-bold">{shownNodes.length}</span>
+            {showCompleted ? "Completed Runs" : "Active Runs"}
           </h3>
-          <button
-            type="button"
-            onClick={() => setShowCompleted((v) => !v)}
-            aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
-            className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setShowCompleted((v) => !v)}
+              aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
+              className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {shownNodes.length === 0 ? (
@@ -142,91 +226,130 @@ export default function IncomeView({
               const mappedItem = items.find(
                 (item) => item.id === node.itemId || item.name === node.itemName
               );
-              const imageUrl = mappedItem?.imageUrl;
+              const imageUrl = mappedItem?.imageUrl || node.image;
               const itemName = mappedItem?.name || node.itemName;
+              const category = (mappedItem?.category || "").toUpperCase() || "RUN";
               const totalDays = getRunTotalDays(node, items);
               const dailyYield = getRunDailyRate(node, items);
 
               const elapsedDays = getRunElapsedDays(node, items);
               const runState = getRunState(node, items);
               const isExpired = runState === "expired";
+              const isDone = runState !== "active";
               const isReadyToClaim = nodeStatus(node) === "active" && elapsedDays >= totalDays;
-              const totalIncome = dailyYield * totalDays;
               const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+              const collectible = collectibles[node.id];
+              const rarity = collectible?.rarity || (mappedItem ? rarityMap[mappedItem.id] : undefined) || "common";
 
               return (
                 <div
                   key={node.id}
-                  className="group flex flex-row bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-3 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30"
+                  className="group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30"
                 >
-                  {/* Left portion: Hardware Image full height — transparent bg like income, contain */}
-                  <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-36 h-36 sm:w-40 sm:h-40 md:w-52 md:h-52 relative overflow-hidden rounded-xl bg-transparent border-0 shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors">
-                    {imageUrl ? (
-                      <img
-                        src={imageUrl}
-                        alt=""
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
-                        <Cpu className="w-8 h-8" />
+                  <div className="flex flex-row gap-3">
+                    {/* Art with rarity banner */}
+                    <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-32 h-32 sm:w-36 sm:h-36 relative overflow-hidden rounded-xl shrink-0 cursor-zoom-in bg-[var(--theme-text)]/5">
+                      {imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
+                          <Cpu className="w-8 h-8" />
+                        </div>
+                      )}
+                      <div className="absolute top-1 left-1 scale-90 origin-top-left">
+                        <RarityBadge rarity={rarity} serial={collectible?.serial} />
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Right portion details */}
-                  <div className="flex-1 pl-3 flex flex-col justify-between min-w-0 font-sans">
-                    <div>
+                    {/* Details */}
+                    <div className="flex-1 min-w-0 font-sans">
                       <div className="flex items-start justify-between gap-2">
-                        {/* Name in theme text */}
-                        <h4 className="font-display font-black text-[var(--theme-text)] text-sm leading-tight pb-1 min-w-0 flex-1">
+                        <h4 className="font-display font-black text-[var(--theme-text)] text-[15px] leading-tight truncate">
                           {itemName}
                         </h4>
-                        {runState !== "active" && (
-                          <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black bg-[var(--theme-text)]/10 text-[var(--theme-text)] opacity-60">
-                            {isExpired ? "Expired" : "Completed"}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-start justify-between gap-3 mt-2">
-                        <div className="space-y-2 min-w-0">
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Daily Return</p>
-                            <p className="font-display font-black text-[13px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield)}</p>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Collected (to date)</p>
-                            <p className="font-display font-black text-[13px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(node.totalEarned || (dailyYield * elapsedDays))}</p>
-                          </div>
-                        </div>
-                        <div className="min-w-0 text-right shrink-0">
-                          <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text)] opacity-55">Cycle</p>
-                          <p className="font-display font-black text-[13px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{elapsedDays}/{totalDays} days</p>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!isDone && (
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider border border-[var(--theme-primary)] text-[var(--theme-primary)]">
+                              Active
+                            </span>
+                          )}
+                          {isDone && (
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[var(--theme-text)]/10 text-[var(--theme-text)] opacity-60">
+                              {isExpired ? "Expired" : "Completed"}
+                            </span>
+                          )}
                         </div>
                       </div>
-                    </div>
-
-                    {/* Cells with percentage at the end */}
-                    <div className="pt-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <CellsProgress pct={progressPercent} />
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[13px] font-bold">
+                          <Calendar className="w-4 h-4 opacity-50 shrink-0" />
+                          <span className="tabular-nums">{totalDays} Days</span>
                         </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
-                          {isExpired ? "Completed" : `${Math.round(progressPercent)}%`}
-                        </span>
+                        <div className="flex items-center gap-1.5 text-[13px] font-bold">
+                          <Percent className="w-4 h-4 opacity-50 shrink-0" />
+                          <span className="tabular-nums">{dailyPct(dailyYield, node.amount)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Expired banner overlay for completed/expired nodes */}
-                  {isExpired && (
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10 pointer-events-none">
-                      <span className="text-2xl md:text-3xl font-sans font-black tracking-wide text-white drop-shadow-md select-none">
-                        EXPIRED
+                  {/* Progress */}
+                  <div className="pt-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-60">
+                        Day {Math.min(elapsedDays, totalDays)} of {totalDays}
                       </span>
+                      <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
+                        {Math.round(progressPercent)}%
+                      </span>
+                    </div>
+                    <div className="mt-1">
+                      <CellsProgress pct={progressPercent} />
+                    </div>
+                  </div>
+
+                  {/* Earnings split */}
+                  <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/10 pt-2.5">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-sans opacity-55">Daily Earnings</p>
+                      <p className="font-display font-black text-[13px] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield)}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-secondary)] flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3" /> Total return
+                      </p>
+                      <p className="font-display font-black text-[13px] text-[var(--theme-secondary)] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield * totalDays)}</p>
+                    </div>
+                  </div>
+
+                  {/* Finished-run ownership actions */}
+                  {isDone && (
+                    <div className="mt-2.5">
+                      {!collectible || !collectible.claimedAt ? (
+                        <button
+                          type="button"
+                          disabled={claimingCollectibleId === node.id}
+                          onClick={() => handleClaimCollectible(node)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all disabled:opacity-60"
+                        >
+                          {claimingCollectibleId === node.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                          Claim collectible
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={onNavigateToCollection}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full border border-[var(--theme-primary)]/50 text-[var(--theme-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
+                        >
+                          <Award className="w-4 h-4" /> In your Collection ✓
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -235,6 +358,14 @@ export default function IncomeView({
           </div>
         )}
       </div>
+
+      <div className="rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 flex items-start gap-2.5">
+        <Calendar className="w-4 h-4 text-[var(--theme-primary)] shrink-0 mt-0.5" />
+        <p className="text-[12px] font-sans opacity-70 leading-relaxed">
+          Earnings are credited to your withdrawable balance daily, once your run is active. Finished runs become collectibles. Claim them to own them permanently.
+        </p>
+      </div>
+
       {previewImage && (
         <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
           <img src={previewImage} alt="Preview" className="max-w-full max-h-[85vh] rounded-[var(--theme-radius)] shadow-2xl object-contain" />

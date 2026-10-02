@@ -9,6 +9,7 @@ import AuthView from "./components/AuthView";
 import DashboardView from "./components/DashboardView";
 import CatalogView from "./components/CatalogView";
 import IncomeView from "./components/IncomeView";
+import CollectionView from "./components/CollectionView";
 import DepositView from "./components/DepositView";
 import WithdrawView from "./components/WithdrawView";
 import ReferralView from "./components/ReferralView";
@@ -188,10 +189,11 @@ export default function App() {
       cancelled = true;
     };
   }, [isAdminRoute]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
   const [referralView, setReferralView] = useState<"overview" | "team">("overview");
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
+  const [collectionReturn, setCollectionReturn] = useState<"dashboard" | "income" | "profile">("profile");
   const [siteConfig, setSiteConfig] = useState<any>(null);
   // Synchronous boot seed: theme + logo from the last successful load so the
   // splash and first paint already match the active preset.
@@ -325,7 +327,7 @@ export default function App() {
     }
   }, [siteConfig]);
 
-  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "deposit" | "withdraw">("dashboard");
+  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
 
   useEffect(() => {
     if (activeTab !== "alerts") {
@@ -751,11 +753,31 @@ export default function App() {
                   activeNodes={activeNodes}
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
+                  onNavigateToCollection={() => { setCollectionReturn("income"); setActiveTab("collection"); }}
+                  onCollectibleClaimed={() => { void handleManualStatsRefresh(); }}
                   onClaimSuccess={handleClaimSuccess}
                   onRenew={(item) => {
                     setPreselectedGpuRent(item);
                     setActiveTab("deposit");
                   }}
+                />
+              </motion.div>
+            )}
+
+            {(activeTab === "collection" || (activeTab === "alerts" && previousTab === "collection")) && (
+              <motion.div
+                key="coll"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12 }}
+                className="w-full flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-1.5 sm:px-2 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                <CollectionView
+                  phone={userProfile.phone}
+                  onBack={() => setActiveTab(collectionReturn)}
+                  onNavigateToCatalog={() => setActiveTab("catalog")}
+                  onClaimed={() => { void handleManualStatsRefresh(); }}
                 />
               </motion.div>
             )}

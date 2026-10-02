@@ -13,28 +13,36 @@ interface GuideViewProps {
   onBack: () => void;
 }
 
-const SECTIONS: { title: string; body: string[] }[] = [
+export const GUIDE_SECTIONS: { title: string; body: string[] }[] = [
   {
     title: "Getting started",
     body: [
       "Deposit funds into your rechargeable balance.",
-      "Use that balance to rent products in the system.",
-      "Each product has a cycle — its duration in days.",
+      "Pick a run from the store and activate it.",
+      "Each run has a cycle measured in days.",
     ],
   },
   {
     title: "Daily income",
     body: [
-      "Every rented product earns daily income.",
-      "Daily income is credited to your withdrawable balance.",
-      "Track totals on the Income page.",
+      "Every active run earns daily income.",
+      "Income is credited to your withdrawable balance automatically.",
+      "Track everything on the My Runs page.",
+    ],
+  },
+  {
+    title: "Collectibles",
+    body: [
+      "When a run cycle finishes, it becomes a collectible.",
+      "Claim it to own it permanently in your collection.",
+      "Collectibles are yours forever, even after the run ends.",
     ],
   },
   {
     title: "Withdrawals",
     body: [
-      "Withdraw from your withdrawable balance only.",
-      "Withdrawals need at least one product — no product, no withdrawal.",
+      "Withdraw from your withdrawable balance anytime.",
+      "You need at least one active run to withdraw.",
       "We support instant Mobile Money (MTN / Airtel) and USDT.",
     ],
   },
@@ -42,8 +50,8 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: "Referrals",
     body: [
       "Share your referral link from the Invite page.",
-      "You earn Level 1–4 commissions when invitees activate products.",
-      "Rewards only pay while the invitee keeps an active product.",
+      "Earn commissions when your invites activate runs.",
+      "Rewards keep flowing while their runs stay active.",
     ],
   },
   {
@@ -51,21 +59,21 @@ const SECTIONS: { title: string; body: string[] }[] = [
     body: [
       "Top up via instant Mobile Money or USDT.",
       "Deposits land in your rechargeable balance.",
-      "Use that balance to rent products.",
+      "Use that balance to activate new runs.",
     ],
   },
   {
     title: "Daily check-in",
     body: [
-      "Open Profile → Check-in every day.",
-      "Each day pays a bonus into withdrawable balance.",
+      "Open the streak page and check in every day.",
+      "Each check-in pays a bonus into your withdrawable balance.",
       "Longer streaks unlock bigger rewards.",
     ],
   },
   {
-      title: "Milestones",
+    title: "Milestones",
     body: [
-      "Grow referral bonus totals to climb tiers.",
+      "Complete tasks to climb through milestone tiers.",
       "Each tier unlocks a one-time reward.",
       "Claim rewards from the Milestones page.",
     ],
@@ -73,16 +81,16 @@ const SECTIONS: { title: string; body: string[] }[] = [
   {
     title: "App installation",
     body: [
-      "Tap Profile → Install App on your phone.",
-      "Installed app enables update checks.",
-      "Check Profile → Software updates anytime.",
+      "Tap Profile, then Install App on your phone.",
+      "The installed app enables update checks.",
+      "Check Profile for software updates anytime.",
     ],
   },
   {
     title: "Gift codes & community",
     body: [
       "New gift codes drop daily in the community groups.",
-      "Redeem them from Profile → Gift Code.",
+      "Redeem them from Profile, then Gift Code.",
       "Join the groups below so you never miss a drop.",
     ],
   },
@@ -148,7 +156,7 @@ export default function GuideView({ siteConfig, onBack }: GuideViewProps) {
       </div>
 
       <div className="space-y-1">
-        {SECTIONS.map((s, i) => (
+        {GUIDE_SECTIONS.map((s, i) => (
           <GuideSection
             key={s.title}
             title={s.title}

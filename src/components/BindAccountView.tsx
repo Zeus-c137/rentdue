@@ -17,7 +17,7 @@ interface BindAccountViewProps {
 
 export default function BindAccountView({ userProfile, onProfileUpdate, onBack }: BindAccountViewProps) {
   const [username, setUsername] = useState(userProfile.username || "");
-  const [operator, setOperator] = useState<"MTN" | "Airtel">(userProfile.operator || "MTN");
+  const [operator, setOperator] = useState<"MTN" | "Airtel">((userProfile.operator as "MTN" | "Airtel") || "MTN");
   const [usdtAddress, setUsdtAddress] = useState(userProfile.usdtAddress || "");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,7 +28,7 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
 
   useEffect(() => {
     setUsername(userProfile.username || "");
-    setOperator(userProfile.operator || "MTN");
+    setOperator((userProfile.operator as "MTN" | "Airtel") || "MTN");
     setUsdtAddress(userProfile.usdtAddress || "");
     setWithdrawalPhone(userProfile.phone || "");
   }, [userProfile]);

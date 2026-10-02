@@ -19,6 +19,8 @@ import {
   getSubscriptionItems,
   subscribeToItem,
   getUserSubscriptions,
+  getUserCollectibles,
+  claimCollectible,
   getUserTransactions,
   claimDailyReward,
   requestCashout,
@@ -753,6 +755,36 @@ app.post("/api/subscriptions/claim", async (req, res) => {
     res.json(result);
   } catch (error: any) {
     console.error("Claim reward error:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ================= COLLECTIBLES (virtual, off-chain) =================
+
+// Virtual gallery: every finished run owns one keepsake row.
+app.get("/api/collectibles/:phone", async (req, res) => {
+  try {
+    const list = await getUserCollectibles(req.params.phone);
+    res.json(list);
+  } catch (error: any) {
+    console.error("Get collectibles error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Autocredit runs till the cycle is done — this tap completes ownership.
+app.post("/api/collectibles/claim", async (req, res) => {
+  const { phone, subscriptionId } = req.body;
+
+  if (!phone || !subscriptionId) {
+    return res.status(400).json({ error: "Missing phone and subscriptionId parameters." });
+  }
+
+  try {
+    const result = await claimCollectible(phone, subscriptionId);
+    res.json(result);
+  } catch (error: any) {
+    console.error("Claim collectible error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -2126,6 +2158,7 @@ app.get("/api/config/site", async (req, res) => {
       themePreset: migratePresetServer(config.themePreset as string) || "hut12-light",
       themeMode: config.themeMode || "light",
       authBgImage: config.authBgImage || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1600&q=80",
+      authSlideImages: Array.isArray((config as any).authSlideImages) ? (config as any).authSlideImages : [],
       dashboardBgImage: config.dashboardBgImage || "",
       cardStyle: migrateCardStyleServer(config.cardStyle as string) || "solid",
       buttonStyle: "pill-gradient",

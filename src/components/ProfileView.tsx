@@ -39,6 +39,7 @@ import {
   Coins,
   Cpu,
   Trophy,
+  Award,
   ChevronRight
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -62,7 +63,7 @@ interface ProfileViewProps {
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw?: () => void;
   onNavigateToTeamRevenue?: () => void;
-  onNavigate: (tab: "dashboard" | "catalog" | "income" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks", chatRoom?: "shared" | "admin") => void;
+  onNavigate: (tab: "dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks", chatRoom?: "shared" | "admin") => void;
   onLogout: () => void;
   autoOpenWithdraw?: boolean;
   onCloseAutoWithdraw?: () => void;
@@ -216,7 +217,7 @@ export default function ProfileView({
   // Cashout request form fields
   const [pointsToWithdraw, setPointsToWithdraw] = useState<number>(0);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawOperator, setWithdrawOperator] = useState<"MTN" | "Airtel" | "USDT">(userProfile.operator || "MTN");
+  const [withdrawOperator, setWithdrawOperator] = useState<"MTN" | "Airtel" | "USDT">((userProfile.operator as "MTN" | "Airtel" | "USDT") || "MTN");
 
   // Transactions list
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -228,7 +229,7 @@ export default function ProfileView({
     if (userProfile) {
       setUsdtAddress(userProfile.usdtAddress || "");
       setWithdrawalPhone(userProfile.phone || "");
-      setWithdrawOperator(userProfile.operator || "MTN");
+      setWithdrawOperator((userProfile.operator as "MTN" | "Airtel" | "USDT") || "MTN");
     }
   }, [userProfile, showWithdrawSheet]);
 
@@ -412,6 +413,16 @@ export default function ProfileView({
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Milestones</span>
                 <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Journey stages & rewards</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate("collection")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-fuchsia-500/15 text-fuchsia-500 shrink-0">
+                <Award className="w-5 h-5" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">My Collection</span>
+                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Finished runs you own</span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
