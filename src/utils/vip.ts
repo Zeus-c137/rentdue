@@ -71,6 +71,7 @@ export function metricMeta(metric?: string): { unit: string; isMoney: boolean; s
     case "runs_started": return { unit: "runs", isMoney: false, source: "Runs started" };
     case "active_runs": return { unit: "runs", isMoney: false, source: "Active runs" };
     case "completed_runs": return { unit: "runs", isMoney: false, source: "Runs finished" };
+    case "collectibles_claimed": return { unit: "collectibles", isMoney: false, source: "Collectibles claimed" };
     case "invites_count": return { unit: "invites", isMoney: false, source: "Invites" };
     case "milestones_claimed": return { unit: "claimed", isMoney: false, source: "Milestones claimed" };
     case "account_created": return { unit: "", isMoney: false, source: "Account" };

@@ -72,6 +72,32 @@ export const subscribedNodes = mysqlTable(
   })
 );
 
+// 2b. Collectibles — virtual (off-chain) collectibles minted when a run's
+// cycle finishes. One row per finished subscription (subscription_id UNIQUE).
+// claimed_at NULL = cycle done, awaiting the "Claim collectible" tap.
+export const collectibles = mysqlTable(
+  "collectibles",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    userId: varchar("user_id", { length: 32 }).notNull(),
+    subscriptionId: varchar("subscription_id", { length: 64 }).notNull().unique(),
+    itemId: varchar("item_id", { length: 64 }).notNull(),
+    itemName: varchar("item_name", { length: 128 }).notNull(),
+    image: varchar("image", { length: 512 }).notNull().default(""),
+    amount: double("amount").notNull().default(0),
+    duration: int("duration").notNull().default(0),
+    totalEarned: double("total_earned").notNull().default(0),
+    completedAt: varchar("completed_at", { length: 64 }).notNull(),
+    serial: int("serial").notNull().default(0),
+    rarity: varchar("rarity", { length: 16 }).notNull().default("common"),
+    claimedAt: varchar("claimed_at", { length: 64 }),
+  },
+  (table) => ({
+    userIdIdx: index("idx_collectibles_user_id").on(table.userId),
+    itemIdIdx: index("idx_collectibles_item_id").on(table.itemId),
+  })
+);
+
 // 3. Catalog Products Table
 export const catalogProducts = mysqlTable(
   "catalog_products",

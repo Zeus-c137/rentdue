@@ -73,6 +73,7 @@ export interface SiteConfig {
   themePreset?: ThemePreset;
   themeMode?: ThemeMode;
   authBgImage?: string;
+  authSlideImages?: string[]; // Landing carousel art, one per slide (no fallback)
   dashboardBgImage?: string;
   cardStyle?: CardStyle;
   buttonStyle?: ButtonStyle;
@@ -203,6 +204,24 @@ export interface SubscribedNode {
   lastClaimedDate: string; // ISO Date YYYY-MM-DD
   totalEarned: number;
   status: "active" | "completed" | "expired";
+}
+
+export type CollectibleRarity = "common" | "popular" | "rare" | "epic" | "legendary";
+
+export interface Collectible {
+  id: string;
+  userId: string;
+  subscriptionId: string;
+  itemId: string;
+  itemName: string;
+  image: string;
+  amount: number;
+  duration: number;
+  totalEarned: number;
+  completedAt: string; // ISO String
+  serial: number; // per-itemId global mint number
+  rarity: CollectibleRarity;
+  claimedAt: string | null; // NULL = cycle done, awaiting "Claim collectible"
 }
 
 export type { TransactionType } from "./utils/transactionMeta";

@@ -189,6 +189,23 @@ export async function ensureDatabaseSchema(): Promise<void> {
       tag VARCHAR(64) NULL,
       created_at VARCHAR(64) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS collectibles (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      user_id VARCHAR(32) NOT NULL,
+      subscription_id VARCHAR(64) NOT NULL UNIQUE,
+      item_id VARCHAR(64) NOT NULL,
+      item_name VARCHAR(128) NOT NULL,
+      image VARCHAR(512) NOT NULL DEFAULT '',
+      amount DOUBLE NOT NULL DEFAULT 0,
+      duration INT NOT NULL DEFAULT 0,
+      total_earned DOUBLE NOT NULL DEFAULT 0,
+      completed_at VARCHAR(64) NOT NULL,
+      serial INT NOT NULL DEFAULT 0,
+      rarity VARCHAR(16) NOT NULL DEFAULT 'common',
+      claimed_at VARCHAR(64) NULL,
+      INDEX idx_collectibles_user_id (user_id),
+      INDEX idx_collectibles_item_id (item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 
   const connection = poolInstance.promise();

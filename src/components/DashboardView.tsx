@@ -12,6 +12,7 @@ import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask,
 import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
 import { getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
+import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
 import { tierMetaFor } from "../utils/vip";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -181,7 +182,7 @@ export default function DashboardView({
     return { done: false as const, task };
   }, [msBoard]);
   const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
-  const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "account_created" ? "" : "runs");
+  const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "collectibles_claimed" ? "collectibles" : m === "account_created" ? "" : "runs");
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
   const todayKey = getTodayKey();
@@ -254,6 +255,33 @@ export default function DashboardView({
   // Catalog + subs arrive in one batch after login — before that, hold a
   // dimension-matched skeleton instead of flashing the empty state.
   const listsReady = items.length > 0;
+
+  // Onboarding carousel takes the Runs slot until dismissed — dismissing
+  // reveals the Runs section underneath. Art comes from live catalog items.
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("rentdue_onboarding_dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissOnboarding = () => {
+    setOnboardingDismissed(true);
+    try {
+      localStorage.setItem("rentdue_onboarding_dismissed", "1");
+    } catch {
+      // persistence is best-effort
+    }
+  };
+  const homeSlides: OnboardingSlide[] = useMemo(() => {
+    const art = (i: number) => items[i]?.imageUrl || "";
+    return DEFAULT_ONBOARDING_SLIDES.map((s, i) => ({ ...s, image: art(i) || undefined }));
+  }, [items]);
+  const handleOnboardingCta = (index: number) => {
+    if (index === 1) onNavigateToMilestones();
+    else if (index === 2) onNavigateToStreaks();
+    else onNavigateToCatalog();
+  };
 
   // Next check-in opens at platform midnight (check-ins settle on platform days).
   const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
@@ -554,6 +582,20 @@ export default function DashboardView({
           })}
         </div>
       </section>
+
+      {/* Onboarding banner — sits above milestones; dismissing collapses it
+          to a slim first-run button (only while the user has no active runs). */}
+      {!onboardingDismissed && listsReady ? (
+        <OnboardingCarousel slides={homeSlides} onCta={handleOnboardingCta} onDismiss={dismissOnboarding} />
+      ) : onboardingDismissed && listsReady && activeRuns.length === 0 ? (
+        <button
+          type="button"
+          onClick={onNavigateToCatalog}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-[24px] border border-dashed border-[var(--theme-primary)]/50 text-[var(--theme-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
+        >
+          <Plus className="w-4 h-4" /> Start your first Run
+        </button>
+      ) : null}
 
       {/* Next milestone — title + body live inside one frosted card */}
       {!nextMilestone && msBoard === null && (
