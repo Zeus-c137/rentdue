@@ -93,10 +93,14 @@ export default function CatalogView({
     }
   };
 
-  const handleSubscribe = async (item: SubscriptionItem) => {
+  // Resolves true only when the run was actually activated. Callers use the
+  // result to drop the modal back out of its loading state — otherwise a
+  // pre-flight refusal (sold out, low balance) leaves the button stuck on
+  // "Starting..." with no way back.
+  const handleSubscribe = async (item: SubscriptionItem): Promise<boolean> => {
     if (item.outOfStock || item.disabled) {
       toast.error("This product is currently out of stock.");
-      return;
+      return false;
     }
 
     const rechargeBal = userProfile.rechargeBalance || 0;
@@ -104,7 +108,7 @@ export default function CatalogView({
       toast.error(
         `Insufficient recharge balance. Buying ${item.name} requires ${formatCurrency(item.amount)}. Your account recharge balance is ${formatCurrency(rechargeBal)}. Please deposit funds first.`
       );
-      return;
+      return false;
     }
 
     setSubmittingItemId(item.id);
@@ -128,9 +132,11 @@ export default function CatalogView({
       setActivated({ item, dayOne: Number(data.subscription?.totalEarned) || item.dailyYield || 0 });
       setConfirmingItem(null);
       setModalPhase("success");
+      return true;
 
     } catch (err: any) {
       toast.error(err.message || "Failed to lock asset. Please try again.");
+      return false;
     } finally {
       setSubmittingItemId(null);
     }
@@ -149,7 +155,10 @@ export default function CatalogView({
     if (!confirmingItem) return;
     const item = confirmingItem;
     setModalPhase("loading");
-    await handleSubscribe(item);
+    const ok = await handleSubscribe(item);
+    // Failure (server error or pre-flight refusal): restore the buttons so
+    // the modal is retryable or cancellable instead of frozen mid-spinner.
+    if (!ok) setModalPhase("confirm");
   };
 
   const handleCloseModal = () => {
