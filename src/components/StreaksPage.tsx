@@ -117,6 +117,16 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayStreak = checkedInToday ? streak : streak + 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
+  const playCoinSound = () => {
+    try {
+      const audio = new Audio("/assets/audio/coin.mp3");
+      audio.volume = 0.5;
+      void audio.play().catch(() => {});
+    } catch {
+      // audio must never break the claim
+    }
+  };
+
   const handleCheckin = async (e?: React.MouseEvent<HTMLElement>) => {
     if (e) e.stopPropagation();
     if (checkedInToday || claimBusy) return;
@@ -132,6 +142,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const key = getTodayKey();
+      playCoinSound();
       setClaimedDays((prev) => new Set(prev).add(key));
       setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
       toast.success("Daily check-in complete", {
@@ -231,7 +242,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                 claimed
                   ? ""
                   : active
-                    ? "border border-[var(--theme-primary)]/70 tile-shimmer"
+                    ? "border border-[var(--theme-primary)]/70 tile-shimmer streak-tile-pulse"
                     : isNext
                       ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
                       : isFuture

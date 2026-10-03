@@ -647,3 +647,14 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   animation: splash-logo-pulse 1.6s ease-in-out infinite;
   will-change: transform, opacity;
 }
+
+/* Available streak tile: gentle scale pulse to draw the eye to the
+   check-in action. */
+@keyframes streak-tile-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.streak-tile-pulse {
+  animation: streak-tile-pulse 1.4s ease-in-out infinite;
+  will-change: transform;
+}

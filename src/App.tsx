@@ -63,7 +63,9 @@ import navChat3d from "@/src/assets/3d/3dicons-chat-bubble-iso-premium.png";
 import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
 import { LevelBadge } from "./components/LevelBadge";
-import { getDaypartGreeting, getTodayKey } from "./utils/runs";
+import MilestoneChip from "./components/MilestoneChip";
+import UserAvatar from "./components/UserAvatar";
+import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
@@ -191,6 +193,9 @@ export default function App() {
   }, [isAdminRoute]);
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
+  // Opening the journey from the header tile filters the stage detail to
+  // remaining tasks only; every other entry shows the full list.
+  const [journeyRemaining, setJourneyRemaining] = useState(false);
   const [referralView, setReferralView] = useState<"overview" | "team">("overview");
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [collectionReturn, setCollectionReturn] = useState<"dashboard" | "income" | "profile">("profile");
@@ -340,7 +345,7 @@ export default function App() {
   // underlying tab mounted, so focus survives a peek at alerts.
   const vipVisible = activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip");
   useEffect(() => {
-    if (!vipVisible) setJourneyStage(null);
+    if (!vipVisible) { setJourneyStage(null); setJourneyRemaining(false); }
   }, [vipVisible]);
   const [chatRoomDefault, setChatRoomDefault] = useState<"shared" | "admin" | "ai">("shared");
   const [autoOpenWithdraw, setAutoOpenWithdraw] = useState(false);
@@ -645,14 +650,28 @@ export default function App() {
         }}
       >
         
-        {/* Top Premium navigation Header ribbon */}
-        <header className="sticky top-0 z-40 bg-transparent h-16 flex items-center justify-between px-3.5 sm:px-4.5 shrink-0">
-          <p className="font-display font-black text-[19px] leading-tight tracking-tight text-[var(--theme-text)] truncate">
-            {getDaypartGreeting()}, {userProfile.username || "Operator"}.
-          </p>
-
-          {/* Action controllers */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Top Premium navigation Header ribbon — deliberately backgroundless so
+            the dashboard art reads through it. Operator mark, messages and
+            notifications left; the milestone tile right. The tile replaces
+            the greeting — identity now lives in the avatar. */}
+        <header className="sticky top-0 z-40 bg-transparent h-[72px] flex items-center justify-between gap-2 px-3.5 sm:px-4.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Operator mark — username initials with the name below, opens profile */}
+            <button
+              type="button"
+              onClick={() => setActiveTab("profile")}
+              title={userProfile.username || "Operator"}
+              aria-label={`Open profile${userProfile.username ? ` — ${userProfile.username}` : ""}`}
+              className="flex flex-col items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-transform duration-100 bg-transparent border-0 p-0"
+            >
+              <UserAvatar
+                username={userProfile.username}
+                phone={userProfile.phone}
+              />
+              <span className="max-w-[52px] truncate text-[10px] font-sans font-bold leading-none text-[var(--theme-text-muted)]">
+                {userProfile.username || "Operator"}
+              </span>
+            </button>
             {/* Messages trigger button */}
             <button
               onClick={() => setActiveTab("chat")}
@@ -686,6 +705,13 @@ export default function App() {
               )}
             </button>
           </div>
+          {/* Milestone tile — tier mark with a progress ring around it */}
+          <div className="flex items-center min-w-0">
+            <MilestoneChip
+              phone={userProfile.phone}
+              onOpen={(stage) => { setJourneyStage(stage || null); setJourneyRemaining(true); setActiveTab("vip"); }}
+            />
+          </div>
         </header>
 
         {/* Main interactive tabs content view block */}
@@ -707,7 +733,7 @@ export default function App() {
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
                   onNavigateToIncome={() => setActiveTab("income")}
-                  onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
+                  onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setJourneyRemaining(false); setActiveTab("vip"); }}
                   onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
                   onProfileUpdate={handleProfileChange}
                 />
@@ -885,7 +911,7 @@ export default function App() {
                 transition={{ duration: 0.12 }}
                 className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
               >
-                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} focusStage={journeyStage} />
+                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} focusStage={journeyStage} remainingOnly={journeyRemaining} />
               </motion.div>
             )}
 

@@ -50,96 +50,52 @@ interface FlightCoin {
   delay: number;
 }
 
-/* Week climb — the week starts at zero and steps up day by day, ending at
-   the total shown above. Each vertex is a day; the endpoint is where the
-   user stands. Monotonic by construction (daily earnings are >= 0). */
+/* Week climb — extra small sparkline riding the same line as the weekly
+   total. No day labels, no baseline: just the cumulative line and the
+   endpoint pulse. Always spans the full 7 days. */
 function WeekClimb({ data }: { data: number[] }) {
-  const W = 300;
-  const H = 74;
-  const P = 6;
-  const LABEL_H = 12;
-  const plotH = H - P - LABEL_H;
+  const W = 56;
+  const H = 32;
+  const P = 3;
+  const plotH = H - P * 2;
+  const days = 7;
+  const padded: number[] = [];
+  for (let i = 0; i < days; i++) padded.push(Number(data[i]) || 0);
   const cum: number[] = [];
   let acc = 0;
-  for (const v of data) {
-    acc += Number(v) || 0;
+  for (const v of padded) {
+    acc += v;
     cum.push(acc);
   }
   const total = cum.length > 0 ? cum[cum.length - 1] : 0;
   const max = Math.max(total, 1);
-  const span = Math.max(1, data.length - 1);
+  const span = days - 1;
   const x = (i: number) => P + (i * (W - P * 2)) / span;
   const y = (v: number) => P + plotH - (Math.max(0, v) / max) * plotH;
-  const base = P + plotH;
-  const last = Math.max(0, data.length - 1);
-  // Rise at Monday from the baseline, then flat-then-rise per day.
-  let d = `M ${x(0).toFixed(1)},${base.toFixed(1)} L ${x(0).toFixed(1)},${y(cum[0] ?? 0).toFixed(1)}`;
-  for (let i = 1; i < data.length; i++) {
-    d += ` L ${x(i).toFixed(1)},${y(cum[i - 1]).toFixed(1)} L ${x(i).toFixed(1)},${y(cum[i]).toFixed(1)}`;
+  const last = days - 1;
+  let d = `M ${x(0).toFixed(1)},${y(cum[0] ?? 0).toFixed(1)}`;
+  for (let i = 1; i < days; i++) {
+    d += ` L ${x(i).toFixed(1)},${y(cum[i]).toFixed(1)}`;
   }
-  const fill = `${d} L ${x(last).toFixed(1)},${base.toFixed(1)} Z`;
-  const days = ["M", "T", "W", "T", "F", "S", "S"];
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      className="w-full h-[76px] overflow-visible"
+      className="w-14 h-8 overflow-visible shrink-0"
       aria-hidden
     >
-      <line
-        x1={P}
-        x2={W - P}
-        y1={base}
-        y2={base}
-        stroke="var(--theme-text)"
-        strokeWidth="1"
-        strokeDasharray="2 3"
-        opacity="0.25"
-      />
-      <path d={fill} fill="var(--theme-primary)" opacity="0.12" />
       <path
         d={d}
         fill="none"
         stroke="var(--theme-primary)"
-        strokeWidth="2.5"
+        strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength={1}
         className="climb-draw"
       />
-      {data.map((_, i) => {
-        const isEnd = i === data.length - 1;
-        return (
-          <g key={i}>
-            {isEnd && (
-              <>
-                <circle cx={x(i)} cy={y(cum[i])} r="8" fill="var(--theme-primary)" opacity="0.2" />
-                <circle cx={x(i)} cy={y(cum[i])} r="4" fill="none" stroke="var(--theme-primary)" strokeWidth="1.5" className="runway-ping" style={{ animationDelay: "1.3s" }} />
-              </>
-            )}
-            <circle
-              cx={x(i)}
-              cy={y(cum[i])}
-              r={isEnd ? 4 : 2.5}
-              fill="var(--theme-primary)"
-              className="climb-dot"
-              style={{ animationDelay: `${0.15 + i * 0.18}s` }}
-            />
-            {days[i] && (
-              <text
-                x={x(i)}
-                y={H - 1}
-                textAnchor="middle"
-                fontSize="8"
-                fontWeight="700"
-                style={{ fill: "var(--theme-text-muted)" }}
-              >
-                {days[i]}
-              </text>
-            )}
-          </g>
-        );
-      })}
+      <circle cx={x(last)} cy={y(cum[last])} r="5" fill="var(--theme-primary)" opacity="0.2" />
+      <circle cx={x(last)} cy={y(cum[last])} r="2.5" fill="none" stroke="var(--theme-primary)" strokeWidth="1.5" className="runway-ping" style={{ animationDelay: "1.3s" }} />
     </svg>
   );
 }
@@ -357,6 +313,16 @@ export default function DashboardView({
     });
   };
 
+  const playCoinSound = () => {
+    try {
+      const audio = new Audio("/assets/audio/coin.mp3");
+      audio.volume = 0.5;
+      void audio.play().catch(() => {});
+    } catch {
+      // audio must never break the claim
+    }
+  };
+
   const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusy) return;
     // Capture tile geometry synchronously — React synthetic events go stale after await.
@@ -373,6 +339,7 @@ export default function DashboardView({
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      playCoinSound();
       // Coin flight plays only on tile tap, flying to the balance hero. Header
       // button claims instantly with no animation and no confetti.
       if (source === "tile" && !reduced && tileRect) {
@@ -446,27 +413,33 @@ export default function DashboardView({
         )}
       </AnimatePresence>
       {/* Balance hero — one balance, plus progress */}
-      <section className="px-1">
-        <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-          Withdrawable balance
-        </p>
-        <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
-          {formatCurrency(Number(profile.points) || 0)}
-        </p>
-        <p className="mt-3 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
-          {weekTotal === null ? (
-            <span className="opacity-60">Tallying the week…</span>
-          ) : (
-            <>+{formatCurrency(weekTotal)} this week</>
-          )}
-        </p>
-        {weekSeries ? (
-          <div className="mt-2">
-            <WeekClimb data={weekSeries} />
+      <section className="px-1 mt-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+              Withdrawable balance
+            </p>
+            <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
+              {formatCurrency(Number(profile.points) || 0)}
+            </p>
+            <p className="mt-3 flex items-center gap-2 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
+              {weekTotal === null ? (
+                <span className="opacity-60">Tallying the week…</span>
+              ) : (
+                <>+{formatCurrency(weekTotal)} this week</>
+              )}
+              {weekSeries ? (
+                <span className="relative ml-4 inline-flex w-14 h-8 shrink-0">
+                  <span className="absolute inset-0 -m-1">
+                    <WeekClimb data={weekSeries} />
+                  </span>
+                </span>
+              ) : (
+                <span aria-hidden="true" className="ml-auto inline-block h-8 w-14 rounded-full bg-[var(--theme-text)]/10 animate-pulse shrink-0" />
+              )}
+            </p>
           </div>
-        ) : (
-          <div aria-hidden="true" className="mt-2 h-14 rounded-xl bg-[var(--theme-text)]/10 animate-pulse" />
-        )}
+        </div>
       </section>
 
       {/* Daily streak — frosted to match Store/Runs */}
@@ -529,7 +502,7 @@ export default function DashboardView({
               d.claimed
                 ? ""
                 : active
-                  ? "border border-[var(--theme-primary)]/70 tile-shimmer"
+                  ? "border border-[var(--theme-primary)]/70 tile-shimmer streak-tile-pulse"
                   : isNext
                     ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
                     : d.isFuture
@@ -657,7 +630,7 @@ export default function DashboardView({
                 type="button"
                 onClick={() => onNavigateToMilestones(task.category)}
                 aria-label={`View milestone: ${task.title}`}
-                className="mt-3 w-full text-left rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-3 transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
+                className="mt-3 w-full text-left rounded-2xl p-3 transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
@@ -740,26 +713,26 @@ export default function DashboardView({
         /* Runs — one card, two rows, overflow as a count */
         <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
-            <h2 className="font-display font-black text-[15px] truncate min-w-0">
-              {showCompletedRuns ? "Completed Runs" : "Active Runs"}
-            </h2>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h2 className="font-display font-black text-[15px] truncate min-w-0">
+                {showCompletedRuns ? "Completed Runs" : "Active Runs"}
+              </h2>
               <button
                 type="button"
                 onClick={() => setShowCompletedRuns((v) => !v)}
                 aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
-                className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
               >
-                <SlidersHorizontal className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onNavigateToIncome}
-                className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
-              >
-                View all {shownRuns.length}
+                <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
             </div>
+            <button
+              type="button"
+              onClick={onNavigateToIncome}
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+            >
+              View all {shownRuns.length}
+            </button>
           </div>
           <div className="min-h-[196px]">
             {shownRuns.length === 0 ? (
@@ -780,7 +753,7 @@ export default function DashboardView({
               >
                 <div className="flex items-center gap-3">
                   {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-14 h-14 rounded-xl object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-20 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
                   ) : (
                     <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
                       {node.itemName.charAt(0).toUpperCase()}

@@ -321,7 +321,6 @@ export default function DepositView({
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Recharge account</h1>
-            <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-1 truncate">Top up instantly with mobile money or USDT.</p>
           </div>
         </div>
 
@@ -363,12 +362,7 @@ export default function DepositView({
         <div className="rounded-[var(--theme-radius)] overflow-hidden">
           {/* Method picker — segmented pill */}
           <div className="p-3 border-b border-[var(--theme-card-border)] space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[15px] font-sans font-extrabold tracking-tight text-[var(--theme-text)]">Choose method</h2>
-              <span className="text-[11px] font-sans font-medium opacity-60 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Encrypted
-              </span>
-            </div>
+            <h2 className="text-[15px] font-sans font-extrabold tracking-tight text-[var(--theme-text)]">Choose method</h2>
             <div className="flex gap-1 border-b border-[var(--theme-card-border)]">
               {autoEnabled && (
                 <PillBtn
@@ -488,7 +482,6 @@ export default function DepositView({
               <form onSubmit={handleStartManualPayment} className="space-y-5">
                 {/* Receiver cards */}
                 <div className="space-y-2">
-                  <p className="text-[15px] font-sans font-extrabold tracking-tight">Send to</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {config.mtnReceiverPhone ? (
                       <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 flex items-center justify-between gap-2">
@@ -548,7 +541,7 @@ export default function DepositView({
                     )}
                   </div>
                   <div className="rounded-full bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 px-3 py-2 flex items-center justify-between gap-2 text-xs font-black">
-                    <span className="opacity-70">Send exactly</span>
+                    <span className="opacity-70">Exact amount</span>
                     <span className="flex items-center gap-2">
                       <span className="text-[var(--theme-primary)]">{formatCurrency(finalAmount)}</span>
                       <button
@@ -566,48 +559,45 @@ export default function DepositView({
                 </div>
 
                 <div className="space-y-3 pt-1">
-                  <p className="text-[15px] font-sans font-extrabold tracking-tight">Confirm details</p>
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <label className="text-[13px] font-sans font-medium opacity-60">Your sender number</label>
-                      <div className="relative">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] px-2.5 py-1 text-[11px] font-black">+256</span>
-                        <input
-                          type="text"
-                          required
-                          placeholder="7XX XXX XXX"
-                          value={senderPhone}
-                          onChange={(e) => setSenderPhone(e.target.value)}
-                          className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-[72px] pr-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[13px] font-sans font-medium opacity-60">Amount sent (UGX)</label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black opacity-50">UGX</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          required
-                          disabled={payType === "gpu"}
-                          value={payType === "gpu" ? selectedGpu?.amount || 0 : manualAmount}
-                          onChange={(e) => setManualAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                          className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none disabled:opacity-60"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[13px] font-sans font-medium opacity-60">Transaction ID</label>
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-sans font-medium opacity-60">Your sender number</label>
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] px-2.5 py-1 text-[11px] font-black">+256</span>
                       <input
                         type="text"
                         required
-                        placeholder="Paste mobile money TxID"
-                        value={manualRef}
-                        onChange={(e) => setManualRef(e.target.value)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
+                        placeholder="7XX XXX XXX"
+                        value={senderPhone}
+                        onChange={(e) => setSenderPhone(e.target.value)}
+                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-[72px] pr-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-sans font-medium opacity-60">Amount sent (UGX)</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black opacity-50">UGX</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        disabled={payType === "gpu"}
+                        value={payType === "gpu" ? selectedGpu?.amount || 0 : manualAmount}
+                        onChange={(e) => setManualAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none disabled:opacity-60"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-sans font-medium opacity-60">Transaction ID</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Paste mobile money TxID"
+                      value={manualRef}
+                      onChange={(e) => setManualRef(e.target.value)}
+                      className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
+                    />
                   </div>
                 </div>
 
@@ -641,7 +631,7 @@ export default function DepositView({
                       </div>
                     )}
                     <div className="flex items-center justify-center gap-2">
-                      <span className="text-[11px] font-medium opacity-50">Scan or copy address</span>
+                      <span className="text-[11px] font-medium opacity-50">Scan or copy</span>
                     </div>
                     <div className="text-center space-y-1">
                       <p className="text-[13px] font-sans font-medium opacity-60">Send exactly</p>
@@ -671,7 +661,6 @@ export default function DepositView({
                 </div>
 
                 <div className="space-y-3 pt-1">
-                  <p className="text-[15px] font-sans font-extrabold tracking-tight">Confirm details</p>
                   <div className="space-y-2">
                     <label className="text-[13px] font-sans font-medium opacity-60">Amount sent (USD)</label>
                     <div className="relative">
