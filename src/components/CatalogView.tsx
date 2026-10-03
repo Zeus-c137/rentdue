@@ -76,11 +76,13 @@ export default function CatalogView({
   const [confirmingItem, setConfirmingItem] = useState<SubscriptionItem | null>(null);
   const [modalPhase, setModalPhase] = useState<"confirm" | "loading" | "success">("confirm");
   // Vertical/horizontal A/B: persisted, toggleable from the list header.
+  // Portrait (vertical) is the default; landscape (horizontal) is the other option.
   const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
     try {
-      return localStorage.getItem(LAYOUT_KEY) === "vertical" ? "vertical" : "horizontal";
+      const stored = localStorage.getItem(LAYOUT_KEY);
+      return stored === "horizontal" || stored === "vertical" ? stored : "vertical";
     } catch {
-      return "horizontal";
+      return "vertical";
     }
   });
 

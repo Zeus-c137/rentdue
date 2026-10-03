@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { ArrowLeft, Check, Lock, ChevronRight, Trophy, User, Users, Play, CalendarDays, Banknote, Coins, Sparkles, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
-import { calcVipProgress, normalizeVipTaskboard, metricMeta, tierRewardFor, tierMetaFor } from "@/src/utils/vip";
+import { calcVipProgress, normalizeVipTaskboard, metricMeta, tierRewardFor, tierMetaFor, isTaskMet } from "@/src/utils/vip";
 import CellsProgress from "./CellsProgress";
 import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
 import { useAbortSignal } from "@/src/hooks/useGatedInterval";
@@ -13,6 +13,21 @@ import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
 let vipCache: { phone: string; board: VipTaskboard; at: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
+const boardListeners = new Set<(board: VipTaskboard) => void>();
+
+// Anyone holding a board re-reads it the moment anyone else loads a newer one.
+// The header chip is mounted on every tab, so it would otherwise sit on a
+// stale tier until the app reloads.
+export function subscribeMilestoneBoard(listener: (board: VipTaskboard) => void): () => void {
+  boardListeners.add(listener);
+  return () => { boardListeners.delete(listener); };
+}
+
+function publishBoard(board: VipTaskboard) {
+  for (const listener of boardListeners) {
+    try { listener(board); } catch { /* one bad listener must not break the loader */ }
+  }
+}
 
 // Shared loader so Home can show the next milestone without a second fetch.
 export async function getMilestoneBoard(phone: string, signal: AbortSignal): Promise<VipTaskboard> {
@@ -20,12 +35,13 @@ export async function getMilestoneBoard(phone: string, signal: AbortSignal): Pro
   const data = await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, signal);
   const board = normalizeVipTaskboard(data);
   vipCache = { phone, board, at: Date.now() };
+  publishBoard(board);
   return board;
 }
 
 export function bustMilestoneCache() { vipCache = null; }
 
-interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; focusStage?: string | null; }
+interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; focusStage?: string | null; remainingOnly?: boolean; }
 
 function AchievementGlyph({ metric }: { metric?: string }) {
   const m = String(metric || "operator_points");
@@ -55,7 +71,7 @@ interface StageGroup {
   art: string;
 }
 
-export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focusStage }: Props) {
+export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focusStage, remainingOnly }: Props) {
   const { formatCurrency } = useCurrency();
   const [board, setBoard] = useState<VipTaskboard>({
     tasks: [], vipLevel: 0, stageOrder: [], tierRewards: {}, tierMeta: {}, claimedTierRewards: [],
@@ -65,6 +81,9 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   const [loading, setLoading] = useState(false);
   const [bulkStage, setBulkStage] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string | null>(focusStage || null);
+  // A header-tile tap while the journey is already open retargets the detail
+  // instead of stranding it on the old stage.
+  useEffect(() => { if (focusStage) setSelectedStage(focusStage); }, [focusStage]);
   // Bar fill-in on mount / stage open — same treatment as Home Active Runs.
   const [barsIn, setBarsIn] = useState(false);
   useEffect(() => {
@@ -79,7 +98,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     if (typeof document !== "undefined" && document.hidden) return;
     setLoading(true);
     const s=renew();
-    try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); vipCache={phone, board:n, at:Date.now()}; }
+    try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); vipCache={phone, board:n, at:Date.now()}; publishBoard(n); }
     catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"Journey unavailable"); }
     finally{ setLoading(false); }
   }, [phone]);
@@ -98,7 +117,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     }
     return order.map((name) => {
       const tasks = board.tasks.filter((t) => String(t.category || "Milestone") === name);
-      const done = tasks.filter((t) => Number(t.progress || 0) >= Number(t.requiredBonus || 0)).length;
+      const done = tasks.filter(isTaskMet).length;
       const claimedTier = claimedTiers.includes(name);
       const locked = tasks.length > 0 && tasks.every((t) => t.stageLocked);
       const tierReward = tierRewardFor(board.tierRewards, name);
@@ -168,6 +187,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     const idx = stages.indexOf(detail);
     const next = stages[idx + 1]?.name;
     const claiming = bulkStage === detail.name;
+    // Header-tile entry shows only what still stands — the full list stays
+    // one tap away on the back button. Manual browsing is unfiltered.
+    // Derived from remainingOnly + focusStage directly: comparing against
+    // selectedStage breaks on re-entry, because selectedStage only catches
+    // up in a post-paint effect.
+    const filterRemaining = !!remainingOnly && !!focusStage;
+    const visibleTasks = filterRemaining ? detail.tasks.filter((t) => !isTaskMet(t)) : detail.tasks;
     return (
       <div className="w-full flex-1 flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
@@ -216,10 +242,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
           </div>
 
           <div className="px-4 mt-3">
-            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} task list.</h2>
+            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} {filterRemaining ? "remaining." : "task list."}</h2>
+            {filterRemaining && visibleTasks.length === 0 ? (
+              <p className="text-[12px] font-sans text-[var(--theme-text-muted)] rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 p-4">Every task in {detail.name} is done — claim the stage reward.</p>
+            ) : (
             <div className="flex flex-col gap-2.5">
-              {detail.tasks.map((task) => {
-                const met = Number(task.progress || 0) >= Number(task.requiredBonus || 0);
+              {visibleTasks.map((task) => {
+                const met = isTaskMet(task);
                 const p = calcVipProgress(task.progress, task.requiredBonus);
                 const locked = task.stageLocked && !met && !detail.claimedTier;
                 return (
@@ -255,6 +284,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 );
               })}
             </div>
+            )}
           </div>
         </div>
       </div>

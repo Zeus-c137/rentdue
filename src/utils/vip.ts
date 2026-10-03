@@ -122,3 +122,97 @@ export function tierMetaFor(meta: Record<string, TierMeta> | undefined, category
   const hit = matchTierKey(Object.keys(meta), category);
   return hit ? meta[hit] : {};
 }
+
+// Tier order mirrored from VipTasksPage's stages memo: order of first
+// appearance in the task list. The journey list is the visible truth (it
+// renders "{done}/{total} COMPLETE" per stage), so the header must resolve
+// the current tier and the next name in that same order.
+export function tierOrder(board: VipTaskboard | null | undefined): string[] {
+  if (!board) return [];
+  const order: string[] = [];
+  for (const task of board.tasks || []) {
+    const name = String(task.category || "").trim() || "Milestone";
+    if (!order.includes(name)) order.push(name);
+  }
+  return order;
+}
+
+export interface TierProgress {
+  name: string;
+  art: string;
+  description: string;
+  done: number;
+  total: number;
+  /** Milestones in the tier still to clear. Counted in milestones, never in
+   *  summed units — days, UGX and runs are incomparable. */
+  left: number;
+  pct: number;
+  /** Empty once the top tier is reached. */
+  nextName: string;
+  tierReward: number;
+  readyToClaim: boolean;
+  complete: boolean;
+}
+
+/** A task is complete exactly when its progress meets its requirement — the
+ *  same rule VipTasksPage uses for its per-task DONE check and per-stage
+ *  done/total counts. Both surfaces share this so the header ring and the
+ *  journey list can never disagree. */
+export function isTaskMet(task: Pick<VipTask, "progress" | "requiredBonus">): boolean {
+  return Number(task.progress || 0) >= Number(task.requiredBonus || 0);
+}
+
+/** Where the operator stands: the first unclaimed tier in journey order,
+ *  scored by milestones cleared inside it. Falls back to the top tier once
+ *  every reward is claimed so the header always has something true to show. */
+export function currentTierProgress(board: VipTaskboard | null | undefined): TierProgress | null {
+  if (!board) return null;
+  const order = tierOrder(board);
+  if (order.length === 0) return null;
+  const claimed = board.claimedTierRewards || [];
+  const openIdx = order.findIndex((name) => !claimed.includes(name));
+  const idx = openIdx === -1 ? order.length - 1 : openIdx;
+  const name = order[idx];
+  if (!name) return null;
+
+  const tasks = (board.tasks || []).filter((task) => String(task.category || "Milestone") === name);
+  const total = tasks.length;
+  const done = tasks.filter(isTaskMet).length;
+  const left = Math.max(0, total - done);
+  const complete = total > 0 && left === 0;
+  const meta = tierMetaFor(board.tierMeta, name);
+  const tierReward = tierRewardFor(board.tierRewards, name);
+
+  return {
+    name,
+    art: meta.imageUrl || "",
+    description: meta.description || "",
+    done,
+    total,
+    left,
+    pct: total > 0 ? (done / total) * 100 : 0,
+    nextName: openIdx === -1 ? "" : order[idx + 1] || "",
+    tierReward,
+    readyToClaim: complete && openIdx !== -1 && tierReward > 0,
+    complete,
+  };
+}
+
+// Initials for the avatar: first letter of the first two name parts, so
+// "DELL K" reads DK. Falls back to the last two phone digits when no
+// username was ever set.
+export function initialsFor(username?: string | null, phone?: string | null): string {
+  const parts = String(username || "").trim().split(/[\s._-]+/).filter(Boolean);
+  if (parts.length > 0) {
+    const letters = parts
+      .slice(0, 2)
+      .map((part) => Array.from(part)[0] || "")
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+    if (letters) return letters;
+  }
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length >= 2) return digits.slice(-2);
+  return "?";
+}
