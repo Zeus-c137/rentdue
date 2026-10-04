@@ -63,13 +63,13 @@ function TierRing({ pct, art }: { pct: number; art: string }) {
   return (
     <span className="relative w-14 h-14 shrink-0" aria-hidden="true">
       <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full -rotate-90">
-        <circle cx="18" cy="18" r={R} fill="none" strokeWidth="3.5" strokeOpacity="0.14" style={{ stroke: "var(--theme-text)" }} />
+        <circle cx="18" cy="18" r={R} fill="none" strokeWidth="2" strokeOpacity="0.14" style={{ stroke: "var(--theme-text)" }} />
         <circle
           cx="18"
           cy="18"
           r={R}
           fill="none"
-          strokeWidth="3.5"
+          strokeWidth="2"
           strokeLinecap="round"
           style={{
             stroke: "var(--theme-primary)",
@@ -86,7 +86,7 @@ function TierRing({ pct, art }: { pct: number; art: string }) {
             alt=""
             loading="lazy"
             decoding="async"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
         ) : (
           <Trophy className="w-4 h-4 text-[var(--theme-primary)]" />
@@ -140,14 +140,14 @@ export default function MilestoneChip({ phone, onOpen }: MilestoneChipProps) {
       onClick={() => onOpen(tier.name)}
       title={`${tier.name} — open journey`}
       aria-label={`${tier.name} tier, ${tier.done} of ${tier.total} milestones done. ${chipCaptionText(tier)}. Open journey.`}
-      className="flex items-center gap-2 min-w-0 shrink-0 bg-transparent border-0 p-0 cursor-pointer active:scale-[0.96] transition-transform duration-100"
+      className="flex items-center gap-1.5 min-w-0 shrink-0 bg-transparent border-0 p-0 cursor-pointer active:scale-[0.96] transition-transform duration-100"
     >
       <TierRing pct={tier.pct} art={tier.art} />
       <span className="hidden min-[400px]:block min-w-0 text-left leading-none">
-        <span className="block font-display font-black text-[13px] uppercase tracking-tight truncate max-w-[120px]">
+        <span className="block font-display font-black text-[13px] uppercase tracking-tight truncate max-w-[160px]">
           {tier.name}
         </span>
-        <span className="mt-1 block font-sans text-[11px] font-bold text-[var(--theme-text-muted)] truncate max-w-[120px]">
+        <span className="mt-1 block font-sans text-[11px] text-[var(--theme-text-muted)] truncate max-w-[160px]">
           {chipCaption(tier)}
         </span>
       </span>

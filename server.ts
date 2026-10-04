@@ -388,7 +388,7 @@ app.get("/sitemap.xml", async (req, res) => {
       `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${escapeSeoHtml(u.loc)}</loc><lastmod>${today}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join("")}</urlset>`
     );
   } catch (err) {
-    console.error("[SEO] sitemap failed:", err);
+    logError("[SEO] sitemap failed:", err);
     res.status(500).type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);
   }
 });
@@ -466,7 +466,7 @@ app.get("/api/jobs/daily-credit", async (req, res) => {
   try {
     res.json(await dailyCreditRunner("External"));
   } catch (error: any) {
-    console.error("[Daily Credit Job] External run failed:", error);
+    logError("[Daily Credit Job] External run failed:", error);
     res.status(500).json({ error: "Daily credit job failed." });
   }
 });
@@ -478,12 +478,31 @@ function normalizePhone(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";
 }
 
+function logError(label: string, err: unknown) {
+  const msg = (err as any)?.message || String(err);
+  console.error(`[${label}] ${msg}`);
+}
+
+function sanitizeErrorMessage(err: unknown, fallback: string): string {
+  const msg = String((err as any)?.message || fallback).toLowerCase();
+  if (msg.includes("db is not connected") || msg.includes("database") || msg.includes("econnrefused") || msg.includes("timeout")) {
+    return "Service temporarily unavailable. Please try again.";
+  }
+  if (msg.includes("duplicate") || msg.includes("already exists") || msg.includes("unique")) {
+    return "An account with this information already exists.";
+  }
+  if (msg.includes("not found") || msg.includes("no record")) {
+    return "Record not found.";
+  }
+  return fallback;
+}
+
 function errorResponse(error: unknown, fallback: string, defaultStatus = 500) {
   const err = error as any;
   const status = Number.isInteger(err?.statusCode) ? err.statusCode : defaultStatus;
   return {
     status,
-    body: { error: err?.message || fallback }
+    body: { error: sanitizeErrorMessage(err, fallback) }
   };
 }
 
@@ -557,7 +576,7 @@ app.use("/api/admin", async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.error("[Admin Auth] session validation failed:", error);
+    logError("[Admin Auth] session validation failed:", error);
     res.status(401).json({ error: "Admin sign-in is required." });
   }
 });
@@ -576,7 +595,7 @@ app.get("/api/auth/session", async (req, res) => {
     if (!profile) return res.status(401).json({ authenticated: false });
     res.json({ authenticated: true, profile: publicProfile(profile) });
   } catch (error: any) {
-    console.error("[Auth] Session restore failed:", error);
+    logError("[Auth] Session restore failed:", error);
     res.status(401).json({ authenticated: false });
   }
 });
@@ -621,7 +640,7 @@ app.post("/api/auth/register", async (req, res) => {
     });
     res.json({ success, profile: publicProfile(profile) });
   } catch (error: any) {
-    console.error("Register Error:", error);
+    logError("Register Error:", error);
     const response = errorResponse(error, "Registration could not be completed.", 400);
     res.status(response.status).json(response.body);
   }
@@ -657,7 +676,7 @@ app.post("/api/auth/login", async (req, res) => {
     res.setHeader("Set-Cookie", `${USER_SESSION_COOKIE}=${encodeURIComponent(signUserSession(normalizedPhone, secret))}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${USER_SESSION_TTL_SECONDS}`);
     res.json({ success: true, profile: publicProfile(profile) });
   } catch (error: any) {
-    console.error("Login Error:", error);
+    logError("Login Error:", error);
     const response = errorResponse(error, "We could not sign you in right now. Please try again.", 500);
     res.status(response.status).json(response.body);
   }
@@ -682,7 +701,7 @@ app.post("/api/auth/profile", async (req, res) => {
     );
     res.json({ success: true, profile: publicProfile(profile) });
   } catch (error: any) {
-    console.error("Profile Edit Error:", error);
+    logError("Profile Edit Error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -694,7 +713,7 @@ app.get("/api/profile/:phone", async (req, res) => {
     const profile = await getUserProfile(req.params.phone);
     res.json(publicProfile(profile));
   } catch (error: any) {
-    console.error("Profile Fetch Error:", error);
+    logError("Profile Fetch Error:", error);
     res.status(404).json({ error: error.message });
   }
 });
@@ -707,7 +726,7 @@ app.get("/api/items", async (req, res) => {
     const items = await getSubscriptionItems();
     res.json(items);
   } catch (error: any) {
-    console.error("Get items error:", error);
+    logError("Get items error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -719,7 +738,7 @@ app.get("/api/subscriptions/:phone", async (req, res) => {
     const list = await getUserSubscriptions(req.params.phone);
     res.json(list);
   } catch (error: any) {
-    console.error("Get subs error:", error);
+    logError("Get subs error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -737,7 +756,7 @@ app.post("/api/items/subscribe", async (req, res) => {
     
     res.json({ success: true, subscription: subNode });
   } catch (error: any) {
-    console.error("Subscription purchase error:", error);
+    logError("Subscription purchase error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -754,7 +773,7 @@ app.post("/api/subscriptions/claim", async (req, res) => {
     const result = await claimDailyReward(subId, phone);
     res.json(result);
   } catch (error: any) {
-    console.error("Claim reward error:", error);
+    logError("Claim reward error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -767,7 +786,7 @@ app.get("/api/collectibles/:phone", async (req, res) => {
     const list = await getUserCollectibles(req.params.phone);
     res.json(list);
   } catch (error: any) {
-    console.error("Get collectibles error:", error);
+    logError("Get collectibles error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -784,7 +803,7 @@ app.post("/api/collectibles/claim", async (req, res) => {
     const result = await claimCollectible(phone, subscriptionId);
     res.json(result);
   } catch (error: any) {
-    console.error("Claim collectible error:", error);
+    logError("Claim collectible error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -815,7 +834,7 @@ app.post("/api/profile/withdraw", async (req, res) => {
     const result = await requestCashout(phone, numPoints, undefined, "manual");
     res.json(result);
   } catch (error: any) {
-    console.error("Cashout request error:", error);
+    logError("Cashout request error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -832,7 +851,7 @@ app.get("/api/profile/vip-tasks/:phone", async (req, res) => {
     const board = await getVipTaskboard(req.params.phone);
     res.json(board);
   } catch (error: any) {
-    console.error("[Milestones] load error:", error);
+    logError("[Milestones] load error:", error);
     res.status(500).json({ error: error.message || "Unable to load milestones right now." });
   }
 });
@@ -853,7 +872,7 @@ app.post("/api/profile/vip-tasks/claim", async (req, res) => {
     const result = await claimTierReward(phone, String(category));
     res.json(result);
   } catch (error: any) {
-    console.error("Claim milestone error:", error);
+    logError("Claim milestone error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -975,7 +994,7 @@ app.post("/api/payment/deposit", async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error(" collection error:", error);
+    logError(" collection error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1039,7 +1058,7 @@ app.post("/api/manual/deposit", async (req, res) => {
       message: "Proof of payment submitted successfully! Verification is now pending admin approval."
     });
   } catch (error: any) {
-    console.error("Manual deposit submission error:", error);
+    logError("Manual deposit submission error:", error);
     res.status(550).json({ error: error.message });
   }
 });
@@ -1148,7 +1167,7 @@ app.post("/api/payment/status", async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error("Webhook status check error:", error);
+    logError("Webhook status check error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1263,7 +1282,7 @@ app.post("/api/payment/withdraw", async (req, res) => {
     } catch (error: any) {
       // A timeout can mean the provider accepted the payout. Keep the local
       // record pending so a later webhook cannot pay against a refunded user.
-      console.error("Withdrawal request outcome is unknown:", error);
+      logError("Withdrawal request outcome is unknown:", error);
       return res.status(202).json({
         success: true,
         status: "PENDING",
@@ -1301,7 +1320,7 @@ app.post("/api/payment/withdraw", async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error("Withdrawal error:", error);
+    logError("Withdrawal error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -1388,7 +1407,7 @@ app.post("/api/payment/webhook", async (req, res) => {
 
     res.status(200).json({ received: true, status: "processed", transaction_status: normalizedStatus });
   } catch (error) {
-    console.error("Webhook error:", error);
+    logError("Webhook error:", error);
     // A settlement failure should be retried by the provider. Returning 200
     // here would acknowledge the webhook while leaving the withdrawal stuck.
     res.status(500).json({ received: false, error: error instanceof Error ? error.message : String(error) });
@@ -1418,7 +1437,7 @@ app.post("/api/profile/deposit", async (req, res) => {
     const updatedProfile = await processDeposit(phone, depAmt, operator, depositPhone);
     res.json({ success: true, profile: updatedProfile });
   } catch (error: any) {
-    console.error("Direct deposit error:", error);
+    logError("Direct deposit error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -1434,7 +1453,7 @@ app.get("/api/profile/notifications/:phone", async (req, res) => {
     const logs = await getUserNotifications(phone);
     res.json(logs);
   } catch (error: any) {
-    console.error("Fetch notifications list exception:", error);
+    logError("Fetch notifications list exception:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1450,7 +1469,7 @@ app.get("/api/profile/transactions/:phone", async (req, res) => {
     const list = await getUserTransactions(phone);
     res.json(list);
   } catch (error: any) {
-    console.error("Fetch transactions exception:", error);
+    logError("Fetch transactions exception:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1461,7 +1480,7 @@ app.get("/api/profile/referrals/:phone", async (req, res) => {
     const statsList = await getReferreeStatsList(req.params.phone);
     res.json(statsList);
   } catch (error: any) {
-    console.error("Get referrals lists error:", error);
+    logError("Get referrals lists error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1474,7 +1493,7 @@ app.get("/api/chat/room/:roomId", async (req, res) => {
     const list = await getChatMessages(req.params.roomId);
     res.json(list);
   } catch (error: any) {
-    console.error("Get chats error:", error);
+    logError("Get chats error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1492,7 +1511,7 @@ app.post("/api/chat/send", async (req, res) => {
 
     res.json({ success: true, message: newMsg });
   } catch (error: any) {
-    console.error("Send message error:", error);
+    logError("Send message error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1503,7 +1522,7 @@ app.get("/api/admin/chat/conversations", async (req, res) => {
     const data = await adminGetChatConversations();
     res.json(data);
   } catch (error: any) {
-    console.error("Get admin conversations error:", error);
+    logError("Get admin conversations error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1514,7 +1533,7 @@ app.get("/api/system/stats", async (req, res) => {
     const data = await fetchSystemDashboardStats();
     res.json(data);
   } catch (error: any) {
-    console.error("Get system stats error:", error);
+    logError("Get system stats error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1613,7 +1632,7 @@ app.post("/api/copilot/chat", async (req, res) => {
         : "No milestones configured right now.";
     }
   } catch (err) {
-    console.error("Failed fetching catalog/gift code items for AI prompt:", err);
+    logError("Failed fetching catalog/gift code items for AI prompt:", err);
   }
 
   const keys = [
@@ -1824,7 +1843,7 @@ app.post("/api/admin/flush-db-now", async (req, res) => {
       ...result
     });
   } catch (err: any) {
-    console.error("[Admin API Failure] DB flush failed:", err);
+    logError("[Admin API Failure] DB flush failed:", err);
     res.status(500).json({ error: "Failed to flush database", details: err.message });
   }
 });
@@ -1835,7 +1854,7 @@ app.get("/api/admin/users", async (req, res) => {
     const users = await adminGetAllUsers();
     res.json(users);
   } catch (err: any) {
-    console.error("[Admin API Error] Fetch all users failed:", err);
+    logError("[Admin API Error] Fetch all users failed:", err);
     res.status(500).json({ error: "Failed to load users list", details: err.message });
   }
 });
@@ -1850,7 +1869,7 @@ app.post("/api/admin/users/override-password", async (req, res) => {
     await adminOverridePassword(phone, newPassword);
     res.json({ success: true, message: `Password for user ${phone} successfully updated.` });
   } catch (err: any) {
-    console.error("[Admin API Error] Override password failed:", err);
+    logError("[Admin API Error] Override password failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1861,7 +1880,7 @@ app.get("/api/admin/transactions", async (req, res) => {
     const transactions = await adminGetAllTransactions();
     res.json(transactions);
   } catch (err: any) {
-    console.error("[Admin API Error] Fetch all transactions failed:", err);
+    logError("[Admin API Error] Fetch all transactions failed:", err);
     res.status(500).json({ error: "Failed to load transaction history", details: err.message });
   }
 });
@@ -1876,7 +1895,7 @@ app.post("/api/admin/transactions/update-status", async (req, res) => {
     await adminUpdateTransactionStatus(transId, status);
     res.json({ success: true, message: `Transaction ${transId} successfully updated to status: ${status}.` });
   } catch (err: any) {
-    console.error("[Admin API Error] Transaction update failed:", err);
+    logError("[Admin API Error] Transaction update failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1910,7 +1929,7 @@ app.post("/api/admin/catalog/save", async (req, res) => {
     });
     res.json({ success: true, message: `Catalog item ${item.name} configured successfully.` });
   } catch (err: any) {
-    console.error("[Admin API Error] Store catalog config failed:", err);
+    logError("[Admin API Error] Store catalog config failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1925,7 +1944,7 @@ app.post("/api/admin/catalog/delete", async (req, res) => {
     await adminDeleteCatalogItem(itemId);
     res.json({ success: true, message: `Catalog node ${itemId} has been purged successfully.` });
   } catch (err: any) {
-    console.error("[Admin API Error] Delete catalog item failed:", err);
+    logError("[Admin API Error] Delete catalog item failed:", err);
     res.status(550).json({ error: err.message });
   }
 });
@@ -1936,7 +1955,7 @@ app.post("/api/admin/catalog/delete-all", async (req, res) => {
     const { count } = await adminDeleteAllCatalogItems();
     res.json({ success: true, message: `Successfully deleted all ${count} catalog nodes.` });
   } catch (err: any) {
-    console.error("[Admin API Error] Delete all catalog items failed:", err);
+    logError("[Admin API Error] Delete all catalog items failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1947,7 +1966,7 @@ app.get("/api/admin/catalog/nodes", async (req, res) => {
     const items = await adminGetCatalogItems();
     res.json(items);
   } catch (err: any) {
-    console.error("[Admin API Error] Fetch all catalog nodes failed:", err);
+    logError("[Admin API Error] Fetch all catalog nodes failed:", err);
     res.status(500).json({ error: "Failed to load catalog nodes list" });
   }
 });
@@ -1962,7 +1981,7 @@ app.post("/api/admin/users/lock", async (req, res) => {
     await adminUpdateUserLockStatus(phone, locked);
     res.json({ success: true, message: `Account for ${phone} is now ${locked ? "locked" : "unlocked"}.` });
   } catch(err: any) {
-    console.error("[Admin API Error] Lock user failed:", err);
+    logError("[Admin API Error] Lock user failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1972,7 +1991,7 @@ app.get("/api/admin/announcements", async (req, res) => {
     const announcements = await adminGetAnnouncements();
     res.json(announcements);
   } catch (err: any) {
-    console.error("[Admin API Error] Fetch announcements failed:", err);
+    logError("[Admin API Error] Fetch announcements failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1986,7 +2005,7 @@ app.post("/api/admin/announcements", async (req, res) => {
     await adminCreateAnnouncement(title, message, readMoreLink, category || "announcement", imageUrl, tag);
     res.json({ success: true, message: "Announcement published." });
   } catch (err: any) {
-    console.error("[Admin API Error] Create announcement failed:", err);
+    logError("[Admin API Error] Create announcement failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2000,7 +2019,7 @@ app.put("/api/admin/announcements/:id", async (req, res) => {
     await adminUpdateAnnouncement(req.params.id, title, message, readMoreLink, category, imageUrl, tag);
     res.json({ success: true, message: "Announcement updated." });
   } catch (err: any) {
-    console.error("[Admin API Error] Update announcement failed:", err);
+    logError("[Admin API Error] Update announcement failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2010,7 +2029,7 @@ app.delete("/api/admin/announcements/:id", async (req, res) => {
     await adminDeleteAnnouncement(req.params.id);
     res.json({ success: true, message: "Announcement deleted." });
   } catch (err: any) {
-    console.error("[Admin API Error] Delete announcement failed:", err);
+    logError("[Admin API Error] Delete announcement failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2095,7 +2114,7 @@ app.get("/api/manifest.json", async (req, res) => {
   } catch (err: any) {
     // A temporary database issue should not make the app permanently
     // uninstallable. Return a valid fallback manifest while logging the cause.
-    console.error("[PWA] Manifest configuration lookup failed:", err);
+    logError("[PWA] Manifest configuration lookup failed:", err);
     res.json({
       id: "/",
       name: "RentDue Store",
@@ -2292,7 +2311,7 @@ app.post("/api/admin/login", async (req, res) => {
       res.status(401).json({ error: "Admin phone number or password is incorrect." });
     }
   } catch (err: any) {
-    console.error("[Admin Auth] login failed:", err);
+    logError("[Admin Auth] login failed:", err);
     const response = errorResponse(err, "Admin sign-in is temporarily unavailable.", 500);
     res.status(response.status).json(response.body);
   }
@@ -2376,7 +2395,7 @@ app.post("/api/admin/upload", async (req, res) => {
     void collectImageOrphans();
     return res.json({ success: true, url: uploaded.secure_url });
   } catch (error: any) {
-    console.error("[Upload] failed:", error);
+    logError("[Upload] failed:", error);
     res.status(500).json({ error: "Upload failed. Try again." });
   }
 });
