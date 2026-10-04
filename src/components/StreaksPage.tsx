@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Flame } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import flameSvg from "@/src/assets/svg/flame.svg";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
@@ -117,11 +118,15 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayStreak = checkedInToday ? streak : streak + 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
+  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
   const playCoinSound = () => {
     try {
-      const audio = new Audio("/assets/audio/coin.mp3");
-      audio.volume = 0.5;
-      void audio.play().catch(() => {});
+      if (!coinAudioRef.current) {
+        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
+        coinAudioRef.current.volume = 0.5;
+      }
+      coinAudioRef.current.currentTime = 0;
+      void coinAudioRef.current.play().catch(() => {});
     } catch {
       // audio must never break the claim
     }
@@ -175,7 +180,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <Flame className="w-8 h-8 text-[var(--theme-primary)] shrink-0" fill="currentColor" />
+          <img src={flameSvg} alt="" aria-hidden="true" className="h-8 w-auto shrink-0" />
           <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">Daily check-in</h1>
         </div>
 
@@ -184,12 +189,15 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--theme-text)] opacity-55 leading-none">
             Accrued {isCurrentMonth ? "this month" : monthName}
           </p>
-          <p className="text-[13px] font-sans font-black text-[var(--theme-primary)] mt-2">
-            {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
-          </p>
-          <p className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none mt-1.5">
-            {formatCurrency(monthSum)}
-          </p>
+          <div className="flex items-baseline gap-2.5 mt-2">
+            <p className="inline-flex items-center gap-1 text-[13px] font-sans font-black text-[var(--theme-primary)]">
+              <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
+              {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
+            </p>
+            <p className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
+              {formatCurrency(monthSum)}
+            </p>
+          </div>
           {!checkedInToday && (
             <p className="text-[12px] font-sans font-bold mt-2 tabular-nums text-[var(--theme-primary)]">
               {`Day ${todayStreak} reward • ${formatCurrency(todayAmount)}`}

@@ -10,6 +10,7 @@ import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
 import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import flameSvg from "@/src/assets/svg/flame.svg";
 import { getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
 import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
@@ -170,8 +171,9 @@ export default function DashboardView({
   }, []);
 
   // Week sparkline: everything credited to withdrawable, per day.
+  // Re-fetches when the profile changes (e.g. after a claim) so the chart
+  // and weekly total stay atomic with the balance card.
   useEffect(() => {
-    if (weekSeries !== null) return;
     const ctrl = new AbortController();
     fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
       .then((rows) => {
@@ -194,8 +196,7 @@ export default function DashboardView({
       })
       .catch(() => {});
     return () => ctrl.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.phone]);
+  }, [profile.phone, profile.points]);
 
   const activeRuns = useMemo(() => {
     const list = activeNodes.filter((n) => getRunState(n, items) === "active");
@@ -302,6 +303,13 @@ export default function DashboardView({
       lastCheckinDate: todayKey,
       checkinStreak: streak,
     });
+    // Optimistic weekly chart update: today's bucket gets the bonus immediately.
+    setWeekSeries((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      next[6] = (next[6] || 0) + bonus;
+      return next;
+    });
     setCheckedInLocal(true);
     setCoins(null);
     toast.success("Daily check-in complete", {
@@ -313,11 +321,15 @@ export default function DashboardView({
     });
   };
 
+  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
   const playCoinSound = () => {
     try {
-      const audio = new Audio("/assets/audio/coin.mp3");
-      audio.volume = 0.5;
-      void audio.play().catch(() => {});
+      if (!coinAudioRef.current) {
+        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
+        coinAudioRef.current.volume = 0.5;
+      }
+      coinAudioRef.current.currentTime = 0;
+      void coinAudioRef.current.play().catch(() => {});
     } catch {
       // audio must never break the claim
     }
@@ -446,7 +458,10 @@ export default function DashboardView({
       <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="min-w-0">
-            <h2 className="font-display font-black text-[15px] leading-tight">Daily streak</h2>
+            <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight">
+              <CalendarDays className="w-5 h-5 text-[var(--theme-primary)] shrink-0" />
+              {weekTiles.month} streak
+            </h2>
             <div className="mt-1 min-h-[20px]">
               {checkedInToday ? (
                 <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-primary)]">
@@ -461,17 +476,17 @@ export default function DashboardView({
               )}
             </div>
           </div>
-          <div className="shrink-0 flex items-center">
-            <button
-              type="button"
-              onClick={onNavigateToStreaks}
-              aria-label="Open streaks"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform shrink-0"
-            >
-              <CalendarDays className="w-5 h-5" />
-              <span className="text-[13px] font-sans font-bold leading-none">{weekTiles.month}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onNavigateToStreaks}
+            aria-label="Open streaks"
+            className="inline-flex items-center gap-1 px-1 py-1.5 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform shrink-0"
+          >
+            <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
+            <span className="text-[13px] font-sans font-bold tabular-nums leading-none">
+              {streak} day{streak === 1 ? "" : "s"}
+            </span>
+          </button>
         </div>
         <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
@@ -557,18 +572,9 @@ export default function DashboardView({
         </div>
       </section>
 
-      {/* Onboarding banner — sits above milestones; dismissing collapses it
-          to a slim first-run button (only while the user has no active runs). */}
+      {/* Onboarding banner — sits above milestones */}
       {!onboardingDismissed && listsReady ? (
         <OnboardingCarousel slides={homeSlides} onCta={handleOnboardingCta} onDismiss={dismissOnboarding} />
-      ) : onboardingDismissed && listsReady && activeRuns.length === 0 ? (
-        <button
-          type="button"
-          onClick={onNavigateToCatalog}
-          className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-[24px] border border-dashed border-[var(--theme-primary)]/50 text-[var(--theme-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
-        >
-          <Plus className="w-4 h-4" /> Start your first Run
-        </button>
       ) : null}
 
       {/* Next milestone — title + body live inside one frosted card */}
@@ -753,7 +759,7 @@ export default function DashboardView({
               >
                 <div className="flex items-center gap-3">
                   {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-20 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-24 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
                   ) : (
                     <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
                       {node.itemName.charAt(0).toUpperCase()}

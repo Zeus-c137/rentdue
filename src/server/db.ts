@@ -45,12 +45,16 @@ function rootCause(error: unknown): any {
 
 function databaseFailure(operation: string, error: unknown): DatabaseOperationError {
   const details = rootCause(error);
-  console.error(`[Database] ${operation} failed`, {
-    code: details?.code,
-    errno: details?.errno,
-    sqlState: details?.sqlState,
-    message: details?.message || String(error)
-  });
+  // Duplicate entry is a user error, not a DB failure — surface it directly.
+  if (details?.code === "ER_DUP_ENTRY" || details?.errno === 1062) {
+    const msg = String(details?.message || "");
+    const field = msg.match(/for key '(.+?)'/)?.[1] || "record";
+    const err = new Error(`An account with this ${field} already exists.`);
+    err.name = "DuplicateEntryError";
+    (err as any).statusCode = 409;
+    throw err;
+  }
+  console.error(`[Database] ${operation} failed: ${details?.message || String(error)}`);
   return new DatabaseOperationError(operation, error);
 }
 
@@ -2388,7 +2392,15 @@ export async function getVipTaskboard(phone: string) {
   // 7-Day Streak, First 100K, Clean Exit, Still Running). Tasks created
   // before metrics existed carry no `metric` key and keep the legacy
   // operator-points ladder behaviour, so existing rows keep working.
-  const streakDays = Math.max(0, Number((user as any).checkinStreak || 0));
+  // Cumulative check-in days from transaction history — survives streak breaks.
+  let streakDays = 0;
+  try {
+    const streakResult: any = await drizzleDb.execute(sql`SELECT COUNT(*) AS n FROM transactions WHERE user_id = ${phone} AND type = 'daily_checkin_bonus' AND status IN ('SUCCESSFUL', 'COMPLETED')`);
+    const streakRows = Array.isArray(streakResult?.[0]) ? streakResult[0] : [];
+    streakDays = Number(streakRows?.[0]?.n || 0);
+  } catch {
+    streakDays = Math.max(0, Number((user as any).checkinStreak || 0));
+  }
   let runsStarted = 0, activeRuns = 0, completedRuns = 0, lifetimeYield = 0;
   try {
     const statRows: any[] = await drizzleDb.select({

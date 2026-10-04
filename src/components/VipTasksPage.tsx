@@ -41,7 +41,7 @@ export async function getMilestoneBoard(phone: string, signal: AbortSignal): Pro
 
 export function bustMilestoneCache() { vipCache = null; }
 
-interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; focusStage?: string | null; remainingOnly?: boolean; }
+interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; focusStage?: string | null; }
 
 function AchievementGlyph({ metric }: { metric?: string }) {
   const m = String(metric || "operator_points");
@@ -71,7 +71,7 @@ interface StageGroup {
   art: string;
 }
 
-export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focusStage, remainingOnly }: Props) {
+export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focusStage }: Props) {
   const { formatCurrency } = useCurrency();
   const [board, setBoard] = useState<VipTaskboard>({
     tasks: [], vipLevel: 0, stageOrder: [], tierRewards: {}, tierMeta: {}, claimedTierRewards: [],
@@ -187,13 +187,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     const idx = stages.indexOf(detail);
     const next = stages[idx + 1]?.name;
     const claiming = bulkStage === detail.name;
-    // Header-tile entry shows only what still stands — the full list stays
-    // one tap away on the back button. Manual browsing is unfiltered.
-    // Derived from remainingOnly + focusStage directly: comparing against
-    // selectedStage breaks on re-entry, because selectedStage only catches
-    // up in a post-paint effect.
-    const filterRemaining = !!remainingOnly && !!focusStage;
-    const visibleTasks = filterRemaining ? detail.tasks.filter((t) => !isTaskMet(t)) : detail.tasks;
+    const visibleTasks = detail.tasks;
     return (
       <div className="w-full flex-1 flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
@@ -242,10 +236,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
           </div>
 
           <div className="px-4 mt-3">
-            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} {filterRemaining ? "remaining." : "task list."}</h2>
-            {filterRemaining && visibleTasks.length === 0 ? (
-              <p className="text-[12px] font-sans text-[var(--theme-text-muted)] rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 p-4">Every task in {detail.name} is done — claim the stage reward.</p>
-            ) : (
+            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} task list.</h2>
             <div className="flex flex-col gap-2.5">
               {visibleTasks.map((task) => {
                 const met = isTaskMet(task);
@@ -284,7 +275,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 );
               })}
             </div>
-            )}
           </div>
         </div>
       </div>

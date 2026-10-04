@@ -193,9 +193,6 @@ export default function App() {
   }, [isAdminRoute]);
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
-  // Opening the journey from the header tile filters the stage detail to
-  // remaining tasks only; every other entry shows the full list.
-  const [journeyRemaining, setJourneyRemaining] = useState(false);
   const [referralView, setReferralView] = useState<"overview" | "team">("overview");
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
   const [collectionReturn, setCollectionReturn] = useState<"dashboard" | "income" | "profile">("profile");
@@ -345,7 +342,7 @@ export default function App() {
   // underlying tab mounted, so focus survives a peek at alerts.
   const vipVisible = activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip");
   useEffect(() => {
-    if (!vipVisible) { setJourneyStage(null); setJourneyRemaining(false); }
+    if (!vipVisible) setJourneyStage(null);
   }, [vipVisible]);
   const [chatRoomDefault, setChatRoomDefault] = useState<"shared" | "admin" | "ai">("shared");
   const [autoOpenWithdraw, setAutoOpenWithdraw] = useState(false);
@@ -709,7 +706,7 @@ export default function App() {
           <div className="flex items-center min-w-0">
             <MilestoneChip
               phone={userProfile.phone}
-              onOpen={(stage) => { setJourneyStage(stage || null); setJourneyRemaining(true); setActiveTab("vip"); }}
+              onOpen={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
             />
           </div>
         </header>
@@ -733,7 +730,7 @@ export default function App() {
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
                   onNavigateToIncome={() => setActiveTab("income")}
-                  onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setJourneyRemaining(false); setActiveTab("vip"); }}
+                  onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
                   onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
                   onProfileUpdate={handleProfileChange}
                 />
@@ -911,7 +908,7 @@ export default function App() {
                 transition={{ duration: 0.12 }}
                 className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
               >
-                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} focusStage={journeyStage} remainingOnly={journeyRemaining} />
+                <VipTasksPage phone={userProfile.phone} siteConfig={siteConfig} userProfile={userProfile} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab("profile")} focusStage={journeyStage} />
               </motion.div>
             )}
 
