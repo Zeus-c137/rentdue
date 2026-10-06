@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 // Official Telegram.Login popup library, shared by the login-screen button,
 // the register pill, and the Bind Account flow. Loads telegram-login.js once;
 // callers open the popup via authenticate().
+//
+// IMPORTANT — redirect_uri: the SDK hardcodes
+//   redirect_uri = location.origin + location.pathname
+// (e.g. "https://example.com/") and offers no override. Telegram
+// exact-matches this against BotFather > Login Widget > Allowed URLs, so
+// that list must contain the page URL *exactly* (trailing slash, scheme,
+// www vs non-www all matter). A mismatch fails inside the Telegram popup
+// with a redirect_uri error before our callback ever fires.
 const TELEGRAM_LOGIN_LIBRARY = "https://oauth.telegram.org/js/telegram-login.js?6";
 
 interface TelegramLoginLib {
@@ -57,9 +66,11 @@ export function useTelegramLogin(onAuth: (payload: TelegramAuthPayload) => void)
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
-  // Opens the Telegram popup. Returns false when the library isn't ready;
-  // dismissed popups and library errors resolve silently (warn-only), exactly
-  // like the previous button behavior.
+  // Opens the Telegram popup. Returns false when the library isn't ready.
+  // Popup-level failures (backend redirect_uri/config errors, malformed
+  // responses) surface as a toast so a broken BotFather setup is visible in
+  // the UI instead of dying silently in the console. A user-dismissed popup
+  // ("popup_closed") stays silent by design.
   const authenticate = useCallback(() => {
     if (status !== "ready" || !clientId) return false;
     const login = window.Telegram?.Login;
@@ -67,11 +78,16 @@ export function useTelegramLogin(onAuth: (payload: TelegramAuthPayload) => void)
     const handle = (data: unknown) => {
       const payload = data as { error?: string; id_token?: string } | null;
       if (!payload || payload.error) {
-        console.warn("Telegram sign-in:", payload?.error || "dismissed");
+        const err = payload?.error || "dismissed";
+        console.warn("Telegram sign-in:", err);
+        if (payload?.error && payload.error !== "popup_closed") {
+          toast.error("Telegram sign-in failed. Please try again.");
+        }
         return;
       }
       if (!payload.id_token) {
         console.warn("Telegram sign-in: no id_token returned");
+        toast.error("Telegram sign-in failed. Please try again.");
         return;
       }
       onAuthRef.current(payload as TelegramAuthPayload);
