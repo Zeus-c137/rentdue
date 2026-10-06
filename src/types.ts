@@ -142,6 +142,7 @@ export interface VipTaskboard {
 
 export interface UserProfile {
   phone: string;
+  telegramId?: string | null;
   username: string;
   password?: string;
   inviteCode: string;

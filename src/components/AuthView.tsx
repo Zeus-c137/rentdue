@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
 import { GUIDE_SECTIONS } from "./GuideView";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
+import TelegramLoginButton from "./TelegramLoginButton";
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
@@ -269,6 +270,25 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       }
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTelegramLogin = async (payload: Record<string, unknown>) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/auth/telegram/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Telegram sign-in failed.");
+      toast.success("Logged in successfully!");
+      onAuthSuccess(data.profile);
+    } catch (error: any) {
+      toast.error(error.message || "Telegram sign-in failed.");
     } finally {
       setIsLoading(false);
     }
@@ -587,6 +607,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     )}
                   </PrimaryButton>
                 </div>
+                <TelegramLoginButton onAuth={handleTelegramLogin} disabled={isLoading} />
               </form>
 
               <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">

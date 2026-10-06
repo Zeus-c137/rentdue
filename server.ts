@@ -57,6 +57,7 @@ import {
   getVipTaskboard,
   claimTierReward,
   adminUpdateUserLockStatus,
+  adminAdjustBalance,
   adminCreateAnnouncement,
   adminUpdateAnnouncement,
   adminGetAnnouncements,
@@ -73,8 +74,11 @@ import {
   createTransactionId,
   getTransactionByExternalReference,
   publicProfile,
-  verifyPassword
+  verifyPassword,
+  linkTelegramAccount,
+  getUserProfileByTelegramId
 } from "./src/server/db";
+import { verifyTelegramIdToken } from "./src/server/telegramAuth";
 import { migratePreset as migratePresetServer, migrateCardStyle as migrateCardStyleServer, migrateFontFamily as migrateFontFamilyServer, sanitizeSiteConfig as sanitizeSiteConfigServer } from "./src/utils/themeTokens";
 
 // Ensure .env is loaded robustly in production iisnode and custom hosting environments (like SmarterASP)
@@ -585,6 +589,64 @@ app.use("/api/admin", async (req, res, next) => {
 
 // ================= AUTH ENDPOINTS =================
 
+app.get("/api/auth/telegram/widget-config", (_req, res) => {
+  const clientId = process.env.TELEGRAM_CLIENT_ID || "";
+  if (!/^\d+$/.test(clientId)) return res.status(503).json({ error: "Telegram sign-in is unavailable." });
+  res.json({ clientId });
+});
+
+app.get("/api/auth/telegram/status", async (req, res) => {
+  const phone = await getAuthenticatedUserPhone(req);
+  if (!phone) return res.status(401).json({ error: "Sign in to manage Telegram linking." });
+  try {
+    const [profile, config] = await Promise.all([getUserProfile(phone), getSiteConfig()]);
+    if (!profile) return res.status(401).json({ error: "Sign in to manage Telegram linking." });
+    const isAdmin = phone === config.adminPhone;
+    res.json({ linked: Boolean(profile.telegramId), isAdmin });
+  } catch {
+    res.status(503).json({ error: "Telegram status is unavailable." });
+  }
+});
+
+app.post("/api/auth/telegram/link", async (req, res) => {
+  const phone = await getAuthenticatedUserPhone(req);
+  if (!phone) return res.status(401).json({ error: "Sign in before linking Telegram." });
+  const clientId = process.env.TELEGRAM_CLIENT_ID || "";
+  if (!clientId) return res.status(503).json({ error: "Telegram linking is unavailable." });
+  try {
+    const config = await getSiteConfig();
+    if (phone === config.adminPhone) return res.status(403).json({ error: "Telegram linking is unavailable for admin accounts." });
+    const profile = await getUserProfile(phone);
+    if (!profile || profile.locked) return res.status(403).json({ error: "This account cannot link Telegram." });
+    const identity = await verifyTelegramIdToken(req.body?.id_token, clientId);
+    const result = await linkTelegramAccount(phone, identity.id);
+    if (result === "conflict") return res.status(409).json({ error: "This account or Telegram profile is already linked." });
+    res.json({ success: true, linked: true });
+  } catch (error: any) {
+    const status = Number(error?.statusCode) || 400;
+    res.status(status).json({ error: status === 503 ? "Telegram linking is unavailable." : error.message || "Telegram link could not be verified." });
+  }
+});
+
+app.post("/api/auth/telegram/login", async (req, res) => {
+  const clientId = process.env.TELEGRAM_CLIENT_ID || "";
+  if (!clientId) return res.status(503).json({ error: "Telegram sign-in is unavailable." });
+  try {
+    const identity = await verifyTelegramIdToken(req.body?.id_token, clientId);
+    const profile = await getUserProfileByTelegramId(identity.id);
+    if (!profile || profile.locked) return res.status(401).json({ error: "This Telegram account is not linked to an available Rentdue account." });
+    const config = await getSiteConfig();
+    if (profile.phone === config.adminPhone) return res.status(403).json({ error: "Telegram sign-in is unavailable for admin accounts." });
+    const secret = adminSessionSecret(config);
+    if (!secret) return res.status(503).json({ error: "Sign-in is temporarily unavailable." });
+    res.setHeader("Set-Cookie", `${USER_SESSION_COOKIE}=${encodeURIComponent(signUserSession(profile.phone, secret))}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${USER_SESSION_TTL_SECONDS}`);
+    res.json({ success: true, profile: publicProfile(profile) });
+  } catch (error: any) {
+    const status = Number(error?.statusCode) || 400;
+    res.status(status).json({ error: status === 503 ? "Telegram sign-in is unavailable." : error.message || "Telegram sign-in could not be verified." });
+  }
+});
+
 // Restore the signed HttpOnly user session after a browser refresh. The
 // client never needs to persist the profile or the session token itself.
 app.get("/api/auth/session", async (req, res) => {
@@ -832,7 +894,8 @@ app.post("/api/profile/withdraw", async (req, res) => {
     }
 
     const result = await requestCashout(phone, numPoints, undefined, "manual");
-    res.json(result);
+    const { profile, ...transaction } = result;
+    res.json({ ...transaction, profile: publicProfile(profile) });
   } catch (error: any) {
     logError("Cashout request error:", error);
     res.status(400).json({ error: error.message });
@@ -1128,14 +1191,14 @@ app.post("/api/payment/status", async (req, res) => {
         return res.json({
           success: true,
           status: "SUCCESSFUL",
-          profile: updatedProfile
+          profile: publicProfile(updatedProfile)
         });
       } else if (tx.type === "withdrawal" || tx.type === "withdraw") {
         const updatedProfile = await completeSuccessfulWithdrawal(trans_id);
         return res.json({
           success: true,
           status: "SUCCESSFUL",
-          profile: updatedProfile
+          profile: publicProfile(updatedProfile)
         });
       } else {
         const subNode = await completeSuccessfulGpuActivation(
@@ -1235,8 +1298,8 @@ app.post("/api/payment/withdraw", async (req, res) => {
         success: true,
         status: "PENDING",
         mode: "manual",
-        profile: cashoutResult.profile,
-        transaction: cashoutResult,
+        profile: publicProfile(cashoutResult.profile),
+        transaction: { id: cashoutResult.id, status: cashoutResult.status },
         message: "Withdrawal submitted and is pending admin approval."
       });
     }
@@ -1287,7 +1350,7 @@ app.post("/api/payment/withdraw", async (req, res) => {
         success: true,
         status: "PENDING",
         mode: "automatic",
-        profile: cashoutResult.profile,
+        profile: publicProfile(cashoutResult.profile),
         transaction: cashoutResult,
         message: "Withdrawal submitted. Awaiting payment-provider webhook confirmation."
       });
@@ -1314,8 +1377,8 @@ app.post("/api/payment/withdraw", async (req, res) => {
       success: true,
       status: String(finalTransaction?.status || "PENDING").toUpperCase(),
       mode: "automatic",
-      profile: finalProfile || cashoutResult.profile,
-      transaction: finalTransaction || cashoutResult,
+      profile: publicProfile(finalProfile || cashoutResult.profile),
+      transaction: finalTransaction || { id: trans_id, status: "PENDING" },
       zuluResponse: withResult
     });
 
@@ -1435,7 +1498,7 @@ app.post("/api/profile/deposit", async (req, res) => {
     }
 
     const updatedProfile = await processDeposit(phone, depAmt, operator, depositPhone);
-    res.json({ success: true, profile: updatedProfile });
+    res.json({ success: true, profile: publicProfile(updatedProfile) });
   } catch (error: any) {
     logError("Direct deposit error:", error);
     res.status(400).json({ error: error.message });
@@ -1852,7 +1915,7 @@ app.post("/api/admin/flush-db-now", async (req, res) => {
 app.get("/api/admin/users", async (req, res) => {
   try {
     const users = await adminGetAllUsers();
-    res.json(users);
+    res.json(users.map((user) => publicProfile(user)));
   } catch (err: any) {
     logError("[Admin API Error] Fetch all users failed:", err);
     res.status(500).json({ error: "Failed to load users list", details: err.message });
@@ -1982,6 +2045,35 @@ app.post("/api/admin/users/lock", async (req, res) => {
     res.json({ success: true, message: `Account for ${phone} is now ${locked ? "locked" : "unlocked"}.` });
   } catch(err: any) {
     logError("[Admin API Error] Lock user failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin API: Credit or debit a user's withdrawable (points) or deposit
+// (rechargeBalance) balance by a signed delta. Writes an audit-only ledger
+// row that is hidden from the user's own history.
+app.post("/api/admin/users/adjust-balance", async (req, res) => {
+  const { phone, target, amount, reason } = req.body;
+  if (!phone || !target || amount === undefined || amount === null) {
+    return res.status(400).json({ error: "Missing required parameters: phone, target, amount" });
+  }
+  if (target !== "points" && target !== "rechargeBalance") {
+    return res.status(400).json({ error: "Invalid balance target: expected 'points' or 'rechargeBalance'." });
+  }
+  const delta = Number(amount);
+  if (!Number.isSafeInteger(delta) || delta === 0) {
+    return res.status(400).json({ error: "Amount must be a non-zero whole number of UGX." });
+  }
+  try {
+    const { balance } = await adminAdjustBalance(phone, target, delta, typeof reason === "string" ? reason.trim().slice(0, 200) : undefined);
+    const label = target === "points" ? "withdrawable" : "deposit";
+    res.json({
+      success: true,
+      balance,
+      message: `${delta > 0 ? "Credited" : "Debited"} UGX ${Math.abs(delta).toLocaleString()} ${label}. New ${label} balance: UGX ${balance.toLocaleString()}.`
+    });
+  } catch (err: any) {
+    logError("[Admin API Error] Balance adjustment failed:", err);
     res.status(500).json({ error: err.message });
   }
 });

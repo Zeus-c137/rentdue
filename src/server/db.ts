@@ -129,9 +129,9 @@ export function verifyPassword(stored: string, supplied: string): { ok: boolean;
   }
 }
 
-export function publicProfile<T extends { password?: unknown }>(profile: T | null | undefined): Omit<T, "password"> | null {
+export function publicProfile<T extends { password?: unknown; telegramId?: unknown }>(profile: T | null | undefined): Omit<T, "password" | "telegramId"> | null {
   if (!profile) return null;
-  const { password: _dropped, ...rest } = profile;
+  const { password: _dropped, telegramId: _telegramId, ...rest } = profile as T & { telegramId?: unknown };
   return rest;
 }
 
@@ -149,7 +149,7 @@ export function getPlatformDateKey(date = new Date()): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-export type TransactionIdPrefix = "DEP" | "WDR" | "RNT";
+export type TransactionIdPrefix = "DEP" | "WDR" | "RNT" | "ADJ";
 
 // Human-readable internal IDs shared by deposits, withdrawals, and rentals.
 // The date uses the platform timezone; the random suffix keeps IDs unique
@@ -331,6 +331,7 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
         const u = rows[0];
         const user: UserProfile = {
           phone: u.phone,
+          telegramId: (u as any).telegramId || null,
           username: u.username,
           password: u.password,
           inviteCode: u.inviteCode,
@@ -358,6 +359,29 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
     throw databaseFailure("load your account", err);
   }
   return null;
+}
+
+export async function getUserProfileByTelegramId(id: string): Promise<UserProfile | null> {
+  const drizzleDb = requireDatabase("find your account");
+  const rows = await drizzleDb.select().from(schema.users).where(eq(schema.users.telegramId, id)).limit(1);
+  return rows[0] ? getUserProfile(rows[0].phone) : null;
+}
+
+export async function linkTelegramAccount(phone: string, id: string): Promise<"linked" | "already_linked" | "conflict"> {
+  const drizzleDb = requireDatabase("link Telegram");
+  const current = await drizzleDb.select({ telegramId: schema.users.telegramId }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
+  if (!current[0]) return "conflict";
+  if (current[0].telegramId === id) return "already_linked";
+  if (current[0].telegramId) return "conflict";
+  try {
+    await drizzleDb.update(schema.users).set({ telegramId: id }).where(and(eq(schema.users.phone, phone), isNull(schema.users.telegramId)));
+  } catch (error) {
+    const details = rootCause(error);
+    if (details?.code === "ER_DUP_ENTRY" || details?.errno === 1062) return "conflict";
+    throw databaseFailure("link Telegram", error);
+  }
+  const linked = await drizzleDb.select({ telegramId: schema.users.telegramId }).from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
+  return linked[0]?.telegramId === id ? "linked" : "conflict";
 }
 
 export async function registerUserProfile(data: any): Promise<any> {
@@ -1066,11 +1090,15 @@ export async function getUserTransactions(phone: string): Promise<any[]> {
       console.warn("[Database] getUserTransactions error:", err);
     }
   }
-  return list.sort((a, b) => {
-    const tA = new Date(a.timestamp || a.createdAt || a.date || 0).getTime();
-    const tB = new Date(b.timestamp || b.createdAt || b.date || 0).getTime();
-    return tB - tA; // Newest first
-  });
+  // Admin balance adjustments are audit-only: the ledger row exists for
+  // admins, but users must never see it in their history.
+  return list
+    .filter((tx) => tx.type !== "admin_adjustment")
+    .sort((a, b) => {
+      const tA = new Date(a.timestamp || a.createdAt || a.date || 0).getTime();
+      const tB = new Date(b.timestamp || b.createdAt || b.date || 0).getTime();
+      return tB - tA; // Newest first
+    });
 }
 
 /**
@@ -2612,6 +2640,71 @@ export async function claimTierReward(phone: string, category: string) {
 
 export async function adminUpdateUserLockStatus(phone: string, locked: boolean) {
   return await updateUserProfile(phone, { locked });
+}
+
+// Admin balance adjustment: atomic delta on withdrawable (points) or deposit
+// (rechargeBalance) with a paired audit ledger row. The row is intentionally
+// invisible to the user (getUserTransactions filters it out) and sends no
+// notification — it exists for admin/support auditing only.
+export async function adminAdjustBalance(
+  phone: string,
+  target: "points" | "rechargeBalance",
+  amount: number,
+  reason?: string
+): Promise<{ balance: number }> {
+  if (target !== "points" && target !== "rechargeBalance") {
+    throw new Error("Invalid balance target.");
+  }
+  if (!Number.isSafeInteger(amount) || amount === 0) {
+    throw new Error("Amount must be a non-zero whole number of UGX.");
+  }
+  const label = target === "points" ? "withdrawable" : "deposit";
+  const drizzleDb = requireDatabase("adjust the user balance");
+
+  await drizzleDb.transaction(async (tx) => {
+    const rows = await tx.select().from(schema.users)
+      .where(eq(schema.users.phone, phone))
+      .limit(1)
+      .for("update");
+    const user = rows[0];
+    if (!user) throw new Error("User not found");
+    const current = Number(user[target] || 0);
+    const next = current + amount;
+    if (next < 0) {
+      throw new Error(`Adjustment would overdraw the ${label} balance. Available: UGX ${current.toLocaleString()}.`);
+    }
+
+    await tx.update(schema.users)
+      .set(target === "points"
+        ? { points: sql`${schema.users.points} + ${amount}` }
+        : { rechargeBalance: sql`${schema.users.rechargeBalance} + ${amount}` })
+      .where(eq(schema.users.phone, phone));
+
+    await tx.insert(schema.transactions).values({
+      id: createTransactionId("ADJ"),
+      userId: phone,
+      type: "admin_adjustment",
+      amount: Math.abs(amount),
+      currency: "UGX",
+      status: "SUCCESSFUL",
+      paymentMethod: "ADMIN",
+      phone,
+      mode: "admin",
+      metadata: {
+        direction: amount > 0 ? "credit" : "debit",
+        delta: amount,
+        target,
+        balanceBefore: current,
+        balanceAfter: next,
+        reason: reason || ""
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  const profile = await getUserProfile(phone);
+  if (!profile) throw new Error("Balance adjusted, but the account could not be reloaded.");
+  return { balance: Number(profile[target] || 0) };
 }
 
 export async function adminCreateAnnouncement(title: string, message: string, readMoreLink?: string, category?: string, imageUrl?: string, tag?: string) {
