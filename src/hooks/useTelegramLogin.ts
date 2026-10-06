@@ -7,10 +7,10 @@ import { toast } from "sonner";
 //
 // IMPORTANT — redirect_uri: the SDK hardcodes
 //   redirect_uri = location.origin + location.pathname
-// (e.g. "https://example.com/") and offers no override. Telegram
+// (e.g. "https://www.rentdue.store/") and offers no override. Telegram
 // exact-matches this against BotFather > Login Widget > Allowed URLs, so
 // that list must contain the page URL *exactly* (trailing slash, scheme,
-// www vs non-www all matter). A mismatch fails inside the Telegram popup
+// www vs apex all matter). A mismatch fails inside the Telegram popup
 // with a redirect_uri error before our callback ever fires.
 const TELEGRAM_LOGIN_LIBRARY = "https://oauth.telegram.org/js/telegram-login.js?6";
 

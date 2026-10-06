@@ -156,21 +156,12 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
-// Canonical host: always serve the app from the apex domain, never www.
-// Telegram's login SDK hardcodes redirect_uri = page origin + pathname and
-// Telegram exact-matches it against BotFather Allowed URLs, so a single
-// canonical origin (https://rentdue.store) is the only robust setup —
-// otherwise www visitors send an unregistered redirect_uri and the popup
-// fails. 301 preserves path/query and teaches browsers/search the apex.
-app.use((req, res, next) => {
-  const host = String(req.headers.host || "").split(":")[0];
-  if (/^www\./i.test(host)) {
-    const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() || req.protocol || "https";
-    return res.redirect(301, `${proto}://${host.replace(/^www\./i, "")}${req.originalUrl}`);
-  }
-  next();
-});
-
+// NOTE: no www<->apex canonical redirect lives here on purpose. The host
+// redirects apex -> www upstream, so this server must serve the app on
+// whatever host it receives — a redirect here would loop against it
+// (apex -> www -> apex) and surface in browsers as CORS-blocked 301s.
+// Keep BotFather Allowed URLs in sync with the exact page URL instead
+// (see .env.example).
 // Middleware
 app.use(express.json({ limit: "15mb" })); // allow larger payload for base64 chat screenshot uploads!
 
