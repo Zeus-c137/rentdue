@@ -75,7 +75,7 @@ import { HUT12_PRESETS, HUT12_PRESET_OPTIONS } from "../utils/themeTokens";
 import { migrateCardStyle, sanitizeSiteConfig } from "../utils/themeTokens";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 import { readApiJson } from "../utils/api";
-import { canonicalTypeOf, getWithdrawalDisplayAmounts } from "../utils/transactionMeta";
+import { canonicalTypeOf, getWithdrawalDisplayAmounts, asMetadataRecord } from "../utils/transactionMeta";
 import { normalizeVipTask, dedupeCategories, metricMeta, normalizeTierMeta, tierRewardFor, type TierMeta } from "@/src/utils/vip";
 
 function isSettledTransaction(transaction: any): boolean {
@@ -534,6 +534,12 @@ export default function AdminView() {
   // Password override state
   const [userToOverride, setUserToOverride] = useState<UserProfile | null>(null);
   const [newOverridePassword, setNewOverridePassword] = useState("");
+  // Balance adjustment state
+  const [userToAdjust, setUserToAdjust] = useState<UserProfile | null>(null);
+  const [adjustTarget, setAdjustTarget] = useState<"points" | "rechargeBalance">("points");
+  const [adjustDirection, setAdjustDirection] = useState<"credit" | "debit">("credit");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
   const [giftCodesList, setGiftCodesList] = useState<any[]>([]);
   const [giftTick, setGiftTick] = useState(0);
   useGatedInterval(() => setGiftTick((v) => v + 1), 1000, { enabled: giftCodesList.length > 0, visibilityGate: true });
@@ -1398,6 +1404,47 @@ export default function AdminView() {
     }
   };
 
+  const handleAdjustBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userToAdjust) return;
+    const magnitude = Math.abs(Number(adjustAmount));
+    if (!Number.isSafeInteger(magnitude) || magnitude <= 0) {
+      toast.error("Enter a whole number amount greater than zero.");
+      return;
+    }
+    const current = Number(adjustTarget === "points" ? userToAdjust.points : (userToAdjust as any).rechargeBalance) || 0;
+    if (adjustDirection === "debit" && magnitude > current) {
+      toast.error(`Debit exceeds the available balance of UGX ${current.toLocaleString()}.`);
+      return;
+    }
+    const delta = adjustDirection === "debit" ? -magnitude : magnitude;
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/admin/users/adjust-balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: userToAdjust.phone,
+          target: adjustTarget,
+          amount: delta,
+          reason: adjustReason.trim()
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      toast.success(data.message);
+      setUserToAdjust(null);
+      setAdjustAmount("");
+      setAdjustReason("");
+      fetchAllAdminData();
+    } catch (err: any) {
+      toast.error(err.message || "Balance adjustment failed.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleToggleUserLock = async (u: any) => {
     setActiveDropdown(null);
     const newLockStatus = !u.locked;
@@ -1467,10 +1514,11 @@ export default function AdminView() {
     const isWithdraw = canon === "withdrawal";
     const isAccountDeposit = canon === "deposit";
     const isRental = canon === "product_activation";
+    const isAdjustment = canon === "admin_adjustment";
 
-    // Keep account deposits, product-rental debits, and withdrawals together
-    // in this ledger; yield and reward events belong elsewhere.
-    if (!isWithdraw && !isAccountDeposit && !isRental) return false;
+    // Keep the existing rental entries alongside deposits and withdrawals,
+    // with admin adjustments visible for audit.
+    if (!isWithdraw && !isAccountDeposit && !isRental && !isAdjustment) return false;
 
     // 1. Status filter (normalized)
     if (txFilterStatus !== "ALL") {
@@ -1489,11 +1537,13 @@ export default function AdminView() {
       if (txFilterType === "withdrawal" && !isWithdraw) return false;
       if (txFilterType === "deposit" && !isAccountDeposit) return false;
       if (txFilterType === "rental" && !isRental) return false;
+      if (txFilterType === "admin_adjustment" && !isAdjustment) return false;
     }
 
     // 3. Mode filter
     if (txFilterMode !== "ALL") {
-      const actualMode = String(tx.mode || "automatic").toLowerCase() === "manual" ? "manual" : "automatic";
+      const rawMode = String(tx.mode || "automatic").toLowerCase();
+      const actualMode = rawMode === "manual" || rawMode === "admin" ? rawMode : "automatic";
       const requestedMode = txFilterMode.toLowerCase() === "auto" ? "automatic" : txFilterMode.toLowerCase();
       if (requestedMode !== actualMode) return false;
     }
@@ -1869,8 +1919,28 @@ export default function AdminView() {
 
             {/* TAB: HOME */}
             {activeAdminTab === "home" && (() => {
-              const totalWithdrawFees = transactionsList
-                .filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx))
+              // Admin balance adjustments move money in (credit) or out (debit),
+              // so they roll into the Total Deposits / Total Cashout metrics.
+              const adjustmentDelta = (tx: any): number => {
+                const meta = asMetadataRecord(tx.metadata);
+                const rawDelta = Number(meta.delta);
+                if (Number.isFinite(rawDelta) && rawDelta !== 0) return rawDelta;
+                const magnitude = Math.abs(Number(tx.amount) || 0);
+                return meta.direction === "debit" ? -magnitude : magnitude;
+              };
+              const settledList = transactionsList.filter(isSettledTransaction);
+              const depositList = settledList.filter(tx => {
+                const canon = canonicalTypeOf(tx.type, tx.metadata);
+                return canon === "deposit" || (canon === "admin_adjustment" && adjustmentDelta(tx) > 0);
+              });
+              const cashoutList = settledList.filter(tx => {
+                const canon = canonicalTypeOf(tx.type, tx.metadata);
+                return canon === "withdrawal" || (canon === "admin_adjustment" && adjustmentDelta(tx) < 0);
+              });
+              const totalDeposits = depositList.reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+              const totalCashouts = cashoutList.reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+              const totalWithdrawFees = settledList
+                .filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal")
                 .reduce((sum, tx) => sum + ((tx.feeAmount || tx.metadata?.feeAmount) || 0), 0);
 
               return (
@@ -1886,10 +1956,10 @@ export default function AdminView() {
                         <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-70 uppercase font-semibold tracking-wider block">Total Deposits</span>
                         <div>
                           <h4 className="text-2xl font-sans font-extrabold text-[var(--theme-text)] tracking-tight">
-                            {formatCurrency(transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "deposit" && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
+                            {formatCurrency(totalDeposits)}
                           </h4>
                           <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-1">
-                            {transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "deposit" && isSettledTransaction(tx)).length} successful account deposits
+                            {depositList.length} successful deposits &amp; credits
                           </p>
                         </div>
                       </div>
@@ -1904,10 +1974,10 @@ export default function AdminView() {
                         <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-70 uppercase font-semibold tracking-wider block">Total Cashout</span>
                         <div>
                           <h4 className="text-2xl font-sans font-extrabold text-[var(--theme-text)] tracking-tight">
-                            {formatCurrency(transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx)).reduce((sum, tx) => sum + (tx.amount || 0), 0))}
+                            {formatCurrency(totalCashouts)}
                           </h4>
                           <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-1">
-                            {transactionsList.filter(tx => canonicalTypeOf(tx.type, tx.metadata) === "withdrawal" && isSettledTransaction(tx)).length} paid requests
+                            {cashoutList.length} withdrawals &amp; debits
                           </p>
                         </div>
                       </div>
@@ -2185,7 +2255,7 @@ export default function AdminView() {
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-center">Invites</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-center">Products</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Balance</th>
-                          <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Deposits</th>
+                          <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Deposit Balance</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Withdraws</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-center">Status</th>
                           <th className="px-5 py-4 font-bold text-[var(--theme-text)] opacity-70 text-right">Actions</th>
@@ -2217,7 +2287,10 @@ export default function AdminView() {
                                 <div className="font-bold text-[var(--theme-text)]">{formatCurrency(u.points || 0)}</div>
                               </td>
                               <td className="px-5 py-4 text-right">
-                                <div className="font-bold text-[var(--theme-text)]">{formatCurrency(u.totalDeposits || 0)}</div>
+                                <div className="font-bold text-[var(--theme-text)]">{formatCurrency(u.rechargeBalance || 0)}</div>
+                                {Number(u.totalDeposits || 0) > 0 && Number(u.rechargeBalance || 0) !== Number(u.totalDeposits || 0) && (
+                                  <div className="text-[11px] text-[var(--theme-text)] opacity-50 mt-0.5">lifetime {formatCurrency(u.totalDeposits || 0)}</div>
+                                )}
                               </td>
                               <td className="px-5 py-4 text-right">
                                 <div className="font-bold text-[var(--theme-text)]">{formatCurrency(successWithdrawals)}</div>
@@ -2250,6 +2323,19 @@ export default function AdminView() {
                                         className="px-4 py-2.5 text-left hover:bg-[var(--theme-bg)] text-[var(--theme-text)] flex items-center gap-2 font-medium cursor-pointer"
                                       >
                                         <Key className="w-4 h-4 text-amber-400" /> Reset Password
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setUserToAdjust(u);
+                                          setAdjustTarget("points");
+                                          setAdjustDirection("credit");
+                                          setAdjustAmount("");
+                                          setAdjustReason("");
+                                          setActiveDropdown(null);
+                                        }}
+                                        className="px-4 py-2.5 text-left hover:bg-[var(--theme-bg)] text-[var(--theme-text)] flex items-center gap-2 font-medium cursor-pointer"
+                                      >
+                                        <Coins className="w-4 h-4 text-emerald-400" /> Edit Balance
                                       </button>
                                       <div className="h-px bg-[var(--theme-card-border)] my-1 mx-2"></div>
                                       <button 
@@ -2326,8 +2412,9 @@ export default function AdminView() {
                       >
                         <option value="ALL" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">All Types</option>
                         <option value="deposit" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Deposit (Account Credit)</option>
-                        <option value="rental" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Product Rental</option>
                         <option value="withdrawal" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Withdrawal</option>
+                        <option value="rental" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Product Rental</option>
+                        <option value="admin_adjustment" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Admin Adjustment</option>
                       </select>
                       <span className="text-[var(--theme-card-border)] font-mono">|</span>
                       {/* Mode Select */}
@@ -2342,6 +2429,7 @@ export default function AdminView() {
                         <option value="ALL" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">All Modes</option>
                         <option value="automatic" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Automated</option>
                         <option value="manual" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Manual</option>
+                        <option value="admin" className="bg-[var(--theme-card-bg)] text-[var(--theme-text)]">Admin</option>
                       </select>
                     </div>
                   </div>
@@ -2365,10 +2453,12 @@ export default function AdminView() {
                         {paginatedTransactions.map((tx) => {
                           const canon = canonicalTypeOf(tx.type, tx.metadata) as string;
                           const isWithdraw = canon === "withdrawal";
-                          const isGpu = canon === "product_activation";
+                          const isRental = canon === "product_activation";
+                          const isAdjustment = canon === "admin_adjustment";
                           const isManual = String(tx.mode || "").toLowerCase() === "manual";
+                          const isAdminMode = String(tx.mode || "").toLowerCase() === "admin";
                           const isAutomaticWithdrawal = isWithdraw && !isManual;
-                          const txMetadata = tx.metadata && typeof tx.metadata === "object" ? tx.metadata : {};
+                          const txMetadata = asMetadataRecord(tx.metadata);
                           const requestedAmount = Number(txMetadata.requestedAmount ?? tx.amount ?? 0);
                           const payoutAmount = Number(txMetadata.payoutAmount ?? requestedAmount);
                           const feeAmount = Number(txMetadata.feeAmount ?? Math.max(0, requestedAmount - payoutAmount));
@@ -2426,20 +2516,38 @@ export default function AdminView() {
                               </td>
                               <td className="px-5 py-4">
                                 <span className={`px-2.5 py-1 rounded-md text-[12px] font-medium uppercase ${
-                                  isWithdraw ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : isGpu ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                  isWithdraw ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : isAdjustment ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : isRental ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                 }`}>
-                                  {isWithdraw ? "Withdrawal Payout" : isGpu ? "Product Rental (Recharge Balance)" : "Deposit: Account Credit"}
+                                  {isWithdraw ? "Withdrawal Payout" : isAdjustment ? "Admin Balance Adjustment" : isRental ? "Product Rental (Recharge Balance)" : "Deposit: Account Credit"}
                                 </span>
                               </td>
                               <td className="px-5 py-4 text-center">
                                 <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold tracking-tight border ${
-                                  isManual ? "bg-amber-500/10 text-amber-500 border-amber-500/20" : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                  isAdminMode ? "bg-purple-500/10 text-purple-400 border-purple-500/20" : isManual ? "bg-amber-500/10 text-amber-500 border-amber-500/20" : "bg-blue-500/10 text-blue-400 border-blue-500/20"
                                 }`}>
-                                  {isManual ? "MANUAL" : "AUTOMATIC"}
+                                  {isAdminMode ? "ADMIN" : isManual ? "MANUAL" : "AUTOMATIC"}
                                 </span>
                               </td>
                               <td className="px-5 py-4 text-right">
-                                <span className="font-extrabold text-[var(--theme-text)]">{formatCurrency(requestedAmount)}</span>
+                                {isAdjustment ? (() => {
+                                  const rawDelta = Number(txMetadata.delta ?? NaN);
+                                  const hasDelta = Number.isFinite(rawDelta) && rawDelta !== 0;
+                                  const isCredit = txMetadata.direction === "credit"
+                                    ? true
+                                    : txMetadata.direction === "debit"
+                                      ? false
+                                      : !hasDelta || rawDelta > 0;
+                                  const adjustmentAmount = Math.abs(hasDelta ? rawDelta : requestedAmount);
+                                  return (
+                                    <span className={`font-extrabold ${isCredit ? "text-emerald-400" : "text-rose-400"}`}>
+                                      {isCredit ? "+" : "-"}{formatCurrency(adjustmentAmount)}
+                                    </span>
+                                  );
+                                })() : (
+                                  <span className="font-extrabold text-[var(--theme-text)]">
+                                    {formatCurrency(requestedAmount)}
+                                  </span>
+                                )}
                                 {isWithdraw && payoutAmount !== requestedAmount && (
                                   <div className="text-[12px] text-[var(--theme-text)] font-medium opacity-60 mt-0.5">
                                     Fee {formatCurrency(feeAmount)}
@@ -4625,6 +4733,128 @@ export default function AdminView() {
             </motion.div>
           </div>
         )}
+
+        {userToAdjust && (() => {
+          const withdrawable = Number(userToAdjust.points) || 0;
+          const deposit = Number((userToAdjust as any).rechargeBalance) || 0;
+          const selectedBalance = adjustTarget === "points" ? withdrawable : deposit;
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+                onClick={() => !isLoading && setUserToAdjust(null)}
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 10 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                className="relative w-full max-w-sm bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden"
+              >
+                <div className="px-6 py-4 border-b border-[var(--theme-card-border)] bg-[var(--theme-bg)] flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-[var(--theme-text)]">Edit Balance</h3>
+                    <p className="text-xs text-[var(--theme-text)] opacity-70 mt-1">
+                      {userToAdjust.phone}{userToAdjust.username ? ` · ${userToAdjust.username}` : ""}
+                    </p>
+                  </div>
+                  <button onClick={() => setUserToAdjust(null)} className="text-[var(--theme-text)] opacity-60 hover:opacity-100 transition-colors cursor-pointer">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-6">
+                  <form id="adjust-balance-form" onSubmit={handleAdjustBalance} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="px-3 py-2 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 border border-[var(--theme-card-border)]">
+                        <div className="text-[10px] font-black uppercase tracking-wider opacity-60">Withdrawable</div>
+                        <div className="text-sm font-extrabold mt-0.5">{formatCurrency(withdrawable)}</div>
+                      </div>
+                      <div className="px-3 py-2 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 border border-[var(--theme-card-border)]">
+                        <div className="text-[10px] font-black uppercase tracking-wider opacity-60">Deposit</div>
+                        <div className="text-sm font-extrabold mt-0.5">{formatCurrency(deposit)}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Balance</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAdjustTarget("points")}
+                          className={`flex-1 px-3 py-2 rounded-[var(--theme-radius)] text-sm font-bold border transition-colors cursor-pointer ${adjustTarget === "points" ? "bg-[var(--theme-primary)]/15 border-[var(--theme-primary)] text-[var(--theme-primary)]" : "bg-[var(--theme-card-bg)]/90 border-[var(--theme-card-border)] opacity-70 hover:opacity-100"}`}
+                        >
+                          Withdrawable
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdjustTarget("rechargeBalance")}
+                          className={`flex-1 px-3 py-2 rounded-[var(--theme-radius)] text-sm font-bold border transition-colors cursor-pointer ${adjustTarget === "rechargeBalance" ? "bg-[var(--theme-primary)]/15 border-[var(--theme-primary)] text-[var(--theme-primary)]" : "bg-[var(--theme-card-bg)]/90 border-[var(--theme-card-border)] opacity-70 hover:opacity-100"}`}
+                        >
+                          Deposit
+                        </button>
+                      </div>
+                      <div className="text-[11px] opacity-60">Current: {formatCurrency(selectedBalance)}</div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Direction</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAdjustDirection("credit")}
+                          className={`flex-1 px-3 py-2 rounded-[var(--theme-radius)] text-sm font-bold border transition-colors cursor-pointer ${adjustDirection === "credit" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-400" : "bg-[var(--theme-card-bg)]/90 border-[var(--theme-card-border)] opacity-70 hover:opacity-100"}`}
+                        >
+                          Credit (+)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdjustDirection("debit")}
+                          className={`flex-1 px-3 py-2 rounded-[var(--theme-radius)] text-sm font-bold border transition-colors cursor-pointer ${adjustDirection === "debit" ? "bg-rose-500/15 border-rose-500/50 text-rose-400" : "bg-[var(--theme-card-bg)]/90 border-[var(--theme-card-border)] opacity-70 hover:opacity-100"}`}
+                        >
+                          Debit (−)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Amount (UGX)</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        required
+                        value={adjustAmount}
+                        onChange={(e) => setAdjustAmount(e.target.value)}
+                        className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]"
+                        placeholder="e.g. 5000"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-[var(--theme-text)] font-bold opacity-80 uppercase tracking-wider block">Reason (optional)</label>
+                      <input
+                        type="text"
+                        value={adjustReason}
+                        onChange={(e) => setAdjustReason(e.target.value)}
+                        maxLength={200}
+                        className="w-full px-3 py-2 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] text-[var(--theme-text)] text-sm outline-none focus:border-[var(--theme-primary)]"
+                        placeholder="Kept in the admin audit trail"
+                      />
+                    </div>
+                  </form>
+                </div>
+                <div className="px-6 py-4 border-t border-[var(--theme-card-border)] bg-[var(--theme-bg)] flex justify-end gap-3 shrink-0">
+                  <button type="button" onClick={() => setUserToAdjust(null)} disabled={isLoading} className="px-4 py-2 text-[var(--theme-text)] opacity-70 hover:opacity-100 text-sm font-medium transition-colors cursor-pointer disabled:opacity-50">Cancel</button>
+                  <button type="submit" form="adjust-balance-form" disabled={isLoading} className="btn-3d-primary text-white px-5 py-2.5 rounded-[var(--theme-radius)] text-sm font-black transition-all shadow-md active:translate-y-1 cursor-pointer disabled:opacity-50">
+                    {isLoading ? "Applying..." : "Apply Adjustment"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Confirmation Dialog */}

@@ -71,6 +71,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
   const statements = [
     `CREATE TABLE IF NOT EXISTS users (
       phone VARCHAR(32) NOT NULL PRIMARY KEY,
+      telegram_id VARCHAR(32) NULL,
       username VARCHAR(64) NOT NULL,
       password VARCHAR(255) NOT NULL,
       invite_code VARCHAR(32) NOT NULL UNIQUE,
@@ -92,7 +93,8 @@ export async function ensureDatabaseSchema(): Promise<void> {
       redeemed_gift_codes JSON NOT NULL,
       created_at VARCHAR(64) NOT NULL,
       INDEX idx_users_invite_code (invite_code),
-      INDEX idx_users_referred_by (referred_by_code)
+      INDEX idx_users_referred_by (referred_by_code),
+      UNIQUE INDEX uq_users_telegram_id (telegram_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS subscribed_nodes (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -231,6 +233,17 @@ export async function ensureDatabaseSchema(): Promise<void> {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
       throw error;
     }
+  }
+
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN telegram_id VARCHAR(32) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  try {
+    await connection.query("CREATE UNIQUE INDEX uq_users_telegram_id ON users (telegram_id)");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
   }
 
   // Full tx-type migration to canonical names (no users: full migrate).

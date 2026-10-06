@@ -128,7 +128,7 @@ export default function DepositView({
         const data = await res.json();
         if (data.status === "SUCCESSFUL") {
           setPaymentStatus("SUCCESSFUL");
-          toast.success("Payment completed successfully!");
+          toast.success("Payment confirmed. Your account has been updated.");
           const finalAmt =
             depositMode === "usdt"
               ? payType === "gpu" ? selectedGpu?.amount || 0 : usdtAmountUSD * config.usdtRate
@@ -146,8 +146,8 @@ export default function DepositView({
           }
         } else if (data.status === "FAILED") {
           setPaymentStatus("FAILED");
-          toast.error("Transaction was declined or failed.");
-          setErrorMsg("Transaction was declined or failed.");
+          toast.error("Payment failed. Please try again or contact support.");
+          setErrorMsg("We couldn’t confirm this payment. Please try again or contact support.");
         } else {
           backoffRef.current = Math.min(backoffRef.current + 1, 2);
         }
@@ -167,7 +167,7 @@ export default function DepositView({
     setErrorMsg("");
     const phoneTrim = mobileNumber.replace(/\s+/g, "");
     if (!phoneTrim || phoneTrim.length < 10) {
-      toast.error("Please provide a valid 10-digit mobile money number.");
+      toast.error("Enter a valid mobile money number.");
       return;
     }
     const finalAmount = payType === "gpu" ? selectedGpu?.amount || 0 : depositAmount;
@@ -196,11 +196,11 @@ export default function DepositView({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Payment dispatch failed.");
       setCurrentTransId(data.trans_id);
-      toast.info("Payment dispatched. Please check your phone.");
+      toast.info("Payment request sent. Check your phone and approve it to continue.");
     } catch (err: any) {
       console.error(err);
       setPaymentStatus("IDLE");
-      toast.error(err.message || "Failed to dispatch mobile money charge.");
+      toast.error(err.message || "We couldn’t start the mobile money payment. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -212,7 +212,7 @@ export default function DepositView({
     let phoneTrim = senderPhone.replace(/\s+/g, "");
     if (depositMode === "manual") {
       if (!phoneTrim || phoneTrim.length < 9) {
-        toast.error("Please provide a valid 9 or 10 digit sender phone number.");
+        toast.error("Enter a valid 9 or 10 digit sender number.");
         return;
       }
     } else {
@@ -220,7 +220,7 @@ export default function DepositView({
     }
     const refTrim = manualRef.trim();
     if (!refTrim) {
-      toast.error("Please provide the transaction ID / Hash.");
+      toast.error("Enter the transaction ID or hash to submit your payment.");
       return;
     }
     const finalAmount =
@@ -260,11 +260,11 @@ export default function DepositView({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Proof submission failed.");
       setCurrentTransId(data.trans_id);
-      toast.success("Proof submitted — pending review.");
+      toast.success("Payment details submitted. We’ll review them shortly.");
     } catch (err: any) {
       console.error(err);
       setPaymentStatus("IDLE");
-      toast.error(err.message || "Failed to submit proof.");
+      toast.error(err.message || "We couldn’t submit your payment details. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -320,7 +320,7 @@ export default function DepositView({
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Recharge account</h1>
+            <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Add funds</h1>
           </div>
         </div>
 
@@ -362,7 +362,7 @@ export default function DepositView({
         <div className="rounded-[var(--theme-radius)] overflow-hidden">
           {/* Method picker — segmented pill */}
           <div className="p-3 border-b border-[var(--theme-card-border)] space-y-3">
-            <h2 className="text-[15px] font-sans font-extrabold tracking-tight text-[var(--theme-text)]">Choose method</h2>
+            <h2 className="text-[15px] font-sans font-extrabold tracking-tight text-[var(--theme-text)]">Choose a payment method</h2>
             <div className="flex gap-1 border-b border-[var(--theme-card-border)]">
               {autoEnabled && (
                 <PillBtn
@@ -719,11 +719,11 @@ export default function DepositView({
             <p className="text-xs font-bold opacity-60 leading-relaxed max-w-xs mx-auto">
               {depositMode === "manual" || depositMode === "usdt" ? (
                 <>
-                  Ref <span className="text-[var(--theme-primary)]">{currentTransId}</span> is being reviewed. Your balance will credit once confirmed.
+                  Reference <span className="text-[var(--theme-primary)]">{currentTransId}</span> is under review. Your balance will update once the payment is confirmed.
                 </>
               ) : (
                 <>
-                  Sent to <span className="text-[var(--theme-primary)]">{mobileNumber}</span> — approve <span className="text-[var(--theme-text)]">{formatCurrency(finalAmount)}</span> on your phone.
+                  Payment request sent to <span className="text-[var(--theme-primary)]">{mobileNumber}</span>. Approve <span className="text-[var(--theme-text)]">{formatCurrency(finalAmount)}</span> on your phone.
                 </>
               )}
             </p>
@@ -751,7 +751,11 @@ export default function DepositView({
               {payType === "gpu" ? "Product secured!" : "Account credited!"}
             </h3>
             <p className="text-xs font-bold opacity-60 max-w-sm mx-auto leading-relaxed">
-              Settled <span className="text-[var(--theme-text)] opacity-100">{formatCurrency(finalAmount)}</span> {currentTransId ? `• Ref ${currentTransId}` : ""}
+              {payType === "gpu" ? (
+                <><span className="text-[var(--theme-text)] opacity-100">{formatCurrency(finalAmount)}</span> payment confirmed. Your product is active.</>
+              ) : (
+                <><span className="text-[var(--theme-text)] opacity-100">{formatCurrency(finalAmount)}</span> has been credited to your account.</>
+              )} {currentTransId ? `Reference: ${currentTransId}` : ""}
             </p>
           </div>
           <div className="rounded-xl bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-4 max-w-xs mx-auto text-left space-y-2 text-xs font-bold">
@@ -781,8 +785,8 @@ export default function DepositView({
             <XCircle className="w-10 h-10" />
           </div>
           <div className="space-y-1">
-            <h3 className="font-black text-xs uppercase tracking-widest text-rose-500">Transaction failed</h3>
-            <p className="text-xs font-bold opacity-60 max-w-sm mx-auto">{errorMsg || "Declined. Try again."}</p>
+            <h3 className="font-black text-xs uppercase tracking-widest text-rose-500">Payment failed</h3>
+            <p className="text-xs font-bold opacity-60 max-w-sm mx-auto">{errorMsg || "We couldn’t confirm this payment. Please try again."}</p>
           </div>
           <div className="flex gap-2 justify-center">
             <button
