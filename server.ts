@@ -634,7 +634,7 @@ app.post("/api/auth/telegram/login", async (req, res) => {
   try {
     const identity = await verifyTelegramIdToken(req.body?.id_token, clientId);
     const profile = await getUserProfileByTelegramId(identity.id);
-    if (!profile || profile.locked) return res.status(401).json({ error: "This Telegram account is not linked to an available Rentdue account." });
+    if (!profile || profile.locked) return res.status(401).json({ error: "Please create an account first." });
     const config = await getSiteConfig();
     if (profile.phone === config.adminPhone) return res.status(403).json({ error: "Telegram sign-in is unavailable for admin accounts." });
     const secret = adminSessionSecret(config);
@@ -693,16 +693,56 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(400).json({ error: "The referral code is invalid." });
   }
 
+  // Optional Telegram binding: the register pill hands over the OIDC id_token
+  // it collected. Verified here server-side; never trusted from the client.
+  let telegramId: string | null = null;
+  const idToken = (req.body as any)?.id_token;
+  if (idToken !== undefined && idToken !== null && idToken !== "") {
+    const clientId = process.env.TELEGRAM_CLIENT_ID || "";
+    if (!/^\d+$/.test(clientId)) return res.status(503).json({ error: "Telegram sign-in is unavailable." });
+    try {
+      const identity = await verifyTelegramIdToken(idToken, clientId);
+      telegramId = identity.id;
+    } catch (error: any) {
+      const detail = String(error?.message || "").toLowerCase();
+      if (detail.includes("expired")) return res.status(400).json({ error: "Telegram verification expired. Tap the pill to reconnect." });
+      return res.status(400).json({ error: "Telegram verification failed. Please try again." });
+    }
+  }
+
   try {
+    if (telegramId) {
+      const config = await getSiteConfig();
+      if (normalizedPhone === config.adminPhone) return res.status(403).json({ error: "Telegram sign-in is unavailable for admin accounts." });
+      // Check A — Telegram ID: catches the same-Telegram-different-phones
+      // edge case (only the Telegram owner can trigger this).
+      const telegramTaken = await getUserProfileByTelegramId(telegramId);
+      if (telegramTaken) return res.status(409).json({ error: "This Telegram account is already connected. Please log in." });
+      // Check B — phone: the user typed this number themselves, so naming it
+      // discloses nothing.
+      const phoneTaken = await getUserProfile(normalizedPhone);
+      if (phoneTaken) return res.status(409).json({ error: "An account with this phone number already exists. Please log in." });
+    }
     const { success, profile } = await registerUserProfile({
       phone: normalizedPhone,
       passwordHash: password, // Store password safely for live demo validation
       username: displayName || undefined, // blank falls back to auto User_XXXX
-      referredByCode: inviteCode ? inviteCode.trim() : ""
+      referredByCode: inviteCode ? inviteCode.trim() : "",
+      telegramId: telegramId || undefined
     });
     res.json({ success, profile: publicProfile(profile) });
   } catch (error: any) {
     logError("Register Error:", error);
+    // Race backstop: a concurrent request may have claimed the phone or the
+    // Telegram ID after the pre-checks. Reword to the same two messages so
+    // the unique-index key name never leaks.
+    const detail = String(error?.message || "");
+    if (error?.name === "DuplicateEntryError" || Number(error?.statusCode) === 409) {
+      if (detail.includes("uq_users_telegram_id")) {
+        return res.status(409).json({ error: "This Telegram account is already connected. Please log in." });
+      }
+      return res.status(409).json({ error: "An account with this phone number already exists. Please log in." });
+    }
     const response = errorResponse(error, "Registration could not be completed.", 400);
     res.status(response.status).json(response.body);
   }

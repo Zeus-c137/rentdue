@@ -402,6 +402,10 @@ export async function registerUserProfile(data: any): Promise<any> {
 
   const newUser: UserProfile = {
     phone,
+    // Optional Telegram binding (verified server-side from the OIDC id_token
+    // before this call). NULL for phone-only registrations; the unique index
+    // on telegram_id keeps one Telegram account to one user profile.
+    telegramId: typeof data.telegramId === "string" && /^\d+$/.test(data.telegramId) ? data.telegramId : null,
     username: String(data.username || "").trim().slice(0, 64) || "User_" + phone.slice(-4),
     password,
     inviteCode: personalInviteCode,
@@ -431,6 +435,7 @@ export async function registerUserProfile(data: any): Promise<any> {
   try {
     await drizzleDb.insert(schema.users).values({
       phone: newUser.phone,
+      telegramId: newUser.telegramId || null,
       username: newUser.username,
       password: newUser.password || "",
       inviteCode: newUser.inviteCode,
