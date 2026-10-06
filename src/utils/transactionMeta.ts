@@ -8,7 +8,8 @@ export type TransactionType =
   | "referral_level_income"
   | "vip_task"
   | "product_activation"
-  | "daily_yield";
+  | "daily_yield"
+  | "admin_adjustment";
 
 export const TRANSACTION_LABELS: Record<TransactionType, string> = {
   deposit: "Recharge",
@@ -21,6 +22,7 @@ export const TRANSACTION_LABELS: Record<TransactionType, string> = {
   referral_signup_bonus: "Referral income",
   referral_level_income: "Referral income",
   vip_task: "Milestone",
+  admin_adjustment: "Balance Adjustment",
 };
 
 export const TRANSACTION_ICON_KEYS: Record<TransactionType, string> = {
@@ -34,6 +36,7 @@ export const TRANSACTION_ICON_KEYS: Record<TransactionType, string> = {
   referral_signup_bonus: "link3d",
   referral_level_income: "link3d",
   vip_task: "trophy3d",
+  admin_adjustment: "dollar3d",
 };
 
 export const LEGACY_TO_CANONICAL: Record<string, TransactionType> = {
@@ -58,7 +61,7 @@ export const LEGACY_TO_CANONICAL: Record<string, TransactionType> = {
   "daily accumulation": "daily_yield",
 };
 
-function asMetadataRecord(metadata?: any): Record<string, any> {
+export function asMetadataRecord(metadata?: any): Record<string, any> {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     return metadata as Record<string, any>;
   }

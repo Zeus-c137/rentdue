@@ -8,6 +8,7 @@ import {
   timestamp,
   json,
   index,
+  uniqueIndex,
   primaryKey
 } from "drizzle-orm/mysql-core";
 
@@ -21,6 +22,7 @@ export const users = mysqlTable(
   "users",
   {
     phone: varchar("phone", { length: 32 }).primaryKey(),
+    telegramId: varchar("telegram_id", { length: 32 }),
     username: varchar("username", { length: 64 }).notNull(),
     password: varchar("password", { length: 255 }).notNull(),
     inviteCode: varchar("invite_code", { length: 32 }).notNull().unique(),
@@ -44,7 +46,8 @@ export const users = mysqlTable(
   },
   (table) => ({
     inviteCodeIdx: index("idx_users_invite_code").on(table.inviteCode),
-    referredByIdx: index("idx_users_referred_by").on(table.referredByCode)
+    referredByIdx: index("idx_users_referred_by").on(table.referredByCode),
+    telegramIdUnique: uniqueIndex("uq_users_telegram_id").on(table.telegramId)
   })
 );
 

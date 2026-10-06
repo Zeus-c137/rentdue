@@ -8,6 +8,7 @@ import { ArrowLeft, Phone, Wallet, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { UserProfile } from "../types";
+import TelegramLoginButton from "./TelegramLoginButton";
 
 interface BindAccountViewProps {
   userProfile: UserProfile;
@@ -24,6 +25,7 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
   const [withdrawalPhone, setWithdrawalPhone] = useState(userProfile.phone || "");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [successUpdate, setSuccessUpdate] = useState(false);
+  const [telegramStatus, setTelegramStatus] = useState<{ linked: boolean; isAdmin: boolean } | null>(null);
   const backTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -36,6 +38,30 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
   useEffect(() => () => {
     if (backTimer.current) window.clearTimeout(backTimer.current);
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/telegram/status").then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (alive && data) setTelegramStatus(data); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const handleTelegramLink = async (payload: Record<string, unknown>) => {
+    try {
+      const response = await fetch("/api/auth/telegram/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Telegram link could not be saved.");
+      setTelegramStatus({ linked: true, isAdmin: false });
+      toast.success("Telegram account linked.");
+    } catch (error: any) {
+      toast.error(error.message || "Telegram link could not be saved.");
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +126,17 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
         <h4 className="font-display font-black text-base text-[var(--theme-text)] uppercase tracking-tight">Bind Account</h4>
         <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Configure your billing & security</p>
       </div>
+
+      {telegramStatus && !telegramStatus.isAdmin && (
+        <section className="rounded-2xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/40 p-4 space-y-2">
+          <h5 className="text-sm font-display font-black">Telegram sign-in</h5>
+          {telegramStatus.linked ? (
+            <p className="text-xs font-sans opacity-70">Your Telegram account is linked. You can use it to sign in.</p>
+          ) : (
+            <TelegramLoginButton onAuth={handleTelegramLink} />
+          )}
+        </section>
+      )}
 
       <form onSubmit={handleSaveProfile} className="space-y-4">
         <div className="space-y-1">

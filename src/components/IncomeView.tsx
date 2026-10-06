@@ -11,11 +11,9 @@ import {
   Coins,
   SlidersHorizontal,
   Calendar,
-  Percent,
   ChevronRight,
   Loader2,
   Award,
-  TrendingUp
 } from "lucide-react";
 import MetricCard from "./MetricCard";
 import CellsProgress from "./CellsProgress";
@@ -36,12 +34,6 @@ interface IncomeViewProps {
   onRenew?: (item: SubscriptionItem) => void;
   onClaimSuccess?: (pointsEarned: number, newBalance: number, subId: string) => void;
   onCollectibleClaimed?: () => void;
-}
-
-function dailyPct(daily: number, amount: number): string {
-  if (!(amount > 0)) return "-";
-  const pct = (Number(daily || 0) / amount) * 100;
-  return `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% Daily`;
 }
 
 export default function IncomeView({
@@ -228,7 +220,6 @@ export default function IncomeView({
               );
               const imageUrl = mappedItem?.imageUrl || node.image;
               const itemName = mappedItem?.name || node.itemName;
-              const category = (mappedItem?.category || "").toUpperCase() || "RUN";
               const totalDays = getRunTotalDays(node, items);
               const dailyYield = getRunDailyRate(node, items);
 
@@ -244,18 +235,18 @@ export default function IncomeView({
               return (
                 <div
                   key={node.id}
-                  className="group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30"
+                  className="group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30 transition-colors"
                 >
-                  <div className="flex flex-row gap-3">
+                  <div className="flex flex-row gap-4">
                     {/* Art with rarity banner */}
-                    <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-32 h-32 sm:w-36 sm:h-36 relative overflow-hidden rounded-xl shrink-0 cursor-zoom-in bg-[var(--theme-text)]/5">
+                    <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-36 h-40 sm:w-44 sm:h-44 relative overflow-hidden rounded-2xl shrink-0 cursor-zoom-in bg-[var(--theme-text)]/5">
                       {imageUrl ? (
                         <img
                           src={imageUrl}
                           alt=""
                           loading="lazy"
                           referrerPolicy="no-referrer"
-                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
@@ -270,42 +261,46 @@ export default function IncomeView({
                     {/* Details */}
                     <div className="flex-1 min-w-0 font-sans">
                       <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-display font-black text-[var(--theme-text)] text-[15px] leading-tight truncate">
+                        <h4 className="font-sans font-bold text-[var(--theme-text)] text-[18px] sm:text-[20px] leading-tight line-clamp-2">
                           {itemName}
                         </h4>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {!isDone && (
-                            <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider border border-[var(--theme-primary)] text-[var(--theme-primary)]">
-                              Active
-                            </span>
-                          )}
                           {isDone && (
-                            <span className="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[var(--theme-text)]/10 text-[var(--theme-text)] opacity-60">
+                            <span className="rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] bg-[var(--theme-text)]/5 text-[var(--theme-text)] opacity-60">
                               {isExpired ? "Expired" : "Completed"}
                             </span>
                           )}
                         </div>
                       </div>
-                      <div className="mt-2 space-y-1.5">
-                        <div className="flex items-center gap-1.5 text-[13px] font-bold">
-                          <Calendar className="w-4 h-4 opacity-50 shrink-0" />
-                          <span className="tabular-nums">{totalDays} Days</span>
+                      <div className="mt-5 space-y-3">
+                        <div className="flex items-center gap-2 text-[12px] font-medium text-[var(--theme-text)] opacity-65">
+                          <Calendar className="w-3.5 h-3.5 shrink-0" />
+                          <span className="tabular-nums">Duration</span>
+                          <span className="ml-auto font-semibold opacity-100 tabular-nums">{totalDays} days</span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[13px] font-bold">
-                          <Percent className="w-4 h-4 opacity-50 shrink-0" />
-                          <span className="tabular-nums">{dailyPct(dailyYield, node.amount)}</span>
+                        <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
+                          <span className="text-[11px] font-medium opacity-65">Price</span>
+                          <span className="font-semibold tabular-nums text-right">{formatCurrency(Number(node.amount) || 0)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
+                          <span className="text-[11px] font-medium opacity-65">Daily return</span>
+                          <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
+                          <span className="text-[11px] font-medium opacity-65">Total return</span>
+                          <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield * totalDays)}</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Progress */}
-                  <div className="pt-2.5">
+                  <div className="pt-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-sans text-[var(--theme-text)] opacity-60">
                         Day {Math.min(elapsedDays, totalDays)} of {totalDays}
                       </span>
-                      <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
+                      <span className="font-sans font-semibold text-[12px] tabular-nums shrink-0 text-[var(--theme-text)]">
                         {Math.round(progressPercent)}%
                       </span>
                     </div>
@@ -315,16 +310,10 @@ export default function IncomeView({
                   </div>
 
                   {/* Earnings split */}
-                  <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/10 pt-2.5">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-sans opacity-55">Daily Earnings</p>
-                      <p className="font-display font-black text-[13px] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield)}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-sans font-bold uppercase tracking-wider text-[var(--theme-secondary)] flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3" /> Total return
-                      </p>
-                      <p className="font-display font-black text-[13px] text-[var(--theme-secondary)] tracking-tight truncate mt-0.5">{formatCurrency(dailyYield * totalDays)}</p>
+                  <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-[var(--theme-card-border)]/70 pt-3 text-[var(--theme-text)]">
+                    <div className="flex items-baseline justify-between gap-3 w-full min-w-0">
+                      <p className="text-[12px] font-semibold tracking-tight">Collected</p>
+                      <p className="font-sans font-bold text-[17px] sm:text-[18px] tracking-tight tabular-nums truncate text-right">{formatCurrency(Number(node.totalEarned) || 0)}</p>
                     </div>
                   </div>
 

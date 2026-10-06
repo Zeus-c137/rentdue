@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useGatedInterval } from "../hooks/useGatedInterval";
 import { UserProfile, SubscribedNode } from "../types";
 import {
   ArrowLeft,
@@ -44,8 +45,13 @@ export default function WithdrawView({
   );
   const [withdrawalPhone, setWithdrawalPhone] = useState(userProfile.phone || "");
   const [usdtAddress, setUsdtAddress] = useState(userProfile.usdtAddress || "");
-  const [paymentStatus, setPaymentStatus] = useState<"IDLE" | "SUCCESS">("IDLE");
+  const [paymentStatus, setPaymentStatus] = useState<"IDLE" | "PENDING" | "SUCCESSFUL" | "FAILED">("IDLE");
+  const [transactionId, setTransactionId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [trackingUnavailable, setTrackingUnavailable] = useState(false);
   const [lastPayout, setLastPayout] = useState<number>(0);
+  const [pollDelay, setPollDelay] = useState(3000);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setWithdrawalPhone(userProfile.phone || "");
@@ -53,36 +59,94 @@ export default function WithdrawView({
     setWithdrawOperator((userProfile.operator as any) || "MTN");
   }, [userProfile]);
 
+  useEffect(() => {
+    if (paymentStatus !== "PENDING" || !transactionId) {
+      setPollDelay(3000);
+      abortRef.current?.abort();
+      return;
+    }
+    setPollDelay(3000);
+  }, [paymentStatus, transactionId]);
+
+  const refreshProfile = async () => {
+    const response = await fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data.profile) onProfileUpdate(data.profile);
+  };
+
+  const checkStatus = async () => {
+    if (document.hidden || paymentStatus !== "PENDING" || !transactionId) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      const response = await fetch("/api/payment/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trans_id: transactionId }),
+        signal: ctrl.signal,
+      });
+      if (ctrl.signal.aborted || !response.ok) return;
+      const data = await response.json();
+      if (data.status === "SUCCESSFUL") {
+        setPaymentStatus("SUCCESSFUL");
+        if (data.profile) onProfileUpdate(data.profile);
+        else await refreshProfile();
+        toast.success("Withdrawal completed successfully.");
+      } else if (data.status === "FAILED") {
+        setPaymentStatus("FAILED");
+        setErrorMsg(data.error || "The withdrawal failed. Any deducted balance has been returned.");
+        if (data.profile) onProfileUpdate(data.profile);
+        else await refreshProfile();
+        toast.error("Withdrawal failed. Your balance has been updated.");
+      } else {
+        setPollDelay((delay) => delay === 3000 ? 5000 : 10000);
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name !== "AbortError") console.error("Error polling withdrawal status:", err);
+    }
+  };
+
+  useGatedInterval(() => { void checkStatus(); }, pollDelay, {
+    enabled: paymentStatus === "PENDING" && !!transactionId,
+    visibilityGate: true,
+  });
+
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
+
   const handleWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeNodes || activeNodes.length === 0) {
-      toast.error("You must have rented at least one product to qualify for withdrawals.");
+      toast.error("Purchase a product before requesting a withdrawal.");
       return;
     }
     if (!Number.isInteger(pointsToWithdraw) || pointsToWithdraw < minimumWithdrawal) {
-      toast.error(`Minimum withdrawal is ${formatCurrency(minimumWithdrawal)}.`);
+      toast.error(`The minimum withdrawal is ${formatCurrency(minimumWithdrawal)}.`);
       return;
     }
     if (maximumWithdrawal > 0 && pointsToWithdraw > maximumWithdrawal) {
-      toast.error(`Maximum withdrawal is ${formatCurrency(maximumWithdrawal)}.`);
+      toast.error(`The maximum withdrawal is ${formatCurrency(maximumWithdrawal)}.`);
       return;
     }
     if (pointsToWithdraw > (userProfile.points || 0)) {
-      toast.error(`Insufficient withdrawable balance. Available: ${formatCurrency(userProfile.points || 0)}.`);
+      toast.error(`Your available balance is ${formatCurrency(userProfile.points || 0)}.`);
       return;
     }
     if (withdrawOperator === "USDT") {
       if (usdtAddress.length < 10) {
-        toast.error("Please enter a valid USDT wallet address.");
+        toast.error("Enter a valid USDT wallet address.");
         return;
       }
     } else {
       if (!/^\d{9,10}$/.test(withdrawalPhone)) {
-        toast.error("Withdrawal phone must be 9 or 10 digits.");
+        toast.error("Enter a withdrawal phone number with 9 or 10 digits.");
         return;
       }
     }
     setIsWithdrawing(true);
+    setErrorMsg("");
+    setTrackingUnavailable(false);
     try {
       const res = await fetch("/api/payment/withdraw", {
         method: "POST",
@@ -98,14 +162,27 @@ export default function WithdrawView({
       if (!res.ok) throw new Error(data.error || "Withdrawal rejected.");
       onProfileUpdate(data.profile);
       setLastPayout(pointsToWithdraw);
-      setPaymentStatus("SUCCESS");
-      toast.success(
-        data.mode === "manual"
-          ? "Withdrawal submitted — pending approval."
-          : "Withdrawal submitted — awaiting confirmation."
-      );
+      setTransactionId(data.transaction?.id || null);
+      const canPoll = Boolean(data.transaction?.id);
+      if (data.status === "FAILED") setErrorMsg(data.error || "The withdrawal failed. Your balance has been updated.");
+      else if (data.status !== "SUCCESSFUL" && data.status !== "FAILED" && !canPoll) {
+        setTrackingUnavailable(true);
+        setErrorMsg("We received your request but could not get a tracking ID. Refresh your balance or contact support before trying again.");
+      }
+      setPaymentStatus(data.status === "SUCCESSFUL" ? "SUCCESSFUL" : data.status === "FAILED" || !canPoll ? "FAILED" : "PENDING");
+      if (data.status === "FAILED") toast.error("Withdrawal failed. Your balance has been updated.");
+      else if (!canPoll && data.status !== "SUCCESSFUL") {
+        try { await refreshProfile(); } catch { /* Keep the tracking issue visible. */ }
+        toast.error("We couldn’t track this withdrawal. Check your balance before trying again.");
+      }
+      else if (data.status === "SUCCESSFUL") toast.success("Withdrawal completed successfully.");
+      else toast.success(data.mode === "manual" || withdrawOperator === "USDT"
+        ? "Withdrawal request submitted. We’ll update you after review."
+        : "Withdrawal request sent. Waiting for provider confirmation.");
       setPointsToWithdraw(0);
     } catch (err: any) {
+      setPaymentStatus("IDLE");
+      try { await refreshProfile(); } catch { /* Keep the original withdrawal error visible. */ }
       toast.error(err.message || "Something went wrong.");
     } finally {
       setIsWithdrawing(false);
@@ -115,6 +192,15 @@ export default function WithdrawView({
   const feePct = Number(siteConfig?.withdrawFee || 0);
   const feeAmount = Math.floor(pointsToWithdraw * (feePct / 100));
   const payout = Math.max(0, pointsToWithdraw - feeAmount);
+  const isManualPayout = withdrawalMode === "manual" || withdrawOperator === "USDT";
+  const statusTitle = paymentStatus === "PENDING" ? "Withdrawal processing" : paymentStatus === "FAILED" ? trackingUnavailable ? "Unable to track withdrawal" : "Withdrawal failed" : "Withdrawal complete";
+  const statusDescription = paymentStatus === "FAILED"
+    ? errorMsg
+    : paymentStatus === "PENDING"
+    ? `${formatCurrency(lastPayout)} requested. ${isManualPayout ? "Awaiting admin approval." : "Waiting for provider confirmation."}`
+    : "Your withdrawal is settled. Check your balance and destination for the final amount.";
+  const statusLabel = trackingUnavailable ? "Unknown" : paymentStatus === "SUCCESSFUL" ? "Completed" : paymentStatus === "FAILED" ? "Failed" : "Pending";
+  const statusColor = trackingUnavailable ? "text-[var(--theme-text)] opacity-60" : paymentStatus === "SUCCESSFUL" ? "text-emerald-600" : paymentStatus === "FAILED" ? "text-rose-600" : "text-amber-600";
 
   const PillBtn: React.FC<{
     active: boolean;
@@ -139,7 +225,7 @@ export default function WithdrawView({
     </button>
   );
 
-  if (paymentStatus === "SUCCESS") {
+  if (paymentStatus !== "IDLE") {
     return (
       <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] p-4 pt-4 min-h-[100dvh] space-y-4 select-none">
         {/* Top bar — back + title on one level */}
@@ -156,18 +242,23 @@ export default function WithdrawView({
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Withdraw funds</h1>
-            <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-1 truncate">Cash out to mobile money or USDT.</p>
+            <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-1 truncate">Withdraw to mobile money or a USDT wallet.</p>
           </div>
         </div>
         <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-5 shadow-sm">
+          {paymentStatus === "PENDING" ? (
+            <div className="w-14 h-14 mx-auto rounded-full border-2 border-[var(--theme-primary)]/20 border-t-[var(--theme-primary)] animate-spin" />
+          ) : paymentStatus === "FAILED" ? (
+            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500"><AlertTriangle className="w-10 h-10" /></div>
+          ) : (
           <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-500">
             <CheckCircle2 className="w-10 h-10" />
           </div>
+          )}
           <div className="space-y-1">
-            <h3 className="font-black text-sm uppercase tracking-wide">Withdrawal submitted</h3>
+            <h3 className="font-black text-sm uppercase tracking-wide">{statusTitle}</h3>
             <p className="text-xs font-bold opacity-60 max-w-sm mx-auto leading-relaxed">
-              {formatCurrency(lastPayout)} requested •{" "}
-              {withdrawalMode === "manual" ? "pending approval (5–15 min)" : "awaiting confirmation"}
+              {statusDescription}
             </p>
           </div>
           <div className="rounded-xl bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-4 max-w-xs mx-auto text-left space-y-2 text-xs font-bold">
@@ -177,7 +268,7 @@ export default function WithdrawView({
             </div>
             <div className="flex justify-between">
               <span className="opacity-60">Status</span>
-              <span className="text-amber-600">Pending</span>
+              <span className={statusColor}>{statusLabel}</span>
             </div>
             <div className="flex justify-between">
               <span className="opacity-60">Destination</span>
@@ -193,7 +284,7 @@ export default function WithdrawView({
             }}
             className="w-full py-4 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-extrabold text-sm shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
           >
-            Done
+            {paymentStatus === "PENDING" ? "Return to account" : "Done"}
           </button>
         </div>
       </div>
@@ -215,7 +306,7 @@ export default function WithdrawView({
           </button>
           <div className="min-w-0 flex-1">
             <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Withdraw funds</h1>
-            <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-1 truncate">Cash out to mobile money or USDT.</p>
+            <p className="text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 mt-1 truncate">Withdraw to mobile money or a USDT wallet.</p>
           </div>
         </div>
 
