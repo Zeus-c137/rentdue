@@ -24,19 +24,19 @@ type AuthScreen = "welcome" | "login" | "register" | "support" | "about";
 
 const WELCOME_SLIDES = [
   {
-    title: "Runs that pay daily.",
-    sub: "Start a run and collect returns every single day.",
+    title: "Daily returns .",
+    sub: "Start a new run and collect returns every single day.",
   },
   {
-    title: "Finished runs become collectibles.",
-    sub: "Claim completed cycles as collectibles you own permanently.",
+    title: "Art collectibles.",
+    sub: "Claim completed run cycles as art collectibles you own permanently.",
   },
   {
-    title: "Milestones that move you up.",
-    sub: "Finish achievements, unlock new stages, grow your status.",
+    title: "Stay active with daily tasks",
+    sub: "Finish achievements,collect cash bonuses, unlock new stages, grow your status.",
   },
   {
-    title: "One tap keeps the streak.",
+    title: "Daily bonuses",
     sub: "Check in daily and watch your bonus grow with it.",
   },
 ];
