@@ -5,13 +5,14 @@
 
 import React, { useState, useEffect } from "react";
 import { UserProfile } from "../types";
-import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ChevronDown, ArrowRight, Gift, Link2, Mail, Send, CheckCircle2, X } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, User, ChevronLeft, ChevronDown, ArrowRight, Gift, Link2, Mail, Send, CheckCircle2, X, Info } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
 import { GUIDE_SECTIONS } from "./GuideView";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
 import TelegramLoginButton from "./TelegramLoginButton";
+import { useTelegramLogin } from "../hooks/useTelegramLogin";
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
@@ -229,7 +230,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       // matching confirmPassword, so echo it.
       const payload =
         mode === "register"
-          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined }
+          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined, ...(telegramIdToken ? { id_token: telegramIdToken } : {}) }
           : { phone, password };
 
       const res = await fetch(endpoint, {
@@ -269,6 +270,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
         onAuthSuccess(data.profile);
       }
     } catch (err: any) {
+      // An expired pending Telegram token can't be reused — drop the pill
+      // back to idle so the user reconnects. Other failures keep the pill so
+      // only the flagged field needs fixing.
+      if (mode === "register" && err.message === "Telegram verification expired. Tap the pill to reconnect.") {
+        setTelegramIdToken(null);
+      }
       toast.error(err.message);
     } finally {
       setIsLoading(false);
@@ -292,6 +299,58 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Register-pill Telegram state: the verified id_token is held in memory
+  // only and attached to the register submit. Nothing is persisted until
+  // the account is created.
+  const [telegramIdToken, setTelegramIdToken] = useState<string | null>(null);
+  const [telegramChecking, setTelegramChecking] = useState(false);
+  const [telegramUnlinkOpen, setTelegramUnlinkOpen] = useState(false);
+
+  // Pill tap -> Telegram popup -> DB check via the existing login endpoint:
+  // 200 means this Telegram is already connected, so authenticate straight
+  // in; 401 means it is free, so the pill flips to Connected and registration
+  // continues as usual with the id_token attached at submit.
+  const handleTelegramRegisterAuth = async (payload: Record<string, unknown>) => {
+    const idToken = payload.id_token;
+    if (typeof idToken !== "string" || !idToken) return;
+    setTelegramChecking(true);
+    try {
+      const response = await fetch("/api/auth/telegram/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        toast.success("Logged in successfully!");
+        onAuthSuccess(data.profile);
+        return;
+      }
+      if (response.status === 401) {
+        setTelegramIdToken(idToken);
+        toast.success("Telegram connected. Finish registration to link it.");
+        return;
+      }
+      throw new Error((data as { error?: string }).error || "Telegram verification failed. Please try again.");
+    } catch (error: any) {
+      toast.error(error.message || "Telegram verification failed. Please try again.");
+    } finally {
+      setTelegramChecking(false);
+    }
+  };
+  const telegramRegister = useTelegramLogin(handleTelegramRegisterAuth);
+  const telegramPillBusy = telegramChecking || telegramRegister.status === "loading";
+
+  const handleTelegramPillClick = () => {
+    if (telegramIdToken || telegramChecking || isLoading) return;
+    if (telegramRegister.status === "failed") {
+      telegramRegister.retry();
+      return;
+    }
+    if (telegramRegister.status !== "ready") return;
+    telegramRegister.authenticate();
   };
 
   // (slide art now comes from authSlideImages, one image per slide.)
@@ -607,7 +666,19 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     )}
                   </PrimaryButton>
                 </div>
-                <TelegramLoginButton onAuth={handleTelegramLogin} disabled={isLoading} />
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-sans text-[var(--theme-text)] opacity-50">Or use</span>
+                  <span className="flex-1" />
+                  <TelegramLoginButton onAuth={handleTelegramLogin} disabled={isLoading} />
+                  <button
+                    type="button"
+                    aria-label="About Telegram login"
+                    onClick={() => toast.info("Connect Telegram to login without a password")}
+                    className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                  >
+                    <Info className="w-4 h-4" />
+                  </button>
+                </div>
               </form>
 
               <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
@@ -696,6 +767,61 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                       Invite bonus: UGX {inviteBonus.toLocaleString()}
                     </p>
                   )}
+                </div>
+
+                {/* Optional Telegram binding — pill floats right with the info
+                    icon outside it and an Optional subtext below. The
+                    verified id_token attaches to the register submit; the
+                    pill flips to Connected once this Telegram is confirmed
+                    unlinked. */}
+                <div>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={handleTelegramPillClick}
+                      disabled={isLoading || telegramPillBusy || !!telegramIdToken}
+                      className="inline-flex items-center gap-2 rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-2.5 text-[13px] font-sans font-semibold text-[var(--theme-text)] transition-all active:scale-[0.97] disabled:opacity-60 disabled:cursor-default cursor-pointer"
+                    >
+                      {telegramPillBusy ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+                          <span className="opacity-70">Connecting…</span>
+                        </>
+                      ) : telegramIdToken ? (
+                        <>
+                          <img src="/telegram.svg" alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain" />
+                          <span>Connected</span>
+                          <CheckCircle2 className="w-4 h-4 text-[var(--theme-primary)]" />
+                        </>
+                      ) : (
+                        <>
+                          <img src="/telegram.svg" alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain" />
+                          <span>{telegramRegister.status === "failed" ? "Retry Telegram" : "Connect Telegram"}</span>
+                        </>
+                      )}
+                    </button>
+                    {telegramIdToken && (
+                      <button
+                        type="button"
+                        aria-label="Unlink Telegram"
+                        onClick={() => setTelegramUnlinkOpen(true)}
+                        className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="About Telegram login"
+                      onClick={() => toast.info("Connect Telegram to login without a password")}
+                      className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                    >
+                      <Info className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-right text-[11px] font-sans text-[var(--theme-text)] opacity-50">
+                    Optional
+                  </p>
                 </div>
 
                 <div className="flex-1" />
@@ -869,6 +995,36 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Unlink confirm: discards the pending (never persisted) Telegram
+            token and drops the pill back to idle. */}
+        {telegramUnlinkOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-6" role="dialog" aria-modal="true" aria-label="Unlink Telegram account">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setTelegramUnlinkOpen(false)} />
+            <div className="relative w-full max-w-xs rounded-2xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-5 text-center">
+              <h3 className="font-display font-black text-lg tracking-tight">Unlink Telegram account?</h3>
+              <p className="mt-2 text-[14px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                You can still register and log in with your phone and password.
+              </p>
+              <div className="mt-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => { setTelegramIdToken(null); setTelegramUnlinkOpen(false); toast.success("Telegram unlinked."); }}
+                  className="w-full py-3 px-6 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-400 font-sans font-bold text-[14px] transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  Unlink
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTelegramUnlinkOpen(false)}
+                  className="w-full py-3 px-6 rounded-2xl border border-[var(--theme-card-border)] text-[var(--theme-text)] font-sans font-semibold text-[14px] transition-all active:scale-[0.98] bg-transparent cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
