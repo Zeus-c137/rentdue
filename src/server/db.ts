@@ -2540,6 +2540,7 @@ export async function getVipTaskboard(phone: string) {
         requiredBonus: taskThreshold,
         reward: manualClaim ? (tierTaskRewards[category] || 0) : 0,
         manualClaim,
+        ...(["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"].includes(String(task.socialType || "")) ? { socialType: task.socialType } : {}),
         claimStatus,
         ...(manualClaim && claim?.status === "rejected" && claim.reviewNote ? { claimReviewNote: String(claim.reviewNote).slice(0, 1000) } : {}),
         ...(art ? { imageUrl: art } : {}),

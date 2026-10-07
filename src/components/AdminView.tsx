@@ -77,6 +77,7 @@ import { fixGitHubImageUrl } from "../utils/imageUtils";
 import { readApiJson } from "../utils/api";
 import { canonicalTypeOf, getWithdrawalDisplayAmounts, asMetadataRecord } from "../utils/transactionMeta";
 import { normalizeVipTask, dedupeCategories, metricMeta, normalizeTierMeta, tierRewardFor, type TierMeta } from "@/src/utils/vip";
+import { parseVipImport, type VipImportData } from "@/src/utils/vipImport";
 
 function isSettledTransaction(transaction: any): boolean {
   const status = String(transaction?.status || "").toUpperCase();
@@ -97,6 +98,15 @@ function getTimeLeft(expiryDate: string): string {
   parts.push(`${seconds}s`);
   return parts.join(" ");
 }
+
+const VIP_SOCIAL_TASKS = [
+  { id: "facebook_follow", label: "Follow a Facebook page", title: "Follow our Facebook page" },
+  { id: "facebook_like", label: "Like a Facebook post", title: "Like our Facebook post" },
+  { id: "facebook_comment", label: "Comment on a Facebook post", title: "Comment on our Facebook post" },
+  { id: "facebook_share", label: "Share a Facebook post", title: "Share our Facebook post" },
+  { id: "telegram_join", label: "Join a Telegram group", title: "Join our Telegram group" },
+  { id: "whatsapp_join", label: "Join a WhatsApp group", title: "Join our WhatsApp group" },
+] as const;
 
 function GiftCountdown({ expiryDate }: { expiryDate: string }) {
   const timeLeft = getTimeLeft(expiryDate);
@@ -268,6 +278,7 @@ export default function AdminView() {
   const [vipTaskTitle, setVipTaskTitle] = useState("");
   const [vipTaskDescription, setVipTaskDescription] = useState("");
   const [vipTaskCategory, setVipTaskCategory] = useState("");
+  const [vipTaskSocialType, setVipTaskSocialType] = useState<VipTaskConfig["socialType"] | "">("");
   const [vipTaskMetric, setVipTaskMetric] = useState("operator_points");
   const [vipTaskRequiredBonus, setVipTaskRequiredBonus] = useState(0);
   const [vipTaskReward, setVipTaskReward] = useState(0);
@@ -283,6 +294,11 @@ export default function AdminView() {
   const [vipTaskClaimsLoading, setVipTaskClaimsLoading] = useState(false);
   const [reviewingVipTaskClaim, setReviewingVipTaskClaim] = useState<string | null>(null);
   const [vipTaskReviewNotes, setVipTaskReviewNotes] = useState<Record<string, string>>({});
+  const [isVipImportOpen, setIsVipImportOpen] = useState(false);
+  const [parsedVipImport, setParsedVipImport] = useState<VipImportData | null>(null);
+  const [parsedVipImportFileName, setParsedVipImportFileName] = useState("");
+  const [isParsingVipImport, setIsParsingVipImport] = useState(false);
+  const [isApplyingVipImport, setIsApplyingVipImport] = useState(false);
   const { updateLocalThemeConfig } = useTheme();
 
   const getVipTasks = (): VipTaskConfig[] => Array.isArray(siteConfig?.vipTasks) ? siteConfig.vipTasks : [];
@@ -333,6 +349,7 @@ export default function AdminView() {
     setVipTaskTitle("");
     setVipTaskDescription("");
     setVipTaskCategory("");
+    setVipTaskSocialType("");
     setVipTaskMetric("operator_points");
     setVipTaskRequiredBonus(0);
     setVipTaskReward(0);
@@ -341,15 +358,25 @@ export default function AdminView() {
   };
 
   const handleAddVipTask = async () => {
+    const manualTier = isVipManualClaimCategory(vipTaskCategory);
+    if (vipTaskSocialType && !manualTier) {
+      toast.error("Open Manage tiers and enable task submissions for this tier first.");
+      return;
+    }
+    if (vipTaskSocialType && (Number(getVipTierTaskRewards()[vipTaskCategory]) || 0) <= 0) {
+      toast.error("Set an amount per task in Manage tiers before adding social tasks.");
+      return;
+    }
     const rawTask = {
       id: editingVipTaskId || `vip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       title: vipTaskTitle,
       description: vipTaskDescription,
       category: vipTaskCategory,
-      metric: isVipManualClaimCategory(vipTaskCategory) ? "manual_claim" : vipTaskMetric,
-      requiredBonus: isVipManualClaimCategory(vipTaskCategory) ? 1 : vipTaskRequiredBonus,
+      metric: manualTier ? "manual_claim" : vipTaskMetric,
+      requiredBonus: manualTier ? 1 : vipTaskRequiredBonus,
       reward: vipTaskReward,
       actionUrl: vipTaskActionUrl,
+      socialType: vipTaskSocialType || undefined,
       imageUrl: vipTaskImageUrl,
       active: editingVipTaskId ? getVipTasks().find((task) => task.id === editingVipTaskId)?.active !== false : true
     };
@@ -380,6 +407,7 @@ export default function AdminView() {
     setVipTaskTitle(task.title);
     setVipTaskDescription(task.description || "");
     setVipTaskCategory(task.category || "");
+    setVipTaskSocialType(task.socialType || "");
     setVipTaskMetric(task.metric || "operator_points");
     setVipTaskRequiredBonus(Number(task.requiredBonus || 0));
     setVipTaskReward(Number(task.reward || 0));
@@ -555,6 +583,128 @@ export default function AdminView() {
     const saved = await persistVipConfig({ vipTaskCategories: names, vipTierRewards: rewards, vipTierTaskRewards: taskRewards, vipManualClaimCategories: manualCategories, vipTierMeta: meta, vipTasks: nextTasks }, "Tiers saved.");
     setSavingTiers(false);
     if (saved) closeTierEditor();
+  };
+
+  const vipImportTemplate = {
+    tiers: [
+      { name: "Community", completionReward: 5000, taskReward: 1000, manualClaims: true, description: "Complete our community tasks.", imageUrl: "" }
+    ],
+    tasks: [
+      { title: "Follow our Facebook page", category: "Community", description: "Follow and submit your profile link.", actionUrl: "", socialType: "facebook_follow", metric: "", requiredBonus: "", active: true, imageUrl: "" },
+      { title: "Join our Telegram group", category: "Community", description: "Join and submit your Telegram username.", actionUrl: "", socialType: "telegram_join", metric: "", requiredBonus: "", active: true, imageUrl: "" },
+      { title: "Join our WhatsApp group", category: "Community", description: "Join and submit a short confirmation.", actionUrl: "", socialType: "whatsapp_join", metric: "", requiredBonus: "", active: true, imageUrl: "" }
+    ]
+  };
+
+  const downloadVipJsonTemplate = () => {
+    const blob = new Blob([JSON.stringify(vipImportTemplate, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "milestone_import_template.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const downloadVipExcelTemplate = async () => {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(vipImportTemplate.tiers), "Tiers");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(vipImportTemplate.tasks), "Tasks");
+    XLSX.writeFile(workbook, "milestone_import_template.xlsx");
+  };
+
+  const handleVipImportFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setIsParsingVipImport(true);
+    setParsedVipImport(null);
+    setParsedVipImportFileName(file.name);
+    try {
+      let tierRows: Record<string, unknown>[];
+      let taskRows: Record<string, unknown>[];
+      if (file.name.toLowerCase().endsWith(".json")) {
+        const json = JSON.parse(await file.text());
+        tierRows = Array.isArray(json?.tiers) ? json.tiers : [];
+        taskRows = Array.isArray(json?.tasks) ? json.tasks : [];
+      } else {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const tierSheetName = workbook.SheetNames.find((name) => /^tiers?$/i.test(name.trim())) || workbook.SheetNames[0];
+        const taskSheetName = workbook.SheetNames.find((name) => /^tasks?$/i.test(name.trim())) || workbook.SheetNames[1];
+        if (!tierSheetName || !taskSheetName) throw new Error("Workbook must include Tiers and Tasks sheets.");
+        tierRows = XLSX.utils.sheet_to_json(workbook.Sheets[tierSheetName], { defval: "" }) as Record<string, unknown>[];
+        taskRows = XLSX.utils.sheet_to_json(workbook.Sheets[taskSheetName], { defval: "" }) as Record<string, unknown>[];
+      }
+      setParsedVipImport(parseVipImport(tierRows, taskRows));
+    } catch (error: any) {
+      toast.error(error.message || "Could not read this milestone file.");
+      setParsedVipImport(null);
+    } finally {
+      setIsParsingVipImport(false);
+    }
+  };
+
+  const handleApplyVipImport = async () => {
+    if (!parsedVipImport) return;
+    setIsApplyingVipImport(true);
+    try {
+      const categories = getVipTaskCategories();
+      const resolveCategory = (name: string) => categories.find((current) => current.toLowerCase() === name.toLowerCase()) || name;
+      const rewards = { ...getVipTierRewards() };
+      const taskRewards = { ...getVipTierTaskRewards() };
+      const manualCategories = [...getVipManualClaimCategories()];
+      const meta = { ...getVipTierMeta() };
+      const importedCategoryMap = new Map<string, string>();
+
+      for (const tier of parsedVipImport.tiers) {
+        const existingName = resolveCategory(tier.name);
+        const category = existingName;
+        importedCategoryMap.set(tier.name.toLowerCase(), category);
+        if (!categories.some((name) => name.toLowerCase() === category.toLowerCase())) categories.push(category);
+        for (const key of Object.keys(rewards)) if (key.toLowerCase() === category.toLowerCase()) delete rewards[key];
+        for (const key of Object.keys(taskRewards)) if (key.toLowerCase() === category.toLowerCase()) delete taskRewards[key];
+        for (let index = manualCategories.length - 1; index >= 0; index--) {
+          if (manualCategories[index].toLowerCase() === category.toLowerCase()) manualCategories.splice(index, 1);
+        }
+        for (const key of Object.keys(meta)) if (key.toLowerCase() === category.toLowerCase()) delete meta[key];
+        if (tier.completionReward > 0) rewards[category] = tier.completionReward;
+        if (tier.taskReward > 0) taskRewards[category] = tier.taskReward;
+        if (tier.manualClaims) manualCategories.push(category);
+        if (tier.description || tier.imageUrl) meta[category] = { ...(tier.description ? { description: tier.description } : {}), ...(tier.imageUrl ? { imageUrl: tier.imageUrl } : {}) };
+      }
+
+      const existingTasks = getVipTasks();
+      const nextTasks = [...existingTasks];
+      for (const importedTask of parsedVipImport.tasks) {
+        const category = importedCategoryMap.get(importedTask.category.toLowerCase()) || resolveCategory(importedTask.category);
+        const titleKey = importedTask.title.trim().toLowerCase();
+        const existingIndex = nextTasks.findIndex((task) =>
+          task.id === importedTask.id || (task.category.toLowerCase() === category.toLowerCase() && task.title.trim().toLowerCase() === titleKey)
+        );
+        const task = { ...importedTask, category, ...(existingIndex >= 0 ? { id: nextTasks[existingIndex].id } : {}) };
+        if (existingIndex >= 0) nextTasks[existingIndex] = task;
+        else nextTasks.push(task);
+      }
+
+      const saved = await persistVipConfig({
+        vipTaskCategories: categories,
+        vipTierRewards: rewards,
+        vipTierTaskRewards: taskRewards,
+        vipManualClaimCategories: manualCategories,
+        vipTierMeta: meta,
+        vipTasks: nextTasks,
+      }, `Imported ${parsedVipImport.tiers.length} tier${parsedVipImport.tiers.length === 1 ? "" : "s"} and ${parsedVipImport.tasks.length} task${parsedVipImport.tasks.length === 1 ? "" : "s"}.`);
+      if (saved) {
+        setIsVipImportOpen(false);
+        setParsedVipImport(null);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Could not import milestones.");
+    } finally {
+      setIsApplyingVipImport(false);
+    }
   };
 
   // Password override state
@@ -3493,10 +3643,11 @@ export default function AdminView() {
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--theme-radius)] bg-[var(--theme-primary)]/12 text-[var(--theme-primary)]"><Tags className="w-4 h-4" /></span>
                           <div>
                             <h3 className="text-base font-extrabold text-[var(--theme-text)]">Milestone board</h3>
-                            <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Tasks unlock from the user's server-calculated operator lifetime points.</p>
+                          <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Build progress milestones or social actions with per-task rewards and review.</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <button type="button" onClick={() => { setParsedVipImport(null); setParsedVipImportFileName(""); setIsVipImportOpen(true); }} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Upload className="w-3.5 h-3.5" />Bulk import</button>
                           <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage tiers</button>
                           <button type="button" onClick={() => { const category = getVipTaskCategories()[0] || ""; setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(category); if (isVipManualClaimCategory(category)) { setVipTaskMetric("manual_claim"); setVipTaskRequiredBonus(1); } setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create milestone</button>
                         </div>
@@ -3575,7 +3726,7 @@ export default function AdminView() {
                                 return (
                                   <tr key={task.id} className="hover:bg-[var(--theme-bg)]/45 transition-colors">
                                     <td className="px-4 py-4 min-w-[220px]"><div className="flex items-center gap-2.5"><div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">{task.imageUrl ? <img src={fixGitHubImageUrl(task.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">{task.title.charAt(0).toUpperCase()}</span>}</div><div className="min-w-0"><div className="font-bold text-[var(--theme-text)] truncate">{task.title}</div><div className="text-[11px] opacity-55 mt-1 max-w-[290px] truncate">{task.description || "No description"}</div></div></div></td>
-                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{taskManual ? "User submission" : needMeta.source}</div></td>
+                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{task.socialType ? VIP_SOCIAL_TASKS.find((item) => item.id === task.socialType)?.label || "Social action" : taskManual ? "User submission" : needMeta.source}</div></td>
                                     <td className="px-4 py-4 text-right font-bold">{taskManual ? "Submit" : needText}</td>
                                     <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">{taskManual ? `+${formatCurrency(Number(getVipTierTaskRewards()[task.category]) || 0)}` : "—"}</td>
                                     <td className="px-4 py-4 text-center font-bold">{claimedUsers}</td>
@@ -3658,14 +3809,37 @@ export default function AdminView() {
                             </div>
                           </label>
                         </div>
+                        <label className="text-xs font-bold uppercase tracking-wider opacity-75">Social task template
+                          <select value={vipTaskSocialType} onChange={(event) => {
+                            const value = event.target.value as VipTaskConfig["socialType"] | "";
+                            setVipTaskSocialType(value);
+                            const preset = VIP_SOCIAL_TASKS.find((item) => item.id === value);
+                            if (preset) {
+                              setVipTaskTitle(preset.title);
+                              setVipTaskDescription("Complete this social task, then submit your profile or post link, or a short note.");
+                              setVipTaskMetric("manual_claim");
+                              setVipTaskRequiredBonus(1);
+                            } else if (!isVipManualClaimCategory(vipTaskCategory)) {
+                              setVipTaskMetric("operator_points");
+                              setVipTaskRequiredBonus(0);
+                            }
+                          }} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
+                            <option value="">Choose a social action (optional)</option>
+                            {VIP_SOCIAL_TASKS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                          </select>
+                          <span className="block mt-1.5 text-[10px] normal-case tracking-normal opacity-55">Social actions use submissions and admin review. Add the destination in Task link.</span>
+                        </label>
                         <label className="text-xs font-bold uppercase tracking-wider opacity-75">Description
                           <textarea value={vipTaskDescription} onChange={(event) => setVipTaskDescription(event.target.value)} placeholder="Explain what this reward unlocks." rows={3} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 resize-none" />
                         </label>
                         <label className="text-xs font-bold uppercase tracking-wider opacity-75">Task link
                           <input type="url" value={vipTaskActionUrl} onChange={(event) => setVipTaskActionUrl(event.target.value)} placeholder="https://…" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                         </label>
-                        {isVipManualClaimCategory(vipTaskCategory) ? (
-                          <div className="rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5 text-xs opacity-70">Users submit this task with a link or note. Admin approval determines completion and releases the configured per-task reward.</div>
+                        {(isVipManualClaimCategory(vipTaskCategory) || Boolean(vipTaskSocialType)) ? (
+                          <div className="rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5 text-xs opacity-75 space-y-2">
+                            <p>Users submit this task with a link or note. Approval marks it complete and credits the tier’s per-task reward.</p>
+                            {vipTaskSocialType && (!isVipManualClaimCategory(vipTaskCategory) || (Number(getVipTierTaskRewards()[vipTaskCategory]) || 0) <= 0) && <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-amber-500">Enable task submissions and set an amount per task for this tier.</span><button type="button" onClick={openTierEditor} className="font-black text-[var(--theme-primary)] underline underline-offset-2">Manage tiers</button></div>}
+                          </div>
                         ) : <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Unlocks from
                             <select value={vipTaskMetric} onChange={(event) => setVipTaskMetric(event.target.value)} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
@@ -3779,6 +3953,52 @@ export default function AdminView() {
                           <button type="button" onClick={closeTierEditor} className="btn-3d-secondary px-5 py-2.5 text-xs font-black cursor-pointer">Cancel</button>
                           <button type="button" onClick={() => void handleSaveTiers()} disabled={savingTiers || isLoading} className="btn-3d-primary text-white px-5 py-2.5 text-xs font-black cursor-pointer disabled:opacity-50 flex items-center gap-2">{savingTiers ? "Saving…" : "Save Tiers"}</button>
                         </div>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {isVipImportOpen && (
+                  <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (!isApplyingVipImport) setIsVipImportOpen(false); }} className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+                    <motion.div initial={{ opacity: 0, y: 14, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 14, scale: 0.98 }} className="relative w-full max-w-2xl max-h-[88vh] theme-card bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[var(--theme-radius)] shadow-2xl overflow-hidden flex flex-col text-[var(--theme-text)]">
+                      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--theme-card-border)] shrink-0">
+                        <div className="flex items-center gap-3"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]"><FileSpreadsheet className="w-4 h-4" /></span><div><h3 className="text-base font-black">Bulk import milestones</h3><p className="text-xs opacity-60 mt-0.5">Load tiers and tasks from Excel or JSON.</p></div></div>
+                        <button type="button" onClick={() => setIsVipImportOpen(false)} disabled={isApplyingVipImport} className="p-2 rounded-full hover:bg-[var(--theme-bg)] opacity-70 hover:opacity-100 disabled:opacity-40"><X className="w-4 h-4" /></button>
+                      </div>
+                      <div className="p-5 overflow-y-auto space-y-4">
+                        <div className="rounded-xl border border-[var(--theme-primary)]/20 bg-[var(--theme-primary)]/[0.06] p-4 space-y-2.5">
+                          <p className="text-xs leading-relaxed opacity-75">Imports merge into the current board. Matching tiers are updated; tasks match by ID or by tier and title. Existing tiers and tasks not included in the file stay in place.</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => void downloadVipExcelTemplate()} className="btn-3d-secondary px-3 py-2 text-[11px] font-black flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Excel template</button>
+                            <button type="button" onClick={downloadVipJsonTemplate} className="btn-3d-secondary px-3 py-2 text-[11px] font-black flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />JSON template</button>
+                          </div>
+                        </div>
+                        {!parsedVipImport ? (
+                          <label className="relative flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 px-5 py-6 text-center hover:border-[var(--theme-primary)]">
+                            <input type="file" accept=".xlsx,.xls,.json" onChange={(event) => void handleVipImportFileSelected(event)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                            {isParsingVipImport ? <Loader2 className="w-7 h-7 animate-spin text-[var(--theme-primary)]" /> : <Upload className="w-7 h-7 text-[var(--theme-primary)]" />}
+                            <span className="text-sm font-bold">{isParsingVipImport ? "Checking file…" : "Choose a milestone file"}</span>
+                            <span className="text-[11px] opacity-55">Excel workbook (.xlsx, .xls) or JSON (.json)</span>
+                          </label>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3.5 py-3">
+                              <div><p className="text-sm font-black">{parsedVipImportFileName}</p><p className="text-[11px] opacity-65 mt-0.5">Ready to merge into the current board</p></div>
+                              <span className="text-right text-[11px] font-bold text-[var(--theme-primary)]">{parsedVipImport.tiers.length} tiers · {parsedVipImport.tasks.length} tasks</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tiers</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tiers.slice(0, 8).map((tier) => <div key={tier.name} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate font-bold">{tier.name}{tier.manualClaims && <span className="ml-1.5 text-[9px] uppercase text-[var(--theme-primary)]">Manual</span>}</span><span className="shrink-0 text-right tabular-nums opacity-70">{formatCurrency(tier.taskReward)} / task</span></div>)}{parsedVipImport.tiers.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tiers.length - 8} more</p>}</div></section>
+                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tasks</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tasks.slice(0, 8).map((task) => <div key={task.id} className="text-xs"><p className="font-bold truncate">{task.title}</p><p className="text-[10px] opacity-55">{task.category} · {task.metric === "manual_claim" ? "Task submission" : metricMeta(task.metric).source}</p></div>)}{parsedVipImport.tasks.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tasks.length - 8} more</p>}</div></section>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 border-t border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-5 py-4 shrink-0">
+                        <button type="button" onClick={() => { setParsedVipImport(null); setParsedVipImportFileName(""); }} disabled={!parsedVipImport || isApplyingVipImport} className="text-xs font-bold opacity-65 hover:opacity-100 disabled:opacity-35">Choose another file</button>
+                        <button type="button" onClick={() => void handleApplyVipImport()} disabled={!parsedVipImport || isApplyingVipImport || isLoading} className="btn-3d-primary text-white rounded-lg px-4 py-2.5 text-xs font-black flex items-center gap-2 disabled:opacity-50">{isApplyingVipImport ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}{isApplyingVipImport ? "Importing…" : "Merge and import"}</button>
                       </div>
                     </motion.div>
                   </div>

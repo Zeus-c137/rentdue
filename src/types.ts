@@ -102,6 +102,7 @@ export interface VipTaskConfig {
   active?: boolean;
   imageUrl?: string;
   actionUrl?: string;
+  socialType?: "facebook_follow" | "facebook_like" | "facebook_comment" | "facebook_share" | "telegram_join" | "whatsapp_join";
 }
 
 export interface VipTask {
@@ -120,6 +121,7 @@ export interface VipTask {
   stageIndex?: number;
   stageLocked?: boolean;
   manualClaim?: boolean;
+  socialType?: VipTaskConfig["socialType"];
   claimStatus?: "none" | "pending" | "rejected" | "approved";
   claimReviewNote?: string;
 }

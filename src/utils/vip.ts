@@ -63,6 +63,9 @@ export function normalizeVipTask(raw: unknown): VipTaskConfig {
   const imageUrl = String(d.imageUrl ?? "").trim();
   const rawActionUrl = String(d.actionUrl ?? "").trim();
   const actionUrl = /^https?:\/\//i.test(rawActionUrl) ? rawActionUrl.slice(0, 512) : "";
+  const socialType = ["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"].includes(String(d.socialType || ""))
+    ? String(d.socialType) as VipTaskConfig["socialType"]
+    : undefined;
   const metric = String(d.metric ?? "operator_points").trim() || "operator_points";
   return {
     id: String(d.id ?? "").trim(),
@@ -75,6 +78,7 @@ export function normalizeVipTask(raw: unknown): VipTaskConfig {
     active: d.active !== false,
     ...(imageUrl ? { imageUrl } : {}),
     ...(actionUrl ? { actionUrl } : {}),
+    ...(socialType ? { socialType } : {}),
   };
 }
 
