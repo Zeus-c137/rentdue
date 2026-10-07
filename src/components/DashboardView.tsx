@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
+import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
 import {
   getRunProgress,
   getRunEndMs,
@@ -321,24 +322,11 @@ export default function DashboardView({
     });
   };
 
-  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
-  const playCoinSound = () => {
-    try {
-      if (!coinAudioRef.current) {
-        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
-        coinAudioRef.current.volume = 0.5;
-      }
-      coinAudioRef.current.currentTime = 0;
-      void coinAudioRef.current.play().catch(() => {});
-    } catch {
-      // audio must never break the claim
-    }
-  };
-
   const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusy) return;
     // Capture tile geometry synchronously — React synthetic events go stale after await.
     const tileRect = source === "tile" && event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
+    unlockCheckinSound();
     setCheckinBusy(true);
     try {
       const res = await fetch("/api/user/checkin", {
@@ -351,7 +339,7 @@ export default function DashboardView({
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      playCoinSound();
+      playCheckinSound();
       // Coin flight plays only on tile tap, flying to the balance hero. Header
       // button claims instantly with no animation and no confetti.
       if (source === "tile" && !reduced && tileRect) {

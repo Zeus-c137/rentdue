@@ -5,6 +5,7 @@ import flameSvg from "@/src/assets/svg/flame.svg";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
+import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
 import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
 import type { TransactionRow, UserProfile } from "../types";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -130,26 +131,13 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayStreak = checkedInToday ? streak : streak + 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
-  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
-  const playCoinSound = () => {
-    try {
-      if (!coinAudioRef.current) {
-        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
-        coinAudioRef.current.volume = 0.5;
-      }
-      coinAudioRef.current.currentTime = 0;
-      void coinAudioRef.current.play().catch(() => {});
-    } catch {
-      // audio must never break the claim
-    }
-  };
-
   const handleCheckin = async (e?: React.MouseEvent<HTMLElement>) => {
     if (e) e.stopPropagation();
     if (checkedInToday || claimBusy) return;
     // Capture the source before the request completes; React events and the
     // tile position may no longer be available after awaiting the response.
     const sourceRect = e?.currentTarget.getBoundingClientRect() ?? null;
+    unlockCheckinSound();
     setClaimBusy(true);
     let releaseBusyAfterFlight = false;
     try {
@@ -163,7 +151,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const key = getTodayKey();
-      playCoinSound();
+      playCheckinSound();
       const finishClaim = () => {
         setClaimedDays((prev) => new Set(prev).add(key));
         setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
