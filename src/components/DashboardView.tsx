@@ -9,17 +9,17 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
-import { Plus, Trophy, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { Plus, Lock, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
 import flameSvg from "@/src/assets/svg/flame.svg";
-import { getMilestoneBoard } from "./VipTasksPage";
+import { AchievementGlyph, bustMilestoneCache, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
 import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
-import { tierMetaFor } from "../utils/vip";
 import { optimizedImageUrl } from "../utils/imageUtils";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
+import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
 import {
   getRunProgress,
   getRunEndMs,
@@ -118,6 +118,7 @@ export default function DashboardView({
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
+  const [msClaimBusy, setMsClaimBusy] = useState<string | null>(null);
   const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -321,24 +322,11 @@ export default function DashboardView({
     });
   };
 
-  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
-  const playCoinSound = () => {
-    try {
-      if (!coinAudioRef.current) {
-        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
-        coinAudioRef.current.volume = 0.5;
-      }
-      coinAudioRef.current.currentTime = 0;
-      void coinAudioRef.current.play().catch(() => {});
-    } catch {
-      // audio must never break the claim
-    }
-  };
-
   const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusy) return;
     // Capture tile geometry synchronously — React synthetic events go stale after await.
     const tileRect = source === "tile" && event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
+    unlockCheckinSound();
     setCheckinBusy(true);
     try {
       const res = await fetch("/api/user/checkin", {
@@ -351,7 +339,7 @@ export default function DashboardView({
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      playCoinSound();
+      playCheckinSound();
       // Coin flight plays only on tile tap, flying to the balance hero. Header
       // button claims instantly with no animation and no confetti.
       if (source === "tile" && !reduced && tileRect) {
@@ -384,6 +372,55 @@ export default function DashboardView({
       toast.error(err.message || "Check-in failed.");
     } finally {
       setCheckinBusy(false);
+    }
+  };
+
+  const handleClaimMilestoneTask = async (task: VipTask, event: React.MouseEvent<HTMLButtonElement>) => {
+    if (msClaimBusy) return;
+    const isSocialVerified = Boolean(task.socialType) && task.claimStatus === "verified";
+    const isMetricReady = !task.socialType && Number(task.progress || 0) >= Number(task.requiredBonus || 0);
+    if (task.claimed || task.stageLocked || !(isSocialVerified || isMetricReady)) return;
+    const sourceRect = event.currentTarget.getBoundingClientRect();
+    unlockCheckinSound();
+    setMsClaimBusy(task.id);
+    try {
+      const result = await fetchJsonWithSignal<{ status: string; reward: number }>("/api/profile/vip-tasks/claim", new AbortController().signal, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: profile.phone, taskId: task.id }),
+      });
+      const reward = Math.max(0, Number(result.reward) || 0);
+      playCheckinSound();
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const root = rootRef.current;
+      const target = balanceRef.current?.getBoundingClientRect();
+      if (!reduced && root && target) {
+        const rootRect = root.getBoundingClientRect();
+        const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
+        const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+        const endX = target.left + target.width / 2 - rootRect.left;
+        const endY = target.top + target.height / 2 - rootRect.top;
+        setCoins(Array.from({ length: 10 }, (_, i) => ({
+          id: Date.now() + i,
+          startX: startX + (Math.random() - 0.5) * 24,
+          startY: startY + (Math.random() - 0.5) * 10,
+          dx: endX - startX + (Math.random() - 0.5) * 30,
+          dy: endY - startY,
+          delay: i * 0.06,
+        })));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1050));
+      }
+      setCoins(null);
+      onProfileUpdate({ ...profile, points: (Number(profile.points) || 0) + reward });
+      toast.success(`${formatCurrency(reward)} added to your balance.`);
+      bustMilestoneCache();
+      const controller = new AbortController();
+      void getMilestoneBoard(profile.phone, controller.signal).then(setMsBoard).catch(() => {});
+    } catch (err: any) {
+      setCoins(null);
+      toast.error(err.message || "Could not claim this milestone reward.");
+    } finally {
+      setMsClaimBusy(null);
     }
   };
 
@@ -470,8 +507,9 @@ export default function DashboardView({
               ) : checkinEcon === null ? (
                 <span aria-hidden className="block h-[20px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
               ) : (
-                <span className="text-[13px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
-                  {checkinBusy ? "…" : `+${formatCurrency(checkinAmount)}`}
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
+                  <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                  {checkinBusy ? "…" : formatCurrency(checkinAmount)}
                 </span>
               )}
             </div>
@@ -625,25 +663,30 @@ export default function DashboardView({
           ) : (() => {
             const task = nextMilestone.task;
             const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
-            const tierArt = tierMetaFor(msBoard?.tierMeta, task.category).imageUrl || task.imageUrl;
+            const taskArt = task.imageUrl;
+            const taskClaimed = Boolean(task.claimed || task.claimStatus === "approved");
+            const taskLocked = Boolean(task.stageLocked);
+            const rewardAvailable = !taskClaimed && !taskLocked && (task.socialType ? task.claimStatus === "verified" : Number(task.progress || 0) >= Number(task.requiredBonus || 0));
+            const taskInProgress = !task.socialType && Number(task.progress || 0) > 0 && !rewardAvailable && !taskClaimed;
             const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
             const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
             const counts = msIsMoney(task.metric)
               ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
               : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
             return (
-              <button
-                type="button"
-                onClick={() => onNavigateToMilestones(task.category)}
-                aria-label={`View milestone: ${task.title}`}
-                className="mt-3 w-full text-left rounded-2xl p-3 transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
-              >
+              <div className="mt-3 w-full rounded-2xl p-3">
+                <button
+                  type="button"
+                  onClick={() => onNavigateToMilestones(task.category)}
+                  aria-label={`View milestone: ${task.title}`}
+                  className="w-full text-left transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
+                >
                 <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 overflow-hidden shrink-0 flex items-center justify-center">
-                    {tierArt ? (
-                      <img src={optimizedImageUrl(tierArt, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                  <div className="w-14 h-14 rounded-xl bg-white/[0.05] border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
+                    {taskArt ? (
+                      <img src={optimizedImageUrl(taskArt, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
-                      <Trophy className="w-6 h-6 text-[var(--theme-primary)]" />
+                      <AchievementGlyph metric={task.metric} socialType={task.socialType} />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -667,7 +710,21 @@ export default function DashboardView({
                     </div>
                   </div>
                 </div>
-              </button>
+                </button>
+                <div className="mt-2 flex justify-end">
+                  {taskClaimed ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 px-3 py-1.5 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)]">
+                      <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />{formatCurrency(task.reward)}
+                    </span>
+                  ) : (
+                    <button type="button" onClick={(event) => void handleClaimMilestoneTask(task, event)} disabled={!rewardAvailable || task.reward <= 0 || msClaimBusy !== null} aria-label={rewardAvailable ? `Claim ${task.title} reward of ${formatCurrency(task.reward)}` : `${task.title} reward unavailable`}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-sans font-black tabular-nums transition-transform disabled:cursor-not-allowed ${rewardAvailable && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)] tile-shimmer-5s streak-tile-pulse overflow-hidden active:scale-[0.97] disabled:opacity-45" : taskInProgress && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50" : "border-white/10 bg-[var(--theme-card-bg)]/60 text-[var(--theme-text)] opacity-60"}`}>
+                      {!rewardAvailable && <Lock className="h-3 w-3" aria-hidden="true" />}
+                      <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />{msClaimBusy === task.id ? "CLAIMING…" : formatCurrency(task.reward)}
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })()}
         </section>
@@ -779,8 +836,9 @@ export default function DashboardView({
                       </div>
                     <p className="mt-1.5 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
-                      <span className="font-display font-bold tabular-nums text-xs text-[var(--theme-primary)]">
-                        +{formatCurrency(node.totalEarned || 0)}
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-display text-[11px] font-bold tabular-nums text-[var(--theme-primary)]">
+                        <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                        {formatCurrency(node.totalEarned || 0)}
                       </span>
                     </p>
                   </div>

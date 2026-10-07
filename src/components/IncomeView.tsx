@@ -8,7 +8,6 @@ import {
   Loader,
   ShoppingCartIcon,
   Zap,
-  Coins,
   SlidersHorizontal,
   Calendar,
   ChevronRight,
@@ -24,6 +23,7 @@ import { rarityMapForCatalog } from "../utils/rarity";
 import RarityBadge from "./RarityBadge";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
+import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
 interface IncomeViewProps {
   profile: UserProfile;
@@ -76,12 +76,9 @@ export default function IncomeView({
     void loadCollectibles();
   }, [loadCollectibles, activeNodes.length]);
 
-  // Cumulative total earnings — purchase-time snapshot first (same source the
-  // server credits from); live catalog only as a legacy fallback.
-  const rateOf = (node: SubscribedNode) => getRunDailyRate(node, items);
   const nodeStatus = (node: SubscribedNode): string => String(node.status || "").toLowerCase();
-  const totalDailyYield = activeNodes.filter(n => nodeStatus(n) === "active").reduce((acc, node) => acc + rateOf(node), 0);
   const activeCount = activeNodes.filter((n) => getRunState(n, items) === "active").length;
+  const activeTotalCollected = activeNodes.filter((n) => getRunState(n, items) === "active").reduce((acc, n) => acc + (Number(n.totalEarned) || 0), 0);
   const completedNodes = activeNodes.filter((n) => getRunState(n, items) !== "active");
   const completedCount = completedNodes.length;
   const completedTotalCollected = completedNodes.reduce((acc, n) => acc + (Number(n.totalEarned) || 0), 0);
@@ -148,30 +145,27 @@ export default function IncomeView({
   return (
     <div className="space-y-5 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-[var(--theme-radius)] relative">
 
-      <div className="flex items-center justify-between gap-2 px-1">
-        <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">My Runs</h1>
-        {onNavigateToCollection && (
-          <button
-            type="button"
-            onClick={onNavigateToCollection}
-            className="shrink-0 inline-flex items-center gap-1 px-3.5 py-2 rounded-full border border-[var(--theme-primary)]/40 text-[var(--theme-primary)] text-[12px] font-sans font-black cursor-pointer active:scale-95 transition-all"
-          >
-            <Award className="w-4 h-4" /> My Collections
-          </button>
-        )}
-      </div>
-      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[320px] px-1 -mt-3">Track your active runs, view progress, and see your daily earnings.</p>
-
       {/* Aggregate Stats — sticky so run list scrolls below */}
       <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
-        <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 grid grid-cols-2 gap-2">
+        {onNavigateToCollection && (
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={onNavigateToCollection}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--theme-primary)]/40 px-3.5 py-2 text-[12px] font-sans font-black text-[var(--theme-primary)] transition-all active:scale-95"
+            >
+              <Award className="h-4 w-4" /> My Collections
+            </button>
+          </div>
+        )}
+        <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 grid grid-cols-2 gap-x-3 gap-y-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Completed Runs" : "Active Runs"}</p>
-            <p className="font-display font-black text-[18px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{showCompleted ? completedCount : activeCount}</p>
+            <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Completed Runs" : "Active Runs"}</p>
+            <p className="font-display font-black text-[22px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{showCompleted ? completedCount : activeCount}</p>
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Total Earnings" : "Today's Earnings"}</p>
-            <p className="font-display font-black text-[18px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(showCompleted ? completedTotalCollected : totalDailyYield)}</p>
+            <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Total Earnings" : "Collected"}</p>
+            <p className="font-display font-black text-[18px] text-[var(--theme-primary)] tracking-tight truncate mt-0.5">{formatCurrency(showCompleted ? completedTotalCollected : activeTotalCollected)}</p>
           </div>
         </div>
       </div>
@@ -310,11 +304,12 @@ export default function IncomeView({
                   </div>
 
                   {/* Earnings split */}
-                  <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-[var(--theme-card-border)]/70 pt-3 text-[var(--theme-text)]">
-                    <div className="flex items-baseline justify-between gap-3 w-full min-w-0">
-                      <p className="text-[12px] font-semibold tracking-tight">Collected</p>
-                      <p className="font-sans font-bold text-[17px] sm:text-[18px] tracking-tight tabular-nums truncate text-right">{formatCurrency(Number(node.totalEarned) || 0)}</p>
-                    </div>
+                  <div className="mt-3 flex items-baseline justify-between gap-3 text-[var(--theme-primary)]">
+                    <p className="text-[12px] font-semibold tracking-tight">Collected</p>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-bold tracking-tight tabular-nums">
+                      <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                      {formatCurrency(Number(node.totalEarned) || 0)}
+                    </span>
                   </div>
 
                   {/* Finished-run ownership actions */}

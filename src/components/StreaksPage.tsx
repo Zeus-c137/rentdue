@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import flameSvg from "@/src/assets/svg/flame.svg";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
+import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
 import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
 import type { TransactionRow, UserProfile } from "../types";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -17,6 +19,14 @@ interface Props {
 }
 
 interface Cursor { y: number; m: number; }
+interface FlightCoin {
+  id: number;
+  startX: number;
+  startY: number;
+  dx: number;
+  dy: number;
+  delay: number;
+}
 
 /**
  * Streaks page: accrued panel, month panning capped to the join month,
@@ -29,6 +39,9 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const [claimedLedger, setClaimedLedger] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
+  const [coins, setCoins] = useState<FlightCoin[] | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const accruedRef = useRef<HTMLParagraphElement>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => { if (!document.hidden) setNowMs(Date.now()); }, 1000);
@@ -118,24 +131,15 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayStreak = checkedInToday ? streak : streak + 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
-  const coinAudioRef = useRef<HTMLAudioElement | null>(null);
-  const playCoinSound = () => {
-    try {
-      if (!coinAudioRef.current) {
-        coinAudioRef.current = new Audio("/assets/audio/coin.mp3");
-        coinAudioRef.current.volume = 0.5;
-      }
-      coinAudioRef.current.currentTime = 0;
-      void coinAudioRef.current.play().catch(() => {});
-    } catch {
-      // audio must never break the claim
-    }
-  };
-
   const handleCheckin = async (e?: React.MouseEvent<HTMLElement>) => {
     if (e) e.stopPropagation();
     if (checkedInToday || claimBusy) return;
+    // Capture the source before the request completes; React events and the
+    // tile position may no longer be available after awaiting the response.
+    const sourceRect = e?.currentTarget.getBoundingClientRect() ?? null;
+    unlockCheckinSound();
     setClaimBusy(true);
+    let releaseBusyAfterFlight = false;
     try {
       const res = await fetch("/api/user/checkin", {
         method: "POST",
@@ -147,23 +151,46 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       const bonus = Number(data.amount ?? data.bonus ?? 0);
       const nextStreak = Number(data.streak ?? streak + 1);
       const key = getTodayKey();
-      playCoinSound();
-      setClaimedDays((prev) => new Set(prev).add(key));
-      setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
-      toast.success("Daily check-in complete", {
-        description:
-          bonus > 0
-            ? `Day ${nextStreak}: +${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
-            : "Streak kept alive. See you tomorrow.",
-        duration: 6000,
-      });
-      if (onClaimSuccess) {
-        onClaimSuccess({ ...userProfile, points: (Number(userProfile.points) || 0) + bonus, lastCheckinDate: key, checkinStreak: nextStreak });
+      playCheckinSound();
+      const finishClaim = () => {
+        setClaimedDays((prev) => new Set(prev).add(key));
+        setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
+        setCoins(null);
+        toast.success("Check-in collected", {
+          description: bonus > 0
+            ? `+${formatCurrency(bonus)} added to your balance · Day ${nextStreak} streak.`
+            : `Day ${nextStreak} streak saved.`,
+          duration: 4500,
+        });
+        onClaimSuccess?.({ ...userProfile, points: (Number(userProfile.points) || 0) + bonus, lastCheckinDate: key, checkinStreak: nextStreak });
+        setClaimBusy(false);
+      };
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const root = rootRef.current;
+      const target = accruedRef.current?.getBoundingClientRect();
+      if (!reduced && sourceRect && root && target) {
+        const rootRect = root.getBoundingClientRect();
+        const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
+        const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+        const endX = target.left + target.width / 2 - rootRect.left;
+        const endY = target.top + target.height / 2 - rootRect.top;
+        setCoins(Array.from({ length: 10 }, (_, i) => ({
+          id: Date.now() + i,
+          startX: startX + (Math.random() - 0.5) * 24,
+          startY: startY + (Math.random() - 0.5) * 10,
+          dx: endX - startX + (Math.random() - 0.5) * 30,
+          dy: endY - startY,
+          delay: i * 0.06,
+        })));
+        releaseBusyAfterFlight = true;
+        window.setTimeout(finishClaim, 1050);
+      } else {
+        finishClaim();
       }
     } catch (err: any) {
       toast.error(err.message || "Check-in failed.");
     } finally {
-      setClaimBusy(false);
+      if (!releaseBusyAfterFlight) setClaimBusy(false);
     }
   };
 
@@ -172,7 +199,26 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div className="w-full flex-1 flex flex-col min-h-0">
+    <div ref={rootRef} className="relative w-full flex-1 flex flex-col min-h-0">
+      <AnimatePresence>
+        {coins && (
+          <div className="absolute inset-0 z-30 pointer-events-none overflow-visible" aria-hidden="true">
+            {coins.map((coin) => (
+              <motion.img
+                key={coin.id}
+                src={dollar3d}
+                alt=""
+                initial={{ x: 0, y: 0, scale: 0.7, opacity: 1 }}
+                animate={{ x: coin.dx, y: coin.dy, scale: 0.25, opacity: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.6, delay: coin.delay, ease: "easeOut" }}
+                className="absolute w-9 h-9 object-contain"
+                style={{ left: coin.startX - 18, top: coin.startY - 18 }}
+              />
+            ))}
+          </div>
+        )}
+      </AnimatePresence>
       <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-8 scrollbar-none min-h-0">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -194,7 +240,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
               {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
             </p>
-            <p className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
+            <p ref={accruedRef} className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
               {formatCurrency(monthSum)}
             </p>
           </div>

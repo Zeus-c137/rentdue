@@ -208,6 +208,31 @@ export const transactions = mysqlTable(
   })
 );
 
+// Milestone verification records. Rewards are snapshotted so later tier edits
+// cannot change a claim awaiting admin review.
+export const vipTaskClaims = mysqlTable(
+  "vip_task_claims",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    userId: varchar("user_id", { length: 32 }).notNull(),
+    taskId: varchar("task_id", { length: 64 }).notNull(),
+    category: varchar("category", { length: 64 }).notNull(),
+    taskTitle: varchar("task_title", { length: 255 }).notNull(),
+    reward: double("reward").notNull().default(0),
+    proof: text("proof").notNull(),
+    status: varchar("status", { length: 16 }).notNull().default("pending"),
+    submittedAt: varchar("submitted_at", { length: 64 }).notNull(),
+    reviewedAt: varchar("reviewed_at", { length: 64 }),
+    reviewedBy: varchar("reviewed_by", { length: 32 }),
+    reviewNote: text("review_note")
+  },
+  (table) => ({
+    userTaskUnique: uniqueIndex("uq_vip_task_claim_user_task").on(table.userId, table.taskId),
+    statusSubmittedIdx: index("idx_vip_task_claim_status_submitted").on(table.status, table.submittedAt),
+    categoryIdx: index("idx_vip_task_claim_category").on(table.category)
+  })
+);
+
 // Backward-compatible names used by older server code. Both point to the same
 // physical tables; there is no second database model to migrate.
 export const subscriptions = subscribedNodes;

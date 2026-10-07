@@ -56,6 +56,11 @@ import {
   adminGetCatalogItems,
   getVipTaskboard,
   claimTierReward,
+  claimVerifiedVipTask,
+  verifyVipTask,
+  listPendingVipTaskClaims,
+  adminResetVipMilestones,
+  reviewVipTaskClaim,
   adminUpdateUserLockStatus,
   adminAdjustBalance,
   adminCreateAnnouncement,
@@ -278,13 +283,16 @@ app.get("/readyz", (_req, res) => {
 // These lightweight server-rendered pages give search engines indexable
 // content. They are registered before the SPA fallback, so they work in
 // both dev (Vite middleware) and production (dist + SPA fallback).
-// TODO(SEO placeholder): product catalog is intentionally hidden behind auth
-// and excluded from all public pages/sitemap until final copy is approved.
+// Keep the authenticated product catalog out of public SEO pages and sitemap.
 const SEO_PUBLIC_PATHS = ["/welcome", "/faq"];
 
-// TODO(SEO placeholder): replace with final keywords + description before launch.
-const SEO_KEYWORDS = "rentdue, rentduestore, rentdue store, rentdue runs, rentdue store runs, rentdue products, rentdue income, rentdue returns, rentdue milestones, rentdue store invite, rentdue AI, rentdue machines";
-const SEO_PLACEHOLDER_DESCRIPTION = "RentDue Store is a multinational corporation manufacturer of motorcycles, engines, heavy equipment, aerospace and defense equipment, rolling stock and ships, headquartered in Minato, Tokyo, Japan and Uganda.";
+const SEO_KEYWORDS = "RentDue, virtual machine rentals, daily returns, referral rewards, mobile money withdrawals, USDT withdrawals";
+const SEO_DESCRIPTION = "Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT.";
+const SEO_SHARE_IMAGE = "/seo-share-image";
+
+function seoTitle(brand: string): string {
+  return `${brand} | Virtual machine rentals and daily returns`;
+}
 
 function getPublicBaseUrl(req: express.Request): string {
   const configured = String(process.env.APP_URL || process.env.VITE_APP_URL || "").trim().replace(/\/$/, "");
@@ -312,11 +320,12 @@ async function getSeoData(): Promise<{ brand: string; description: string; items
     const brand = String((config as any)?.brandName || "").trim() || "RENTDUE";
     // Placeholder format: fixed corporate description until final copy lands.
     // Products stay hidden behind auth — no catalog fetch here by design.
-    return { brand, description: SEO_PLACEHOLDER_DESCRIPTION, items: [], config: config || {} };
+    const description = String(config?.seoDescription || "").trim() || SEO_DESCRIPTION;
+    return { brand, description, items: [], config: config || {} };
   } catch {
     return {
       brand: "RENTDUE",
-      description: SEO_PLACEHOLDER_DESCRIPTION,
+      description: SEO_DESCRIPTION,
       items: [],
       config: {},
     };
@@ -328,6 +337,7 @@ function seoShell(opts: {
   title: string;
   description: string;
   canonical: string;
+  image: string;
   jsonLd?: unknown;
   body: string;
   activePath: string;
@@ -348,19 +358,22 @@ function seoShell(opts: {
 <meta name="robots" content="index, follow, max-image-preview:large" />
 <link rel="canonical" href="${escapeSeoHtml(opts.canonical)}" />
 <meta property="og:type" content="website" />
+<meta property="og:url" content="${escapeSeoHtml(opts.canonical)}" />
 <meta property="og:site_name" content="${escapeSeoHtml(opts.brand)}" />
 <meta property="og:title" content="${escapeSeoHtml(opts.title)}" />
 <meta property="og:description" content="${escapeSeoHtml(opts.description)}" />
-<meta name="twitter:card" content="summary" />
+<meta property="og:image" content="${escapeSeoHtml(opts.image)}" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${escapeSeoHtml(opts.title)}" />
 <meta name="twitter:description" content="${escapeSeoHtml(opts.description)}" />
+<meta name="twitter:image" content="${escapeSeoHtml(opts.image)}" />
 ${jsonLdTag}
 <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;color:#0f172a;background:#f8fafc}a{color:#0e7490}header,footer{background:#020617;color:#e2e8f0}header a,footer a{color:#e2e8f0}.wrap{max-width:760px;margin:0 auto;padding:20px 16px}nav{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}nav a[aria-current=page]{font-weight:700;text-decoration:underline}.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin:12px 0}h1{font-size:28px;line-height:1.2}h2{font-size:20px;margin-top:26px}.muted{color:#475569}.cta{display:inline-block;background:#0e7490;color:#fff!important;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700}details.card summary{cursor:pointer;font-weight:600}ul.tick{padding-left:18px}</style>
 </head>
 <body>
 <header><div class="wrap"><nav>${nav("/welcome", "About")}${nav("/faq", "FAQ")}<a href="/">Open app</a></nav></div></header>
 <main class="wrap">${opts.body}</main>
-<footer><div class="wrap"><p class="muted" style="color:#94a3b8">${escapeSeoHtml(opts.brand)} — ${escapeSeoHtml(SEO_PLACEHOLDER_DESCRIPTION)}</p><nav><a href="/welcome">About</a><a href="/faq">FAQ</a><a href="/">Open app</a></nav></div></footer>
+<footer><div class="wrap"><p class="muted" style="color:#94a3b8">${escapeSeoHtml(opts.brand)}: ${escapeSeoHtml(SEO_DESCRIPTION)}</p><nav><a href="/welcome">About</a><a href="/faq">FAQ</a><a href="/">Open app</a></nav></div></footer>
 </body>
 </html>`;
 }
@@ -403,20 +416,67 @@ app.get("/sitemap.xml", async (req, res) => {
   }
 });
 
+// Link previews use the current configured logo. Keep the public endpoint
+// stable so social platforms can re-fetch it when the admin updates branding.
+app.get("/seo-share-image", async (req, res) => {
+  const base = getPublicBaseUrl(req);
+  try {
+    const config = await getSiteConfig();
+    const logo = String(config.logoUrl || "").trim();
+    if (!logo) return res.redirect(302, `${base}/social-share.png`);
+
+    if (/^<svg\b/i.test(logo)) {
+      return res.redirect(302, `${base}/social-share.png`);
+    }
+
+    let target: URL;
+    try {
+      const normalizedLogo = logo
+        .replace("github.com/", "raw.githubusercontent.com/")
+        .replace("/blob/", "/");
+      target = new URL(normalizedLogo, base);
+      if (target.hostname === "res.cloudinary.com" && target.pathname.includes("/upload/")) {
+        target.pathname = target.pathname.replace("/upload/", "/upload/f_png,w_1200,h_630,c_pad,b_rgb:071321/");
+      } else if (target.pathname.toLowerCase().endsWith(".svg")) {
+        return res.redirect(302, `${base}/social-share.png`);
+      }
+    } catch {
+      return res.redirect(302, `${base}/social-share.png`);
+    }
+    if (target.protocol !== "http:" && target.protocol !== "https:") {
+      return res.redirect(302, `${base}/social-share.png`);
+    }
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.redirect(302, target.toString());
+  } catch {
+    return res.redirect(302, `${base}/social-share.png`);
+  }
+});
+
 app.get("/welcome", async (req, res) => {
   const base = getPublicBaseUrl(req);
-  const { brand, description } = await getSeoData();
+  const { brand, description, config } = await getSeoData();
+  const signupBonus = Number(config?.registrationBonus ?? 0);
   const body = `
-<h1>${escapeSeoHtml(brand)} — rentdue runs, products, income, returns &amp; milestones</h1>
+<h1>${escapeSeoHtml(brand)} virtual machine rentals</h1>
 <p>${escapeSeoHtml(description)}</p>
+<ul class="tick">
+  <li>Check in daily to collect your login bonus.</li>
+  <li>Complete tasks to unlock new challenges and higher rewards.</li>
+  <li>Earn referral commissions on eligible activity across up to four levels.</li>
+  <li>Withdraw eligible returns through supported mobile money or USDT.</li>
+  <li>Collect shareable artwork when a rental cycle is complete.</li>
+</ul>
+${signupBonus > 0 ? `<p><strong>Sign up to receive a UGX ${escapeSeoHtml(signupBonus.toLocaleString("en-UG"))} welcome bonus. Offer terms apply.</strong></p>` : ""}
 <p><a class="cta" href="/">Open the app</a></p>
-<h2>Rentdue store runs, income &amp; returns</h2>
-<p>Explore rentdue runs, rentdue store runs, rentdue products, rentdue income, rentdue returns, rentdue milestones and the rentdue store invite program — all inside the RentDue Store app.</p>
-<p><a href="/faq">FAQ →</a></p>`;
+<h2>Virtual rentals and rewards</h2>
+<p>Manage rentals, daily earnings, referrals, milestones, and withdrawals from one account.</p>
+<p><a href="/faq">Read frequently asked questions</a></p>`;
   res.send(seoShell({
     brand,
-    title: `${brand} — Rentdue Runs, Products, Income, Returns & Milestones`,
+    title: seoTitle(brand),
     description,
+    image: `${base}${SEO_SHARE_IMAGE}`,
     canonical: `${base}/welcome`,
     activePath: "/welcome",
     jsonLd: { "@context": "https://schema.org", "@type": "WebSite", name: brand, description, inLanguage: "en", url: `${base}/welcome` },
@@ -445,8 +505,9 @@ app.get("/faq", async (req, res) => {
     `<p><a class="cta" href="/">Open the app</a></p>`;
   res.send(seoShell({
     brand,
-    title: `FAQ — ${brand}`,
-    description: `Answers about ${brand}: how products earn, how withdrawals and referrals work, check-ins, and installing the app.`,
+    title: `${brand} FAQs | Rentals, returns, and rewards`,
+    description: `Learn how RentDue rentals, daily returns, check-ins, referrals, withdrawals, and app access work.`,
+    image: `${base}${SEO_SHARE_IMAGE}`,
     canonical: `${base}/faq`,
     activePath: "/faq",
     jsonLd: { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: SEO_FAQS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
@@ -966,23 +1027,48 @@ app.get("/api/profile/vip-tasks/:phone", async (req, res) => {
 });
 
 app.post("/api/profile/vip-tasks/claim", async (req, res) => {
-  const { phone, category } = req.body;
+  const { phone, category, taskId } = req.body || {};
 
-  if (!phone || !category) {
-    return res.status(400).json({ error: "Missing required parameters phone and category." });
+  if (!phone || (!category && !taskId)) {
+    return res.status(400).json({ error: "Choose a task or journey stage to claim." });
   }
 
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
   if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
-    return res.status(401).json({ error: "Please sign in again before claiming a milestone." });
+    return res.status(401).json({ error: "Please sign in again before claiming this reward." });
   }
 
   try {
+    if (taskId) {
+      const config = await getSiteConfig();
+      const configuredTask = (Array.isArray(config.vipTasks) ? config.vipTasks : [])
+        .find((task: any) => String(task?.id || "") === String(taskId));
+      if (configuredTask?.socialType) {
+        const result = await claimVerifiedVipTask(authenticatedPhone, String(taskId));
+        return res.json(result);
+      }
+      const result = await verifyVipTask(authenticatedPhone, String(taskId));
+      return res.json(result);
+    }
     const result = await claimTierReward(phone, String(category));
     res.json(result);
   } catch (error: any) {
     logError("Claim milestone error:", error);
     res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/api/profile/vip-tasks/verify", async (req, res) => {
+  const { phone, taskId } = req.body || {};
+  const authenticatedPhone = await getAuthenticatedUserPhone(req);
+  if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
+    return res.status(401).json({ error: "Please sign in again before verifying a task." });
+  }
+  try {
+    const result = await verifyVipTask(authenticatedPhone, String(taskId || ""));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || "Unable to verify this task." });
   }
 });
 
@@ -1968,6 +2054,39 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 
+app.get("/api/admin/vip-task-claims", async (_req, res) => {
+  try {
+    res.json(await listPendingVipTaskClaims());
+  } catch (err: any) {
+    logError("[Admin API Error] Fetch social task verification queue failed:", err);
+    res.status(500).json({ error: "Unable to load the verification queue." });
+  }
+});
+
+app.post("/api/admin/vip-milestones/delete-all", async (_req, res) => {
+  try {
+    await adminResetVipMilestones();
+    res.json({ success: true, message: "All milestones and claim status were reset. Credited rewards and transaction history were kept." });
+  } catch (err: any) {
+    logError("[Admin API Error] Reset milestones failed:", err);
+    res.status(500).json({ error: "Unable to reset milestones." });
+  }
+});
+
+app.post("/api/admin/vip-task-claims/review", async (req, res) => {
+  const { claimId, decision, note } = req.body || {};
+  if (!claimId || !["approve", "reject"].includes(String(decision))) {
+    return res.status(400).json({ error: "Choose a valid review action." });
+  }
+  try {
+    const config = await getSiteConfig();
+    const result = await reviewVipTaskClaim(String(claimId), decision, String(config.adminPhone || "admin"), String(note || ""));
+    res.json(result);
+  } catch (err: any) {
+    res.status(409).json({ error: err.message || "Unable to review this task." });
+  }
+});
+
 // Admin API: Override a user's password override
 app.post("/api/admin/users/override-password", async (req, res) => {
   const { phone, newPassword } = req.body;
@@ -2208,7 +2327,7 @@ app.get("/api/manifest.json", async (req, res) => {
       id: "/",
       name: config.brandName || "RentDue Store",
       short_name: config.manifestShortName || config.brandName || "RentDue Store",
-      description: config.manifestDescription || "Uganda High-Yield AI GPU Mining Network",
+      description: config.manifestDescription || SEO_DESCRIPTION,
       start_url: "/",
       display: "standalone",
       display_override: ["window-controls-overlay", "standalone"],
@@ -2257,7 +2376,7 @@ app.get("/api/manifest.json", async (req, res) => {
       id: "/",
       name: "RentDue Store",
       short_name: "RentDue Store",
-      description: "Uganda High-Yield AI GPU Mining Network",
+      description: SEO_DESCRIPTION,
       start_url: "/",
       display: "standalone",
       background_color: "#020617",
@@ -2279,6 +2398,7 @@ app.get("/api/config/site", async (req, res) => {
       whatsappLink: config.whatsappLink,
       telegramLink: config.telegramLink,
       brandName: config.brandName,
+      seoDescription: config.seoDescription || SEO_DESCRIPTION,
       logoUrl: config.logoUrl,
       logoType: config.logoType,
       logoSvg: config.logoSvg,
@@ -2754,21 +2874,28 @@ async function startServer() {
         // so the brand, absolute share URL and absolute share image must be
         // baked into the served HTML here — client-side document.title updates
         // happen too late for them.
-        // TODO(SEO placeholder): placeholder description until final copy lands.
+        // Public title, description, and configured share image are injected for link preview crawlers.
         try {
           const config = await getSiteConfig().catch(() => ({} as any));
           const brand = String((config as any)?.brandName || "").trim() || "RentDue Store";
+          const description = String((config as any)?.seoDescription || "").trim() || SEO_DESCRIPTION;
           const base = getPublicBaseUrl(req);
           const escBrand = escapeSeoHtml(brand);
+          const escDescription = escapeSeoHtml(description);
           const escBase = escapeSeoHtml(base);
+          const title = escapeSeoHtml(seoTitle(brand));
+          const shareImage = `${escBase}${SEO_SHARE_IMAGE}`;
           html = html
-            .replace(/<title>.*?<\/title>/, `<title>${escBrand}</title>`)
+            .replace(/<title>.*?<\/title>/, `<title>${title}</title>`)
+            .replace(/<meta name="description" content=".*?"/, `<meta name="description" content="${escDescription}"`)
             .replace(/<meta property="og:site_name" content=".*?"/, `<meta property="og:site_name" content="${escBrand}"`)
-            .replace(/<meta property="og:title" content=".*?"/, `<meta property="og:title" content="${escBrand}"`)
-            .replace(/<meta name="twitter:title" content=".*?"/, `<meta name="twitter:title" content="${escBrand}"`)
+            .replace(/<meta property="og:title" content=".*?"/, `<meta property="og:title" content="${title}"`)
+            .replace(/<meta property="og:description" content=".*?"/, `<meta property="og:description" content="${escDescription}"`)
+            .replace(/<meta name="twitter:title" content=".*?"/, `<meta name="twitter:title" content="${title}"`)
+            .replace(/<meta name="twitter:description" content=".*?"/, `<meta name="twitter:description" content="${escDescription}"`)
             .replace(/<meta property="og:url" content=".*?"/, `<meta property="og:url" content="${escBase}/"`)
-            .replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${escBase}/icon-512.png"`)
-            .replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${escBase}/icon-512.png"`);
+            .replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${shareImage}"`)
+            .replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${shareImage}"`);
           html = html.replace('<link rel="canonical" href="/" />', `<link rel="canonical" href="${escBase}/" />`);
           if (req.path.startsWith("/admin")) {
             html = html.replace('<meta name="robots" content="index, follow, max-image-preview:large" />', '<meta name="robots" content="noindex, nofollow, noarchive" />');

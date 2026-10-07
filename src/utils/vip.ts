@@ -22,11 +22,27 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
   }
   const ctr = Array.isArray(raw.claimedTierRewards) ? (raw.claimedTierRewards as unknown[]).filter((e) => typeof e === "string") as string[] : [];
   const tm = normalizeTierMeta(raw.tierMeta);
+  const ttrRaw = (raw.tierTaskRewards ?? {}) as Record<string, unknown>;
+  const cleanTierTaskRewards: Record<string, number> = {};
+  if (ttrRaw && typeof ttrRaw === "object" && !Array.isArray(ttrRaw)) {
+    for (const [key, value] of Object.entries(ttrRaw)) {
+      const name = String(key).trim();
+      if (name) cleanTierTaskRewards[name] = Math.max(0, Number(value) || 0);
+    }
+  }
+  const manualClaimCategories = Array.isArray(raw.manualClaimCategories)
+    ? raw.manualClaimCategories.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
   return {
-    tasks: Array.isArray(raw.tasks) ? (raw.tasks as VipTask[]) : [],
+    tasks: Array.isArray(raw.tasks) ? (raw.tasks as VipTask[]).map((task) => {
+      const actionUrl = String(task.actionUrl || "").trim();
+      return { ...task, ...(actionUrl && /^https?:\/\//i.test(actionUrl) ? { actionUrl: actionUrl.slice(0, 512) } : { actionUrl: undefined }) };
+    }) : [],
     vipLevel: Number((raw.vipLevel as number) || 0),
     stageOrder: Array.isArray(raw.stageOrder) ? (raw.stageOrder as unknown[]).map((e) => String(e)) : [],
     tierRewards: cleanTierRewards,
+    tierTaskRewards: cleanTierTaskRewards,
+    manualClaimCategories,
     tierMeta: tm,
     claimedTierRewards: ctr,
     referralRates: { level1: Number(rr.level1 ?? 15), level2: Number(rr.level2 ?? 5), level3: Number(rr.level3 ?? 0), level4: Number(rr.level4 ?? 0) },
@@ -45,6 +61,11 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
 export function normalizeVipTask(raw: unknown): VipTaskConfig {
   const d = (raw ?? {}) as Record<string, unknown>;
   const imageUrl = String(d.imageUrl ?? "").trim();
+  const rawActionUrl = String(d.actionUrl ?? "").trim();
+  const actionUrl = /^https?:\/\//i.test(rawActionUrl) ? rawActionUrl.slice(0, 512) : "";
+  const socialType = ["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"].includes(String(d.socialType || ""))
+    ? String(d.socialType) as VipTaskConfig["socialType"]
+    : undefined;
   const metric = String(d.metric ?? "operator_points").trim() || "operator_points";
   return {
     id: String(d.id ?? "").trim(),
@@ -56,6 +77,8 @@ export function normalizeVipTask(raw: unknown): VipTaskConfig {
     reward: Math.max(0, Number(d.reward ?? 0)),
     active: d.active !== false,
     ...(imageUrl ? { imageUrl } : {}),
+    ...(actionUrl ? { actionUrl } : {}),
+    ...(socialType ? { socialType } : {}),
   };
 }
 
@@ -139,6 +162,7 @@ export function tierOrder(board: VipTaskboard | null | undefined): string[] {
 
 export interface TierProgress {
   name: string;
+  metric: string;
   art: string;
   description: string;
   done: number;
@@ -185,6 +209,7 @@ export function currentTierProgress(board: VipTaskboard | null | undefined): Tie
 
   return {
     name,
+    metric: String(tasks[0]?.metric || "operator_points"),
     art: meta.imageUrl || "",
     description: meta.description || "",
     done,

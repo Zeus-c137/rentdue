@@ -24,6 +24,7 @@ export interface SiteConfig {
   logoSvg?: string;
   manifestShortName?: string;
   manifestDescription?: string;
+  seoDescription?: string;
   manifestThemeColor?: string;
   manifestBgColor?: string;
   allowAutoDeposit?: boolean;
@@ -48,6 +49,8 @@ export interface SiteConfig {
   vipTasks?: VipTaskConfig[];
   vipTaskCategories?: string[];
   vipTierRewards?: Record<string, number>;
+  vipTierTaskRewards?: Record<string, number>;
+  vipManualClaimCategories?: string[];
   vipTierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   checkinBaseBonus?: number;
   checkinIncrement?: number;
@@ -98,6 +101,8 @@ export interface VipTaskConfig {
   reward: number;
   active?: boolean;
   imageUrl?: string;
+  actionUrl?: string;
+  socialType?: "facebook_follow" | "facebook_like" | "facebook_comment" | "facebook_share" | "telegram_join" | "whatsapp_join";
 }
 
 export interface VipTask {
@@ -112,8 +117,12 @@ export interface VipTask {
   unlocked: boolean;
   claimed: boolean;
   imageUrl?: string;
+  actionUrl?: string;
   stageIndex?: number;
   stageLocked?: boolean;
+  manualClaim?: boolean;
+  socialType?: VipTaskConfig["socialType"];
+  claimStatus?: "none" | "pending" | "verified" | "rejected" | "approved";
 }
 
 export interface VipTaskboard {
@@ -121,6 +130,8 @@ export interface VipTaskboard {
   vipLevel?: number;
   stageOrder?: string[];
   tierRewards?: Record<string, number>;
+  tierTaskRewards?: Record<string, number>;
+  manualClaimCategories?: string[];
   tierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   claimedTierRewards?: string[];
   referralRates?: {
@@ -264,6 +275,7 @@ export interface ReferralStat {
   joinedDate?: string;
   inviteePhone?: string;
   inviteeName?: string;
+  milestoneTierImageUrl?: string;
   itemCategory?: string;
   rewardAmount?: number;
   dateJoined?: string;
