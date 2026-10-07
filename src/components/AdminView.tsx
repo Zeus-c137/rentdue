@@ -2899,9 +2899,20 @@ export default function AdminView() {
                                   value={siteConfig.manifestDescription || ""}
                                   onChange={(e) => setSiteConfig({ ...siteConfig, manifestDescription: e.target.value })}
                                   className="theme-input w-full px-4 py-3 text-sm"
-                                  placeholder="Uganda High-Yield AI GPU Mining Network"
+                                  placeholder="Rent virtual machines with RentDue and track daily returns."
                                 />
                               </div>
+                            </div>
+                            <div className="space-y-2 mt-4">
+                              <label className="text-xs font-bold text-[var(--theme-text)] opacity-80 uppercase tracking-wider block">SEO and link preview description</label>
+                              <textarea
+                                value={siteConfig.seoDescription || "Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT."}
+                                onChange={(e) => setSiteConfig({ ...siteConfig, seoDescription: e.target.value })}
+                                className="theme-input w-full min-h-24 px-4 py-3 text-sm resize-y"
+                                maxLength={320}
+                                placeholder="A short description shown in search results and shared links"
+                              />
+                              <p className="text-[11px] text-[var(--theme-text)] opacity-55">Used by search engines and link previews. Keep it clear and concise.</p>
                             </div>
                           </div>
                         </div>

@@ -24,6 +24,7 @@ export interface SiteConfig {
   logoSvg?: string;
   manifestShortName?: string;
   manifestDescription?: string;
+  seoDescription?: string;
   manifestThemeColor?: string;
   manifestBgColor?: string;
   allowAutoDeposit?: boolean;

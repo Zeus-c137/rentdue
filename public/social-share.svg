@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071321"/>
+      <stop offset="1" stop-color="#0A1D35"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="matrix(330 310 -300 320 990 160)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#297AFF" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#297AFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="770" y1="180" x2="1050" y2="460" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173C69"/>
+      <stop offset="1" stop-color="#102643"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#bg)" d="M0 0h1200v630H0z"/>
+  <path fill="url(#glow)" d="M0 0h1200v630H0z"/>
+  <circle cx="1000" cy="314" r="225" stroke="#6FA9FF" stroke-opacity=".1" stroke-width="1.5"/>
+  <circle cx="1000" cy="314" r="178" stroke="#6FA9FF" stroke-opacity=".12" stroke-width="1.5"/>
+  <circle cx="1000" cy="314" r="130" stroke="#6FA9FF" stroke-opacity=".16" stroke-width="1.5"/>
+  <rect x="756" y="151" width="330" height="330" rx="44" fill="url(#tile)" stroke="#8BB8FF" stroke-opacity=".28" stroke-width="2"/>
+  <path d="M884 224c0-5 4-9 9-9h39v39c0 2 2 3 4 1l42-42c2-2 5-3 8-3h45c2 0 4 1 6 3l16 16c2 2 2 5 0 7l-21 21c-2 2-1 5 2 5h44c2 0 4 1 6 3l16 16c2 2 2 5 0 7l-21 21c-2 2-2 4 0 6l17 17c8 8 8 21 0 29l-58 58c-2 2-4 3-7 3h-42c-5 0-9-4-9-9v-39c0-2-2-3-4-1l-42 42c-2 2-5 3-8 3h-45c-2 0-4-1-6-3l-16-16c-2-2-2-5 0-7l21-21c2-2 1-5-2-5h-44c-2 0-4-1-6-3l-16-16c-2-2-2-5 0-7l21-21c2-2 2-4 0-6l-17-17c-8-8-8-21 0-29l58-58c2-2 4-3 7-3h42Zm12 49c-7 0-13 3-18 8l-58 58c-2 2-1 5 2 5h77c3 0 5 3 3 5l-38 38c-2 2-1 5 2 5h78c7 0 13-3 18-8l58-58c2-2 1-5-2-5h-77c-3 0-5-3-3-5l38-38c2-2 1-5-2-5h-78Z" fill="#72A9FF"/>
+  <circle cx="1012" cy="194" r="8" fill="#A8CBFF"/>
+  <circle cx="1054" cy="430" r="5" fill="#A8CBFF" fill-opacity=".75"/>
+  <rect x="82" y="78" width="42" height="42" rx="13" fill="#297AFF"/>
+  <path d="M96 89h7v8c0 1 1 1 2 0l8-8h8l3 3-8 8h9l3 3-8 8 2 2c2 2 2 5 0 7l-7 7h-8v-8c0-1-1-1-2 0l-8 8h-8l-3-3 8-8h-9l-3-3 8-8-2-2c-2-2-2-5 0-7l7-7h8Z" fill="#fff"/>
+  <text x="139" y="109" fill="#EAF2FF" font-family="Arial, sans-serif" font-size="28" font-weight="700" letter-spacing=".3">RENTDUE</text>
+  <text x="82" y="265" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="68" font-weight="700" letter-spacing="-2.2">Rent virtual.</text>
+  <text x="82" y="344" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="68" font-weight="700" letter-spacing="-2.2">Track daily returns.</text>
+  <text x="85" y="399" fill="#B8C9DF" font-family="Arial, sans-serif" font-size="25" font-weight="400">Rent virtual machines and unlock a world of rewards.</text>
+  <rect x="82" y="454" width="210" height="44" rx="22" fill="#297AFF"/>
+  <text x="108" y="483" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="17" font-weight="700" letter-spacing=".4">EXPLORE RENTDUE</text>
+</svg>
