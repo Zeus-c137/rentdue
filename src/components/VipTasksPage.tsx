@@ -68,8 +68,6 @@ interface StageGroup {
   claimedTier: boolean;
   claimable: boolean;
   tierReward: number;
-  taskReward: number;
-  manual: boolean;
   art: string;
 }
 
@@ -82,12 +80,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   });
   const [loading, setLoading] = useState(false);
   const [bulkStage, setBulkStage] = useState<string | null>(null);
-  const [taskProof, setTaskProof] = useState<Record<string, string>>({});
+  const [taskProof, setTaskProof] = useState("");
   const [submittingTask, setSubmittingTask] = useState<string | null>(null);
+  const [taskToSubmit, setTaskToSubmit] = useState<VipTask | null>(null);
   const [selectedStage, setSelectedStage] = useState<string | null>(focusStage || null);
   // A header-tile tap while the journey is already open retargets the detail
   // instead of stranding it on the old stage.
-  useEffect(() => { if (focusStage) setSelectedStage(focusStage); }, [focusStage]);
+  useEffect(() => { if (focusStage) { setSelectedStage(focusStage); setTaskToSubmit(null); setTaskProof(""); } }, [focusStage]);
   // Bar fill-in on mount / stage open — same treatment as Home Active Runs.
   const [barsIn, setBarsIn] = useState(false);
   useEffect(() => {
@@ -125,8 +124,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       const claimedTier = claimedTiers.includes(name);
       const locked = tasks.length > 0 && tasks.every((t) => t.stageLocked);
       const tierReward = tierRewardFor(board.tierRewards, name);
-      const manual = (board.manualClaimCategories || []).some((category) => category.toLowerCase() === name.toLowerCase());
-      const taskReward = Number(board.tierTaskRewards?.[name]) || 0;
       const meta = tierMetaFor(board.tierMeta, name);
       return {
         name,
@@ -138,12 +135,10 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
         claimedTier,
         claimable: tasks.length > 0 && done === tasks.length && !claimedTier && !locked && tierReward > 0,
         tierReward,
-        taskReward,
-        manual,
         art: meta.imageUrl || "",
       };
     });
-  }, [board.tasks, board.claimedTierRewards, board.tierRewards, board.tierTaskRewards, board.manualClaimCategories, board.tierMeta]);
+  }, [board.tasks, board.claimedTierRewards, board.tierRewards, board.tierMeta]);
 
   const currentIdx = stages.findIndex((s) => !s.claimedTier);
   const detail = selectedStage ? stages.find((s) => s.name === selectedStage) || null : null;
@@ -176,7 +171,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   };
 
   const handleSubmitTask = async (task: VipTask) => {
-    const proof = String(taskProof[task.id] || "").trim();
+    const proof = taskProof.trim();
     if (!proof) {
       toast.error("Add a link or short note for this task.");
       return;
@@ -190,10 +185,11 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone, taskId: task.id, proof })
       });
-      setTaskProof((current) => ({ ...current, [task.id]: "" }));
+      setTaskProof("");
       toast.success("Task submitted.");
       vipCache = null;
       await load(true);
+      setTaskToSubmit(null);
     } catch (error: any) {
       if (error?.name !== "AbortError") toast.error(error.message || "Could not submit this task.");
     } finally {
@@ -222,6 +218,61 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     const next = stages[idx + 1]?.name;
     const claiming = bulkStage === detail.name;
     const visibleTasks = detail.tasks;
+    if (taskToSubmit) {
+      const taskBusy = submittingTask === taskToSubmit.id;
+      return (
+        <div className="w-full flex-1 flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
+            <div className="relative overflow-hidden border-0">
+              {taskToSubmit.imageUrl && <img src={optimizedImageUrl(taskToSubmit.imageUrl, 900)} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover opacity-25 pointer-events-none" />}
+              <div className="absolute inset-0 bg-[var(--theme-card-bg)]/45 backdrop-blur-[20px] backdrop-saturate-[180%] pointer-events-none" />
+              <div className="relative px-4 pb-5 pt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button type="button" onClick={() => { setTaskToSubmit(null); setTaskProof(""); }} aria-label="Back to task list" className="w-9 h-9 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-transform"><ArrowLeft className="w-4 h-4" /></button>
+                  <p className="text-[11px] font-sans font-bold tracking-[0.22em] text-[var(--theme-text)] opacity-60">{detail.name.toUpperCase()} TASK</p>
+                </div>
+                <div className="mt-5 flex items-start gap-3">
+                  <span className="w-14 h-14 rounded-2xl bg-[var(--theme-card-bg)]/70 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                    {taskToSubmit.imageUrl ? <img src={optimizedImageUrl(taskToSubmit.imageUrl, 200)} alt="" className="w-full h-full object-cover" /> : <AchievementGlyph metric={taskToSubmit.metric} />}
+                  </span>
+                  <div className="min-w-0 pt-0.5">
+                    <h1 className="font-display font-black text-[26px] leading-tight tracking-tight text-[var(--theme-text)]">{taskToSubmit.title}</h1>
+                    {taskToSubmit.description && <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug mt-1.5 max-w-[340px]">{taskToSubmit.description}</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-4 mt-4 space-y-3">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] px-4 py-3">
+                <span className="text-[11px] font-sans font-bold tracking-[0.12em] text-[var(--theme-text)] opacity-60">TASK REWARD</span>
+                <span className="text-[15px] font-sans font-black tabular-nums text-[var(--theme-primary)]">{formatCurrency(taskToSubmit.reward)}</span>
+              </div>
+
+              {taskToSubmit.actionUrl && (
+                <a href={taskToSubmit.actionUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 px-4 py-3.5 text-[13px] font-sans font-bold text-[var(--theme-text)] active:scale-[0.99] transition-transform">
+                  <span>Open the task</span><ChevronRight className="w-4 h-4 opacity-55" />
+                </a>
+              )}
+
+              {taskToSubmit.claimStatus === "rejected" && taskToSubmit.claimReviewNote && <p className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-3.5 py-3 text-[12px] font-sans leading-snug text-[var(--theme-text)] opacity-75">Update needed: {taskToSubmit.claimReviewNote}</p>}
+
+              <form onSubmit={(event) => { event.preventDefault(); void handleSubmitTask(taskToSubmit); }} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] p-4 space-y-3">
+                <div>
+                  <h2 className="text-[14px] font-sans font-black text-[var(--theme-text)]">Your submission</h2>
+                  <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-55 mt-1">Share a profile or post link, or add a short note.</p>
+                </div>
+                <textarea value={taskProof} onChange={(event) => setTaskProof(event.target.value)} maxLength={2000} rows={4} aria-label="Task link or note" placeholder="Paste a link or write a short note" disabled={taskBusy} className="w-full resize-none rounded-xl border border-white/10 bg-[var(--theme-card-bg)]/55 px-3.5 py-3 text-[13px] font-sans text-[var(--theme-text)] placeholder:text-[var(--theme-text)]/40 disabled:opacity-50" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-sans tabular-nums text-[var(--theme-text)] opacity-40">{taskProof.length}/2000</span>
+                  <button type="submit" disabled={taskBusy || taskToSubmit.reward <= 0 || !taskProof.trim()} className="rounded-full bg-[var(--theme-primary)] px-5 py-2.5 text-[12px] font-sans font-black text-[var(--theme-on-primary)] shadow-[0_3px_0_0_var(--theme-primary-shadow)] disabled:opacity-45 active:scale-[0.97] transition-transform">{taskBusy ? "Submitting…" : taskToSubmit.claimStatus === "rejected" ? "Resubmit task" : "Submit task"}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="w-full flex-1 flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
@@ -246,12 +297,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 )}
               </div>
               {/* Stage reward — lives in the hero now: trophy + amount pill */}
-              {detail.manual && (
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-sans font-bold">
-                  <span className="rounded-full border border-[var(--theme-primary)]/25 bg-[var(--theme-primary)]/10 px-3 py-1.5 text-[var(--theme-primary)]">{formatCurrency(detail.taskReward)} per task</span>
-                  {detail.tierReward > 0 && <span className="rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[var(--theme-text)] opacity-75">{formatCurrency(detail.tierReward)} completion bonus</span>}
-                </div>
-              )}
               {(detail.tierReward > 0 || detail.claimedTier) && (
                 <div className="mt-3">
                   {detail.claimedTier ? (
@@ -282,11 +327,10 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 const met = isTaskMet(task);
                 const p = calcVipProgress(task.progress, task.requiredBonus);
                 const locked = task.stageLocked && !met && !detail.claimedTier;
-                const taskBusy = submittingTask === task.id;
                 const taskPending = task.claimStatus === "pending";
                 const taskApproved = task.claimStatus === "approved";
                 return (
-                  <div key={task.id} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] p-3.5 flex items-start gap-3">
+                  <div key={task.id} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] p-3.5 flex items-center gap-3">
                     <span className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
                       {task.imageUrl ? (
                         <img src={optimizedImageUrl(task.imageUrl, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
@@ -305,27 +349,17 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                         )}
                       </div>
                       {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
-                      {task.actionUrl && <a href={task.actionUrl} target="_blank" rel="noopener noreferrer" className="inline-flex mt-2 text-[11px] font-sans font-bold text-[var(--theme-primary)] underline underline-offset-2">Open task link</a>}
                       {task.manualClaim ? (
-                        <div className="mt-2.5 space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-55">Task reward</span>
-                            <span className="text-[12px] font-sans font-black text-[var(--theme-primary)]">{formatCurrency(task.reward)}</span>
-                          </div>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-sans font-bold tabular-nums leading-none text-[var(--theme-primary)]">+{formatCurrency(task.reward)}</span>
                           {taskPending ? (
-                            <span className="inline-flex rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-[10px] font-sans font-black uppercase tracking-wide text-amber-300">Submitted</span>
-                          ) : taskApproved ? (
-                            <span className="inline-flex rounded-full border border-[var(--theme-primary)]/25 bg-[var(--theme-primary)]/10 px-3 py-1.5 text-[10px] font-sans font-black uppercase tracking-wide text-[var(--theme-primary)]">Claimed · {formatCurrency(task.reward)}</span>
-                          ) : detail.claimedTier ? (
-                            <span className="text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-55">Tier completed</span>
+                            <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-amber-300">SUBMITTED</span>
+                          ) : taskApproved || detail.claimedTier ? (
+                            <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">CLAIMED</span>
                           ) : (
-                            <div className="space-y-2">
-                              {task.claimStatus === "rejected" && task.claimReviewNote && <p className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[11px] font-sans leading-snug text-[var(--theme-text)] opacity-75">Update needed: {task.claimReviewNote}</p>}
-                              <form onSubmit={(event) => { event.preventDefault(); void handleSubmitTask(task); }} className="flex flex-col sm:flex-row gap-2">
-                                <input value={taskProof[task.id] || ""} onChange={(event) => setTaskProof((current) => ({ ...current, [task.id]: event.target.value }))} maxLength={2000} aria-label={`Proof for ${task.title}`} placeholder="Link or short note" disabled={locked || taskBusy || task.reward <= 0} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[var(--theme-card-bg)]/50 px-3 py-2 text-[12px] font-sans text-[var(--theme-text)] placeholder:text-[var(--theme-text)]/40 disabled:opacity-45" />
-                                <button type="submit" disabled={locked || taskBusy || task.reward <= 0 || !String(taskProof[task.id] || "").trim()} className="shrink-0 rounded-xl bg-[var(--theme-primary)] px-4 py-2 text-[11px] font-sans font-black text-[var(--theme-on-primary)] disabled:opacity-45 active:scale-[0.98] transition-transform">{taskBusy ? "Submitting…" : task.claimStatus === "rejected" ? "Resubmit task" : "Submit task"}</button>
-                              </form>
-                            </div>
+                            <button type="button" onClick={() => { setTaskProof(""); setTaskToSubmit(task); }} disabled={locked || task.reward <= 0} className="shrink-0 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[10px] font-sans font-black text-[var(--theme-text)] cursor-pointer active:scale-[0.97] transition-transform disabled:opacity-45">
+                              {task.claimStatus === "rejected" ? "UPDATE" : "OPEN TASK"}
+                            </button>
                           )}
                         </div>
                       ) : (
