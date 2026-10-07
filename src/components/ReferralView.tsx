@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Copy, Users, ArrowLeft, Check, Link2 } from "lucide-react";
 import { useCurrency } from "@/src/currency";
 import { Button } from "@/src/components/ui/button";
@@ -16,6 +16,7 @@ import InviteTeamView from "@/src/components/InviteTeamView";
 import { motion, AnimatePresence } from "motion/react";
 import { POLL_INTERVAL_MS, getViewMotion } from "@/src/utils/motion";
 import { useReducedMotion } from "@/src/hooks/useReducedMotion";
+import { BrandLogo } from "@/src/components/BrandLogo";
 import type { ReferralStat, SiteConfig, UserProfile } from "@/src/types";
 
 type Props = {
@@ -46,19 +47,19 @@ type HeroProps = {
   copiedCode: boolean;
   onCopyCode: () => void;
   topPct: number;
+  siteConfig?: SiteConfig | null;
 };
 
-function InviteHero({ inviteCode, inviteLink, copiedLink, onCopyLink, copiedCode, onCopyCode, topPct }: HeroProps) {
+function InviteHero({ inviteCode, inviteLink, copiedLink, onCopyLink, copiedCode, onCopyCode, topPct, siteConfig }: HeroProps) {
   return (
-    <div className="relative space-y-4">
+    <section className="space-y-4">
+      <div className="space-y-4">
         <div className="space-y-1.5">
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--theme-primary)]">
-            <Users className="w-3 h-3" /> Referral program
-          </p>
-          <h2 className="font-display font-black text-[26px] leading-[1.05] tracking-tight">
+
+          <h2 className="text-center font-display font-black text-[26px] leading-[1.05] tracking-tight">
             Invite friends.<br />Earn together.
           </h2>
-          <p className="text-xs font-semibold opacity-60 leading-relaxed">
+          <p className="text-center text-xs font-semibold opacity-60 leading-relaxed">
             Earn up to {topPct}% team income every time your network claims, paid across 4 levels.
           </p>
         </div>
@@ -66,34 +67,35 @@ function InviteHero({ inviteCode, inviteLink, copiedLink, onCopyLink, copiedCode
         {/* invite code */}
         <button
           onClick={onCopyCode}
-          className="w-full flex items-center justify-between gap-3 rounded-2xl border border-dashed border-[var(--theme-primary)]/40 bg-[var(--theme-card-bg)]/70 px-4 py-3 cursor-pointer hover:border-[var(--theme-primary)] transition-colors group"
+          className="group flex w-full cursor-pointer items-center justify-between gap-3 border-0 bg-transparent px-0 py-3 text-left"
         >
-          <span className="shrink-0 w-9 h-9 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center text-[var(--theme-primary)]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--theme-primary)] opacity-75 transition-opacity group-hover:opacity-100">
             <Link2 className="w-4 h-4" />
           </span>
           <span className="min-w-0 text-left flex-1">
             <span className="block text-[10px] font-black uppercase tracking-[0.14em] opacity-50">Your invite code</span>
             <span className="block font-mono font-black text-xl tracking-[0.2em] truncate">{inviteCode || "N/A"}</span>
           </span>
-          <span className="shrink-0 w-9 h-9 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center text-[var(--theme-primary)] group-hover:bg-[var(--theme-primary)]/20 transition-colors">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--theme-primary)] opacity-75 transition-opacity group-hover:opacity-100">
             {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           </span>
         </button>
 
         {/* invite link */}
-        <div className="flex items-center gap-2 rounded-2xl bg-[var(--theme-card-bg)]/70 border border-[var(--theme-card-border)] pl-3 pr-1.5 py-1.5">
+        <div className="flex items-center gap-2 py-1.5">
           <Link2 className="w-3.5 h-3.5 opacity-40 shrink-0" />
           <p className="text-[11px] font-mono opacity-70 truncate flex-1 select-text select-all">{inviteLink || "No link"}</p>
           <button
             onClick={onCopyLink}
             aria-label="Copy invite link"
-            className="shrink-0 w-8 h-8 rounded-xl bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center text-[var(--theme-primary)] hover:bg-[var(--theme-primary)]/20 transition-colors cursor-pointer"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--theme-primary)] opacity-75 transition-opacity hover:opacity-100"
           >
             {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
         </div>
 
       </div>
+    </section>
   );
 }
 
@@ -124,8 +126,8 @@ function EarningsHeader({
           </strong>
         )}
       </div>
-      <Button variant="primary" size="sm" onClick={onViewTeam} className="shrink-0">
-        <Users className="w-4 h-4" /> View Team
+      <Button variant="ghost" size="sm" onClick={onViewTeam} className="shrink-0 border border-[var(--theme-primary)]/45 text-[var(--theme-primary)] hover:bg-[var(--theme-primary)]/5">
+        <Users className="w-4 h-4" /> Invites
       </Button>
     </div>
   );
@@ -138,57 +140,24 @@ function LevelGrid({
   metrics: ReturnType<typeof getLevelMetrics>;
   isLoading: boolean;
 }) {
-  const { formatCurrency } = useCurrency();
-  // One-shot intro shimmer on the level amounts. Latched to first data arrival
-  // (not mount) so the sweep isn't wasted on the loading skeleton, and never
-  // replays on background polls.
-  const [intro, setIntro] = useState(false);
-  const latched = useRef(false);
-  useEffect(() => {
-    if (!isLoading && !latched.current) {
-      latched.current = true;
-      setIntro(true);
-    }
-  }, [isLoading]);
   return (
-    <div>
-      <h3 className="font-display font-black text-[11px] uppercase tracking-[0.14em] opacity-50 mb-2.5">
-        Commission by level
-      </h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+    <section>
+      <h3 className="font-display font-black text-[11px] uppercase tracking-[0.14em] opacity-50">Commission by level</h3>
+      <div className="mt-3">
         {metrics.map((m) => {
           const live = m.pct > 0;
           return (
-            <div
-              key={m.level}
-              style={{ transform: "translateZ(0)" }}
-              className={`relative overflow-hidden rounded-2xl p-3.5 min-h-[118px] flex flex-col justify-between isolate bg-[var(--theme-card-bg)] border transition-colors ${live ? "border-[var(--theme-primary)]/25" : "border-[var(--theme-card-border)] opacity-70"}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10.5px] font-display uppercase tracking-[0.12em] font-black opacity-60">
-                  Level {m.level}
-                </span>
-                <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-full border ${live ? "bg-[var(--theme-primary)]/12 text-[var(--theme-primary)] border-[var(--theme-primary)]/30" : "opacity-40 border-[var(--theme-card-border)]"}`}>
-                  {m.pct}%
-                </span>
+            <div key={m.level} className="flex items-center justify-between gap-4 py-3 first:pt-1 last:pb-1">
+              <div>
+                <p className="font-display text-[13px] font-bold">Level {m.level}</p>
+                <p className="mt-0.5 text-[10px] text-[var(--theme-text)] opacity-50">Commission rate</p>
               </div>
-              <div className="space-y-1">
-                {isLoading ? (
-                  <div className="h-6 w-24 bg-[var(--theme-card-border)]/40 rounded-lg animate-pulse" />
-                ) : (
-                  <span onAnimationEnd={() => setIntro(false)} className={`font-display font-black text-[19px] leading-none tracking-tight select-text ${live ? "text-[var(--theme-primary)]" : ""}${intro ? " animate-shimmer-slow" : ""}`}>
-                    {formatCurrency(m.earned)}
-                  </span>
-                )}
-                <p className="text-[11px] font-bold opacity-50">
-                  {m.count} {m.count === 1 ? "invite" : "invites"}
-                </p>
-              </div>
+              {isLoading ? <div className="h-5 w-12 animate-pulse rounded bg-[var(--theme-card-border)]/40" /> : <span className={`font-display text-[18px] font-black tabular-nums ${live ? "text-[var(--theme-primary)]" : "opacity-40"}`}>{m.pct}%</span>}
             </div>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -203,9 +172,10 @@ type OverviewProps = {
   isLoading: boolean;
   referralRewardsEarned: number;
   onViewTeam: () => void;
+  siteConfig?: SiteConfig | null;
 };
 
-function OverviewView({ inviteLink, inviteCode, copiedLink, onCopyLink, copiedCode, onCopyCode, metrics, isLoading, referralRewardsEarned, onViewTeam }: OverviewProps) {
+function OverviewView({ inviteLink, inviteCode, copiedLink, onCopyLink, copiedCode, onCopyCode, metrics, isLoading, referralRewardsEarned, onViewTeam, siteConfig }: OverviewProps) {
   const topPct = Math.max(0, ...metrics.map((m) => m.pct));
   return (
     <div className="space-y-5">
@@ -217,6 +187,7 @@ function OverviewView({ inviteLink, inviteCode, copiedLink, onCopyLink, copiedCo
         copiedCode={copiedCode}
         onCopyCode={onCopyCode}
         topPct={topPct}
+        siteConfig={siteConfig}
       />
       <div className="space-y-3">
         <EarningsHeader amount={referralRewardsEarned} isLoading={isLoading} onViewTeam={onViewTeam} />
@@ -267,12 +238,12 @@ export default function ReferralView({ userProfile, siteConfig, onBack, initialV
   const reduced = useReducedMotion();
   const viewMotion = getViewMotion(reduced);
   const viewElements: Record<View, React.ReactElement> = {
-    overview: <OverviewView inviteLink={inviteLink} inviteCode={inviteCode} copiedLink={copiedLink} onCopyLink={() => copyLink(inviteLink)} copiedCode={copiedCode} onCopyCode={() => copyCode(inviteCode)} metrics={levelMetrics} isLoading={isLoading} referralRewardsEarned={Number(userProfile.referralRewardsEarned || 0)} onViewTeam={() => setView("team")} />,
+    overview: <OverviewView inviteLink={inviteLink} inviteCode={inviteCode} copiedLink={copiedLink} onCopyLink={() => copyLink(inviteLink)} copiedCode={copiedCode} onCopyCode={() => copyCode(inviteCode)} metrics={levelMetrics} isLoading={isLoading} referralRewardsEarned={Number(userProfile.referralRewardsEarned || 0)} onViewTeam={() => setView("team")} siteConfig={liveSiteConfig ?? siteConfig} />,
     team: <InviteTeamView stats={stats} isLoading={isLoading} activeLevel={activeLevel} onActiveLevelChange={setActiveLevel as (l: 1 | 2 | 3 | 4) => void} activeLevelStats={activeLevelStats} siteConfig={liveSiteConfig ?? siteConfig} />,
   };
   return (
-    <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 text-[var(--theme-text)] space-y-5 pb-16">
-      {(onBack || view === "team") && <button onClick={() => view === "team" ? setView("overview") : onBack?.()} className="flex items-center gap-2 text-xs font-extrabold opacity-70 hover:opacity-100 py-1.5 px-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-sm"><ArrowLeft className="w-3.5 h-3.5 text-[var(--theme-primary)]" /> {view === "team" ? "Invite" : "Profile"}</button>}
+    <div className="min-h-full w-full space-y-5 rounded-[28px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-4 pb-16 text-[var(--theme-text)] shadow-sm backdrop-blur-[20px] backdrop-saturate-[180%] sm:p-5">
+      {(onBack || view === "team") && <button type="button" onClick={() => view === "team" ? setView("overview") : onBack?.()} className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-xs font-semibold text-[var(--theme-text)] opacity-65 transition-opacity hover:opacity-100"><ArrowLeft className="h-3.5 w-3.5 text-[var(--theme-primary)]" /> {view === "team" ? "Invite" : "Profile"}</button>}
       <ErrorBanner msg={loadError} />
       <AnimatePresence mode="wait"><motion.div key={view} initial={viewMotion.initial} animate={viewMotion.animate} exit={viewMotion.exit} transition={viewMotion.transition}>{viewElements[view]}</motion.div></AnimatePresence>
     </div>

@@ -162,6 +162,7 @@ export function tierOrder(board: VipTaskboard | null | undefined): string[] {
 
 export interface TierProgress {
   name: string;
+  metric: string;
   art: string;
   description: string;
   done: number;
@@ -208,6 +209,7 @@ export function currentTierProgress(board: VipTaskboard | null | undefined): Tie
 
   return {
     name,
+    metric: String(tasks[0]?.metric || "operator_points"),
     art: meta.imageUrl || "",
     description: meta.description || "",
     done,

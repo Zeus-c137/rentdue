@@ -69,7 +69,7 @@ export function parseVipImport(tierRows: Row[], taskRows: Row[]): VipImportData 
       name: name.slice(0, 64),
       completionReward: asAmount(read(row, ["Completion bonus", "Completion reward", "Tier reward", "Reward"]), "Completion bonus", rowNumber, errors),
       taskReward: asAmount(read(row, ["Per-task reward", "Task reward", "Per task"]), "Per-task reward", rowNumber, errors),
-      manualClaims: asFlag(read(row, ["Manual task claims", "Manual claims", "Manual submissions", "Manual"])),
+      manualClaims: asFlag(read(row, ["Social verification", "Social tasks", "Manual task claims", "Manual claims", "Manual submissions", "Manual"])),
       description: asText(read(row, ["Tier description", "Description"])).slice(0, 220),
       imageUrl: validUrl(read(row, ["Tier image URL", "Image URL", "Image"]), "Tier image URL", rowNumber, errors),
     };
@@ -80,7 +80,7 @@ export function parseVipImport(tierRows: Row[], taskRows: Row[]): VipImportData 
     const key = tier.name.toLowerCase();
     if (key && tiersByName.has(key)) errors.push(`Tier name "${tier.name}" appears more than once.`);
     if (key) tiersByName.set(key, tier);
-    if (tier.manualClaims && tier.taskReward <= 0) errors.push(`Manual tier "${tier.name}" needs a per-task reward greater than zero.`);
+    if (tier.manualClaims && tier.taskReward <= 0) errors.push(`Social verification tier "${tier.name}" needs a per-task reward greater than zero.`);
   }
 
   const seenTaskKeys = new Set<string>();
@@ -103,14 +103,14 @@ export function parseVipImport(tierRows: Row[], taskRows: Row[]): VipImportData 
     const socialType = asText(read(row, ["Social task", "Social type", "Social action"]));
     const validSocialTypes = ["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"];
     if (socialType && !validSocialTypes.includes(socialType)) errors.push(`Social task on row ${rowNumber} has an unsupported type.`);
-    if (socialType && !tier?.manualClaims) errors.push(`Social task on row ${rowNumber} must belong to a tier with manual task claims enabled.`);
-    const manual = tier?.manualClaims === true || Boolean(socialType);
-    const metric = manual ? "manual_claim" : (asText(read(row, ["Metric", "Unlock metric", "Unlocks from"])) || "operator_points");
+    if (socialType && !tier?.manualClaims) errors.push(`Social task on row ${rowNumber} must belong to a tier with social verification enabled.`);
+    const social = Boolean(socialType);
+    const metric = social ? "manual_claim" : (asText(read(row, ["Metric", "Unlock metric", "Unlocks from"])) || "operator_points");
     const supportedMetrics = ["operator_points", "runs_started", "active_runs", "completed_runs", "collectibles_claimed", "streak_days", "lifetime_yield", "invites_count", "milestones_claimed", "account_created"];
-    if (!manual && !supportedMetrics.includes(metric)) errors.push(`Task metric on row ${rowNumber} is not supported.`);
+    if (!social && !supportedMetrics.includes(metric)) errors.push(`Task metric on row ${rowNumber} is not supported.`);
     const requiredValue = read(row, ["Requirement", "Required bonus", "Required", "Threshold"]);
-    const requiredBonus = manual ? 1 : asAmount(requiredValue, "Requirement", rowNumber, errors);
-    if (!manual && requiredBonus <= 0) errors.push(`Task requirement on row ${rowNumber} must be greater than zero.`);
+    const requiredBonus = social || metric === "account_created" ? 1 : asAmount(requiredValue, "Requirement", rowNumber, errors);
+    if (!social && metric !== "account_created" && requiredBonus <= 0) errors.push(`Task requirement on row ${rowNumber} must be greater than zero.`);
     const activeRaw = read(row, ["Active", "Enabled", "Status"]);
     const active = activeRaw === undefined || asText(activeRaw) === "" ? true : asFlag(activeRaw);
     const actionUrl = validUrl(read(row, ["Task link", "Action URL", "URL", "Link"]), "Task link", rowNumber, errors);

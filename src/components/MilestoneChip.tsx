@@ -14,10 +14,9 @@
  * Milestones are progressive enhancement: no board, no tile.
  */
 import React, { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Trophy } from "lucide-react";
 import { motion } from "motion/react";
 import type { VipTaskboard } from "../types";
-import { getMilestoneBoard, subscribeMilestoneBoard } from "./VipTasksPage";
+import { AchievementGlyph, getMilestoneBoard, subscribeMilestoneBoard } from "./VipTasksPage";
 import { currentTierProgress, type TierProgress } from "../utils/vip";
 import { optimizedImageUrl } from "../utils/imageUtils";
 
@@ -48,7 +47,7 @@ function chipCaptionText(tier: TierProgress): string {
  *  on mount, then eases to the live share whenever it changes. Stroke colors
  *  ride the style prop — var() inside SVG presentation attributes does not
  *  resolve and the ring would never paint. */
-function TierRing({ pct, art }: { pct: number; art: string }) {
+function TierRing({ pct, art, metric }: { pct: number; art: string; metric: string }) {
   const [entered, setEntered] = useState(false);
   useEffect(() => {
     const frame = requestAnimationFrame(() => setEntered(true));
@@ -86,10 +85,10 @@ function TierRing({ pct, art }: { pct: number; art: string }) {
             alt=""
             loading="lazy"
             decoding="async"
-            className="w-full h-full object-contain"
+            className="w-full h-full object-cover"
           />
         ) : (
-          <Trophy className="w-4 h-4 text-[var(--theme-primary)]" />
+          <AchievementGlyph metric={metric} className="w-4 h-4 text-[var(--theme-primary)]" />
         )}
       </span>
     </span>
@@ -142,7 +141,7 @@ export default function MilestoneChip({ phone, onOpen }: MilestoneChipProps) {
       aria-label={`${tier.name} tier, ${tier.done} of ${tier.total} milestones done. ${chipCaptionText(tier)}. Open journey.`}
       className="flex items-center gap-1.5 min-w-0 shrink-0 bg-transparent border-0 p-0 cursor-pointer active:scale-[0.96] transition-transform duration-100"
     >
-      <TierRing pct={tier.pct} art={tier.art} />
+      <TierRing pct={tier.pct} art={tier.art} metric={tier.metric} />
       <span className="hidden min-[400px]:block min-w-0 text-left leading-none">
         <span className="block font-display font-black text-[13px] uppercase tracking-tight truncate max-w-[160px]">
           {tier.name}

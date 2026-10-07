@@ -122,8 +122,7 @@ export interface VipTask {
   stageLocked?: boolean;
   manualClaim?: boolean;
   socialType?: VipTaskConfig["socialType"];
-  claimStatus?: "none" | "pending" | "rejected" | "approved";
-  claimReviewNote?: string;
+  claimStatus?: "none" | "pending" | "verified" | "rejected" | "approved";
 }
 
 export interface VipTaskboard {
@@ -276,6 +275,7 @@ export interface ReferralStat {
   joinedDate?: string;
   inviteePhone?: string;
   inviteeName?: string;
+  milestoneTierImageUrl?: string;
   itemCategory?: string;
   rewardAmount?: number;
   dateJoined?: string;

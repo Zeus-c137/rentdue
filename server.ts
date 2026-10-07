@@ -56,8 +56,10 @@ import {
   adminGetCatalogItems,
   getVipTaskboard,
   claimTierReward,
-  submitVipTaskClaim,
+  claimVerifiedVipTask,
+  verifyVipTask,
   listPendingVipTaskClaims,
+  adminResetVipMilestones,
   reviewVipTaskClaim,
   adminUpdateUserLockStatus,
   adminAdjustBalance,
@@ -1025,18 +1027,29 @@ app.get("/api/profile/vip-tasks/:phone", async (req, res) => {
 });
 
 app.post("/api/profile/vip-tasks/claim", async (req, res) => {
-  const { phone, category } = req.body;
+  const { phone, category, taskId } = req.body || {};
 
-  if (!phone || !category) {
-    return res.status(400).json({ error: "Missing required parameters phone and category." });
+  if (!phone || (!category && !taskId)) {
+    return res.status(400).json({ error: "Choose a task or journey stage to claim." });
   }
 
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
   if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
-    return res.status(401).json({ error: "Please sign in again before claiming a milestone." });
+    return res.status(401).json({ error: "Please sign in again before claiming this reward." });
   }
 
   try {
+    if (taskId) {
+      const config = await getSiteConfig();
+      const configuredTask = (Array.isArray(config.vipTasks) ? config.vipTasks : [])
+        .find((task: any) => String(task?.id || "") === String(taskId));
+      if (configuredTask?.socialType) {
+        const result = await claimVerifiedVipTask(authenticatedPhone, String(taskId));
+        return res.json(result);
+      }
+      const result = await verifyVipTask(authenticatedPhone, String(taskId));
+      return res.json(result);
+    }
     const result = await claimTierReward(phone, String(category));
     res.json(result);
   } catch (error: any) {
@@ -1045,17 +1058,17 @@ app.post("/api/profile/vip-tasks/claim", async (req, res) => {
   }
 });
 
-app.post("/api/profile/vip-tasks/submit", async (req, res) => {
-  const { phone, taskId, proof } = req.body || {};
+app.post("/api/profile/vip-tasks/verify", async (req, res) => {
+  const { phone, taskId } = req.body || {};
   const authenticatedPhone = await getAuthenticatedUserPhone(req);
   if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
-    return res.status(401).json({ error: "Please sign in again before submitting a task." });
+    return res.status(401).json({ error: "Please sign in again before verifying a task." });
   }
   try {
-    const result = await submitVipTaskClaim(authenticatedPhone, String(taskId || ""), String(proof || ""));
+    const result = await verifyVipTask(authenticatedPhone, String(taskId || ""));
     res.json(result);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || "Unable to submit this task." });
+    res.status(400).json({ error: error.message || "Unable to verify this task." });
   }
 });
 
@@ -2045,8 +2058,18 @@ app.get("/api/admin/vip-task-claims", async (_req, res) => {
   try {
     res.json(await listPendingVipTaskClaims());
   } catch (err: any) {
-    logError("[Admin API Error] Fetch milestone submissions failed:", err);
-    res.status(500).json({ error: "Unable to load task submissions." });
+    logError("[Admin API Error] Fetch social task verification queue failed:", err);
+    res.status(500).json({ error: "Unable to load the verification queue." });
+  }
+});
+
+app.post("/api/admin/vip-milestones/delete-all", async (_req, res) => {
+  try {
+    await adminResetVipMilestones();
+    res.json({ success: true, message: "All milestones and claim status were reset. Credited rewards and transaction history were kept." });
+  } catch (err: any) {
+    logError("[Admin API Error] Reset milestones failed:", err);
+    res.status(500).json({ error: "Unable to reset milestones." });
   }
 });
 
@@ -2060,7 +2083,7 @@ app.post("/api/admin/vip-task-claims/review", async (req, res) => {
     const result = await reviewVipTaskClaim(String(claimId), decision, String(config.adminPhone || "admin"), String(note || ""));
     res.json(result);
   } catch (err: any) {
-    res.status(409).json({ error: err.message || "Unable to review this submission." });
+    res.status(409).json({ error: err.message || "Unable to review this task." });
   }
 });
 

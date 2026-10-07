@@ -197,32 +197,10 @@ export default function CatalogView({
 
   const getCategoryLabel = (cat: string) => {
     if (cat === "All") return "All";
-    if (cat.toLowerCase().endsWith("series") || cat.toLowerCase().endsWith("series")) return cat;
+    if (cat.toLowerCase().endsWith("series")) return cat;
     if (cat.length <= 3) return `${cat} series`;
     return cat;
   };
-
-  // Static category card copy (from the DB via siteConfig.categoryMeta).
-  const DEFAULT_STORE_TITLE = "The Store";
-  const DEFAULT_STORE_DESC = "Choose your runs and begin your journey from our carefully curated categories.";
-  const activeTitle = activeCategory === "All" ? DEFAULT_STORE_TITLE : getCategoryLabel(activeCategory);
-  // Backend descriptions win; keys match case-insensitively so "ds" finds "DS".
-  const backendDesc = (() => {
-    const meta = siteConfig?.categoryMeta;
-    if (!meta || typeof meta !== "object") return "";
-    const want = String(activeCategory || "").trim().toLowerCase();
-    const hit = Object.keys(meta).find((k) => String(k).trim().toLowerCase() === want);
-    return hit ? String(meta[hit]?.description ?? "").trim() : "";
-  })();
-  const activeDesc =
-    activeCategory === "All"
-      ? DEFAULT_STORE_DESC
-      : (backendDesc ||
-        `Choose your runs from ${getCategoryLabel(activeCategory)}. Explore live inventory below.`);
-  const activeArt = React.useMemo(() => {
-    const pool = activeCategory === "All" ? items : items.filter((i) => i.category === activeCategory);
-    return pool.find((i) => i.imageUrl)?.imageUrl || "";
-  }, [activeCategory, items]);
 
   const renderStartButton = (item: SubscriptionItem, fullWidth = false) => {
     const isOutOfStock = item.outOfStock || item.disabled;
@@ -431,40 +409,6 @@ export default function CatalogView({
                 </button>
               </div>
             </div>
-
-            {/* Static category card — changes only when the category changes */}
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeCategory}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-                className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] min-h-[150px] p-5 flex flex-col justify-end"
-              >
-                {activeArt ? (
-                  <>
-                    <img
-                      src={activeArt}
-                      alt=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="absolute inset-0 w-full h-full object-cover grayscale opacity-40"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10 pointer-events-none" />
-                  </>
-                ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-[var(--theme-primary)]/25 via-transparent to-transparent pointer-events-none" />
-                )}
-                <div className="relative">
-                  <p className="text-[10px] font-sans font-black uppercase tracking-[0.18em] text-white/60">
-                    {activeCategory === "All" ? "THE STORE" : getCategoryLabel(activeCategory).toUpperCase()}
-                  </p>
-                  <h1 className="mt-1 font-display font-black text-[24px] leading-none tracking-tight text-white">{activeTitle}</h1>
-                  <p className="text-[12px] font-sans text-white/70 leading-snug max-w-[300px] mt-1 line-clamp-2">{activeDesc}</p>
-                </div>
-              </motion.div>
-            </AnimatePresence>
 
             {/* Category selection Tabs — no container bg (transparent) */}
             <div className="relative p-1.5 -mx-1 mb-2">

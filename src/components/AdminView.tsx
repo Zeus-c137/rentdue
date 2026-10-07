@@ -201,6 +201,7 @@ export default function AdminView() {
   const [nodesPage, setNodesPage] = useState(1);
   const [usersPage, setUsersPage] = useState(1);
   const [txPage, setTxPage] = useState(1);
+  const [vipTaskPage, setVipTaskPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   
   // Modals & Confirmations
@@ -334,6 +335,7 @@ export default function AdminView() {
       });
       await readApiJson<{ success: boolean }>(res);
       setSiteConfig(nextConfig);
+      if ("vipTasks" in nextFields || "vipTaskCategories" in nextFields) setVipTaskPage(1);
       updateLocalThemeConfig(nextConfig);
       toast.success(successMessage);
       return true;
@@ -360,7 +362,7 @@ export default function AdminView() {
   const handleAddVipTask = async () => {
     const manualTier = isVipManualClaimCategory(vipTaskCategory);
     if (vipTaskSocialType && !manualTier) {
-      toast.error("Open Manage tiers and enable task submissions for this tier first.");
+      toast.error("Enable social task verification for this tier in Manage tiers first.");
       return;
     }
     if (vipTaskSocialType && (Number(getVipTierTaskRewards()[vipTaskCategory]) || 0) <= 0) {
@@ -372,8 +374,8 @@ export default function AdminView() {
       title: vipTaskTitle,
       description: vipTaskDescription,
       category: vipTaskCategory,
-      metric: manualTier ? "manual_claim" : vipTaskMetric,
-      requiredBonus: manualTier ? 1 : vipTaskRequiredBonus,
+      metric: vipTaskSocialType ? "manual_claim" : vipTaskMetric,
+      requiredBonus: vipTaskSocialType || vipTaskMetric === "account_created" ? 1 : vipTaskRequiredBonus,
       reward: vipTaskReward,
       actionUrl: vipTaskActionUrl,
       socialType: vipTaskSocialType || undefined,
@@ -408,7 +410,7 @@ export default function AdminView() {
     setVipTaskDescription(task.description || "");
     setVipTaskCategory(task.category || "");
     setVipTaskSocialType(task.socialType || "");
-    setVipTaskMetric(task.metric || "operator_points");
+    setVipTaskMetric(task.metric === "manual_claim" && !task.socialType ? "operator_points" : task.metric || "operator_points");
     setVipTaskRequiredBonus(Number(task.requiredBonus || 0));
     setVipTaskReward(Number(task.reward || 0));
     setVipTaskActionUrl(task.actionUrl || "");
@@ -587,12 +589,12 @@ export default function AdminView() {
 
   const vipImportTemplate = {
     tiers: [
-      { name: "Community", completionReward: 5000, taskReward: 1000, manualClaims: true, description: "Complete our community tasks.", imageUrl: "" }
+      { name: "Community", completionReward: 5000, taskReward: 1000, socialVerification: true, description: "Complete our community tasks.", imageUrl: "" }
     ],
     tasks: [
-      { title: "Follow our Facebook page", category: "Community", description: "Follow and submit your profile link.", actionUrl: "", socialType: "facebook_follow", metric: "", requiredBonus: "", active: true, imageUrl: "" },
-      { title: "Join our Telegram group", category: "Community", description: "Join and submit your Telegram username.", actionUrl: "", socialType: "telegram_join", metric: "", requiredBonus: "", active: true, imageUrl: "" },
-      { title: "Join our WhatsApp group", category: "Community", description: "Join and submit a short confirmation.", actionUrl: "", socialType: "whatsapp_join", metric: "", requiredBonus: "", active: true, imageUrl: "" }
+      { title: "Follow our Facebook page", category: "Community", description: "Follow our Facebook page.", actionUrl: "", socialType: "facebook_follow", metric: "", requiredBonus: "", active: true, imageUrl: "" },
+      { title: "Join our Telegram group", category: "Community", description: "Join our Telegram group.", actionUrl: "", socialType: "telegram_join", metric: "", requiredBonus: "", active: true, imageUrl: "" },
+      { title: "Join our WhatsApp group", category: "Community", description: "Join our WhatsApp group.", actionUrl: "", socialType: "whatsapp_join", metric: "", requiredBonus: "", active: true, imageUrl: "" }
     ]
   };
 
@@ -683,7 +685,16 @@ export default function AdminView() {
         const existingIndex = nextTasks.findIndex((task) =>
           task.id === importedTask.id || (task.category.toLowerCase() === category.toLowerCase() && task.title.trim().toLowerCase() === titleKey)
         );
-        const task = { ...importedTask, category, ...(existingIndex >= 0 ? { id: nextTasks[existingIndex].id } : {}) };
+        const task = {
+          ...importedTask,
+          category,
+          // Keep an existing configured task's identity when updating it, but
+          // give a re-imported/previously deleted task a fresh identity so old
+          // per-user claim records cannot mark the replacement as claimed.
+          id: existingIndex >= 0
+            ? nextTasks[existingIndex].id
+            : `vip_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        };
         if (existingIndex >= 0) nextTasks[existingIndex] = task;
         else nextTasks.push(task);
       }
@@ -815,13 +826,50 @@ export default function AdminView() {
     try {
       const res = await fetch("/api/admin/vip-task-claims");
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unable to load submissions.");
+      if (!res.ok) throw new Error(data.error || "Unable to load the verification queue.");
       setVipTaskClaims(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      toast.error(err.message || "Unable to load submissions.");
+      toast.error(err.message || "Unable to load the verification queue.");
     } finally {
       setVipTaskClaimsLoading(false);
     }
+  };
+
+  useGatedInterval(() => {
+    void refreshVipTaskClaims();
+  }, 15000, { enabled: isAdminLoggedIn && activeAdminTab === "config" && configSubTab === "vipTasks", visibilityGate: true });
+
+  const handleDeleteAllVipMilestones = () => {
+    setConfirmDialog({
+      title: "Delete all milestones?",
+      message: "This removes every milestone, tier reward, and pending verification, and returns all users to the first milestone. Previously credited rewards and transaction history remain. Historical activity such as runs, streaks, and earned points also remains and may already satisfy new tasks.",
+      onConfirm: async () => {
+        setIsLoading(true);
+        try {
+          const res = await fetch("/api/admin/vip-milestones/delete-all", { method: "POST" });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Unable to delete milestones.");
+          setSiteConfig((current: any) => ({
+            ...current,
+            vipTasks: [],
+            vipTaskCategories: [],
+            vipTierRewards: {},
+            vipTierTaskRewards: {},
+            vipManualClaimCategories: [],
+            vipTierMeta: {},
+          }));
+          setUsersList((current) => current.map((user) => ({ ...user, claimedVipTasks: [], claimedTierRewards: [] })));
+          setVipTaskClaims([]);
+          setVipTaskPage(1);
+          toast.success(data.message || "All milestones deleted and claim status reset.");
+          setConfirmDialog(null);
+        } catch (err: any) {
+          toast.error(err.message || "Unable to delete milestones.");
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    });
   };
 
   const handleReviewVipTaskClaim = async (claimId: string, decision: "approve" | "reject") => {
@@ -833,19 +881,12 @@ export default function AdminView() {
         body: JSON.stringify({ claimId, decision, note: vipTaskReviewNotes[claimId] || "" })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unable to review this submission.");
+      if (!res.ok) throw new Error(data.error || "Unable to review this task.");
       setVipTaskReviewNotes((current) => { const next = { ...current }; delete next[claimId]; return next; });
-      toast.success(decision === "approve" ? "Task approved and reward credited." : "Task sent back for another submission.");
+      toast.success(decision === "approve" ? "Task verified. The user can claim the reward." : "Task sent back for another verification.");
       await refreshVipTaskClaims();
-      if (decision === "approve") {
-        const usersRes = await fetch("/api/admin/users");
-        if (usersRes.ok) {
-          const users: UserProfile[] = await usersRes.json();
-          setUsersList(users.filter((user) => user.phone !== (siteConfig?.adminPhone || "admin")));
-        }
-      }
     } catch (err: any) {
-      toast.error(err.message || "Unable to review this submission.");
+      toast.error(err.message || "Unable to review this task.");
     } finally {
       setReviewingVipTaskClaim(null);
     }
@@ -1796,6 +1837,29 @@ export default function AdminView() {
   );
   const paginatedNodes = filteredNodes.slice((nodesPage - 1) * ITEMS_PER_PAGE, nodesPage * ITEMS_PER_PAGE);
   const totalNodesPages = Math.ceil(filteredNodes.length / ITEMS_PER_PAGE);
+
+  const vipTaskPages = (() => {
+    const groups: Array<{ category: string; tasks: VipTaskConfig[] }> = [];
+    for (const task of getVipTasks()) {
+      const category = String(task.category || "Milestone");
+      let group = groups.find((entry) => entry.category === category);
+      if (!group) {
+        group = { category, tasks: [] };
+        groups.push(group);
+      }
+      group.tasks.push(task);
+    }
+    return groups.flatMap(({ category, tasks }) => {
+      const pages: Array<{ category: string; tasks: VipTaskConfig[]; start: number; total: number }> = [];
+      for (let offset = 0; offset < tasks.length; offset += ITEMS_PER_PAGE) {
+        pages.push({ category, tasks: tasks.slice(offset, offset + ITEMS_PER_PAGE), start: offset + 1, total: tasks.length });
+      }
+      return pages;
+    });
+  })();
+  const totalVipTaskPages = vipTaskPages.length;
+  const safeVipTaskPage = Math.min(vipTaskPage, Math.max(1, totalVipTaskPages));
+  const currentVipTaskPage = vipTaskPages[safeVipTaskPage - 1] || null;
 
   const renderPagination = (currentPage: number, totalPages: number, setPage: (p: number) => void) => {
     if (totalPages <= 1) return null;
@@ -3643,25 +3707,25 @@ export default function AdminView() {
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--theme-radius)] bg-[var(--theme-primary)]/12 text-[var(--theme-primary)]"><Tags className="w-4 h-4" /></span>
                           <div>
                             <h3 className="text-base font-extrabold text-[var(--theme-text)]">Milestone board</h3>
-                          <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Build progress milestones or social actions with per-task rewards and review.</p>
+                            <p className="text-xs text-[var(--theme-text)] opacity-65 mt-0.5">Metric tasks track progress; social tasks go to your verification queue.</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <button type="button" onClick={handleDeleteAllVipMilestones} disabled={isLoading} className="inline-flex items-center gap-2 rounded-[var(--theme-radius)] border border-rose-500/35 bg-rose-500/8 px-3.5 py-2.5 text-xs font-black text-rose-500 hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-45"><Trash2 className="h-3.5 w-3.5" />Delete all</button>
                           <button type="button" onClick={() => { setParsedVipImport(null); setParsedVipImportFileName(""); setIsVipImportOpen(true); }} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Upload className="w-3.5 h-3.5" />Bulk import</button>
                           <button type="button" onClick={openTierEditor} className="btn-3d-secondary px-3.5 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Folder className="w-3.5 h-3.5" />Manage tiers</button>
-                          <button type="button" onClick={() => { const category = getVipTaskCategories()[0] || ""; setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(category); if (isVipManualClaimCategory(category)) { setVipTaskMetric("manual_claim"); setVipTaskRequiredBonus(1); } setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create milestone</button>
+                          <button type="button" onClick={() => { const category = getVipTaskCategories()[0] || ""; setEditingVipTaskId(null); resetVipTaskForm(); setVipTaskCategory(category); setIsVipTaskModalOpen(true); }} className="btn-3d-primary text-white px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" />Create milestone</button>
                         </div>
                       </div>
 
                       <section className="rounded-[var(--theme-radius)] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-4 space-y-3">
                         <div className="flex items-center justify-between gap-3">
-                          <div><h4 className="text-sm font-black">Pending task submissions <span className="text-[var(--theme-primary)]">{vipTaskClaims.length}</span></h4><p className="text-[11px] opacity-60 mt-1">Review the submitted link or note. Approval credits the task reward.</p></div>
+                          <div><h4 className="text-sm font-black">Social tasks to verify <span className="text-[var(--theme-primary)]">{vipTaskClaims.length}</span></h4><p className="text-[11px] opacity-60 mt-1">Check completion with your social tracking team. Approval credits the task reward. This queue refreshes every 15 seconds while open.</p></div>
                           <button type="button" onClick={() => void refreshVipTaskClaims()} disabled={vipTaskClaimsLoading} className="btn-3d-secondary px-3 py-2 text-[11px] font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${vipTaskClaimsLoading ? "animate-spin" : ""}`} />Refresh</button>
                         </div>
-                        {vipTaskClaims.length === 0 ? <p className="rounded-lg bg-[var(--theme-bg)]/60 px-3 py-4 text-center text-xs opacity-60">No submissions waiting for review.</p> : (
+                        {vipTaskClaims.length === 0 ? <p className="rounded-lg bg-[var(--theme-bg)]/60 px-3 py-4 text-center text-xs opacity-60">No social tasks waiting for verification.</p> : (
                           <div className="space-y-2.5">
                             {vipTaskClaims.map((claim) => {
-                              const proofIsLink = /^https?:\/\//i.test(String(claim.proof || ""));
                               const busy = reviewingVipTaskClaim === claim.id;
                               return (
                                 <article key={claim.id} className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/45 p-3.5 space-y-3">
@@ -3669,10 +3733,10 @@ export default function AdminView() {
                                     <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wider text-[var(--theme-primary)]">{claim.category}</p><h5 className="text-sm font-black mt-0.5">{claim.taskTitle}</h5><p className="text-[11px] opacity-60 mt-1">{claim.username || "User"} · {claim.userId} · {new Date(claim.submittedAt).toLocaleString()}</p></div>
                                     <span className="shrink-0 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[11px] font-black text-[var(--theme-primary)]">+{formatCurrency(Number(claim.reward) || 0)}</span>
                                   </div>
-                                  <div className="rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-3 text-xs break-words">{proofIsLink ? <a href={claim.proof} target="_blank" rel="noopener noreferrer" className="text-[var(--theme-primary)] underline underline-offset-2">{claim.proof}</a> : claim.proof}</div>
+                                  <div className="rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-3 py-2.5 text-[11px] opacity-65">Verify this member’s activity for the task above. Approval makes the reward available to the user; they claim it from their milestones.</div>
                                   <div className="flex flex-col sm:flex-row gap-2">
                                     <input value={vipTaskReviewNotes[claim.id] || ""} onChange={(event) => setVipTaskReviewNotes((current) => ({ ...current, [claim.id]: event.target.value }))} maxLength={1000} placeholder="Optional note" className="theme-input min-w-0 flex-1 px-3 py-2 text-xs" />
-                                    <div className="flex gap-2 shrink-0"><button type="button" onClick={() => void handleReviewVipTaskClaim(claim.id, "reject")} disabled={busy} className="rounded-lg border border-rose-500/30 px-3 py-2 text-[11px] font-black text-rose-500 cursor-pointer disabled:opacity-50">Send back</button><button type="button" onClick={() => void handleReviewVipTaskClaim(claim.id, "approve")} disabled={busy} className="btn-3d-primary text-white rounded-lg px-3 py-2 text-[11px] font-black cursor-pointer disabled:opacity-50">{busy ? "Saving…" : "Approve & credit"}</button></div>
+                                    <div className="flex gap-2 shrink-0"><button type="button" onClick={() => void handleReviewVipTaskClaim(claim.id, "reject")} disabled={busy} className="rounded-lg border border-rose-500/30 px-3 py-2 text-[11px] font-black text-rose-500 cursor-pointer disabled:opacity-50">Send back</button><button type="button" onClick={() => void handleReviewVipTaskClaim(claim.id, "approve")} disabled={busy} className="btn-3d-primary text-white rounded-lg px-3 py-2 text-[11px] font-black cursor-pointer disabled:opacity-50">{busy ? "Saving…" : "Verify task"}</button></div>
                                   </div>
                                 </article>
                               );
@@ -3682,6 +3746,21 @@ export default function AdminView() {
                       </section>
 
                       <div className="rounded-[var(--theme-radius)] border border-[var(--theme-card-border)] overflow-hidden bg-[var(--theme-card-bg)]">
+                        <div className="flex flex-col gap-3 border-b border-[var(--theme-card-border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black">{currentVipTaskPage?.category || "Milestones"}</p>
+                            <p className="mt-0.5 text-[11px] opacity-60">
+                              {currentVipTaskPage
+                                ? `${currentVipTaskPage.start}–${currentVipTaskPage.start + currentVipTaskPage.tasks.length - 1} of ${currentVipTaskPage.total} tasks · Page ${safeVipTaskPage} of ${totalVipTaskPages}`
+                                : "No milestone tasks"}
+                            </p>
+                          </div>
+                          {totalVipTaskPages > 1 && <div className="flex items-center gap-2 self-end sm:self-auto">
+                            <button type="button" onClick={() => setVipTaskPage(Math.max(1, safeVipTaskPage - 1))} disabled={safeVipTaskPage <= 1} aria-label="Previous milestone page" className="rounded-[var(--theme-radius)] border border-[var(--theme-card-border)] p-2 hover:bg-[var(--theme-bg)] disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                            <span className="min-w-16 text-center text-xs font-bold">{safeVipTaskPage} / {totalVipTaskPages}</span>
+                            <button type="button" onClick={() => setVipTaskPage(Math.min(totalVipTaskPages, safeVipTaskPage + 1))} disabled={safeVipTaskPage >= totalVipTaskPages} aria-label="Next milestone page" className="rounded-[var(--theme-radius)] border border-[var(--theme-card-border)] p-2 hover:bg-[var(--theme-bg)] disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+                          </div>}
+                        </div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-sm whitespace-nowrap">
                             <thead>
@@ -3697,12 +3776,10 @@ export default function AdminView() {
                             </thead>
                             <tbody className="divide-y divide-[var(--theme-card-border)]/40">
                               {(() => {
-                                const groups: string[] = [];
-                                for (const t of getVipTasks()) {
-                                  if (!groups.includes(t.category)) groups.push(t.category);
-                                }
-                                return groups.map((group) => {
-                                  const rows = getVipTasks().filter((t) => t.category === group);
+                                const page = currentVipTaskPage;
+                                if (!page) return null;
+                                const group = page.category;
+                                const rows = page.tasks;
                                   const meta = getVipTierMeta()[group] || {};
                                   const manualClaims = isVipManualClaimCategory(group);
                                   return (
@@ -3711,7 +3788,7 @@ export default function AdminView() {
                                         <td colSpan={7} className="px-4 py-2.5">
                                           <div className="flex items-center gap-2.5 flex-wrap">
                                             <span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{group}</span>
-                                            {manualClaims && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase text-amber-500">Manual submissions</span>}
+                                            {manualClaims && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase text-amber-500">Social verification</span>}
                                             <span className="text-[11px] font-bold text-[var(--theme-primary)]">Task +{formatCurrency(Number(getVipTierTaskRewards()[group]) || 0)} · Completion +{formatCurrency(tierRewardFor(getVipTierRewards(), group))}</span>
                                             {meta.description && <span className="text-[11px] opacity-55">{meta.description}</span>}
                                             <span className="text-[10px] opacity-45 font-bold ml-auto">{rows.length} task{rows.length === 1 ? "" : "s"}</span>
@@ -3719,16 +3796,16 @@ export default function AdminView() {
                                         </td>
                                       </tr>
                                       {rows.map((task) => {
-                                        const claimedUsers = usersList.filter((user) => ((user as any).claimedTierRewards || []).includes(task.category)).length;
+                                        const claimedUsers = usersList.filter((user) => ((user as any).claimedVipTasks || []).includes(task.id)).length;
                                         const needMeta = metricMeta(task.metric);
                                         const needText = needMeta.isMoney ? formatCurrency(task.requiredBonus) : `${Number(task.requiredBonus || 0).toLocaleString()}${needMeta.unit ? ` ${needMeta.unit}` : ""}`;
-                                        const taskManual = isVipManualClaimCategory(task.category);
+                                        const taskManual = Boolean(task.socialType);
                                 return (
                                   <tr key={task.id} className="hover:bg-[var(--theme-bg)]/45 transition-colors">
                                     <td className="px-4 py-4 min-w-[220px]"><div className="flex items-center gap-2.5"><div className="w-9 h-9 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-card-border)] overflow-hidden shrink-0 flex items-center justify-center">{task.imageUrl ? <img src={fixGitHubImageUrl(task.imageUrl)} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px] opacity-40 font-black">{task.title.charAt(0).toUpperCase()}</span>}</div><div className="min-w-0"><div className="font-bold text-[var(--theme-text)] truncate">{task.title}</div><div className="text-[11px] opacity-55 mt-1 max-w-[290px] truncate">{task.description || "No description"}</div></div></div></td>
-                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{task.socialType ? VIP_SOCIAL_TASKS.find((item) => item.id === task.socialType)?.label || "Social action" : taskManual ? "User submission" : needMeta.source}</div></td>
-                                    <td className="px-4 py-4 text-right font-bold">{taskManual ? "Submit" : needText}</td>
-                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">{taskManual ? `+${formatCurrency(Number(getVipTierTaskRewards()[task.category]) || 0)}` : "—"}</td>
+                                    <td className="px-4 py-4"><span className="rounded-full bg-[var(--theme-primary)]/10 text-[var(--theme-primary)] px-2 py-1 text-[10px] font-black uppercase">{task.category}</span><div className="text-[10px] opacity-50 mt-1">{task.socialType ? VIP_SOCIAL_TASKS.find((item) => item.id === task.socialType)?.label || "Social action" : taskManual ? "Social verification" : needMeta.source}</div></td>
+                                    <td className="px-4 py-4 text-right font-bold">{taskManual ? "Verify" : needText}</td>
+                                    <td className="px-4 py-4 text-right font-bold text-[var(--theme-primary)]">{Number(getVipTierTaskRewards()[task.category]) > 0 ? `+${formatCurrency(Number(getVipTierTaskRewards()[task.category]) || 0)}` : "—"}</td>
                                     <td className="px-4 py-4 text-center font-bold">{claimedUsers}</td>
                                     <td className="px-4 py-4 text-center"><button type="button" onClick={() => void handleToggleVipTask(task.id)} className={`rounded-full border px-2.5 py-1 text-[10px] font-black cursor-pointer ${task.active === false ? "border-[var(--theme-card-border)] opacity-55" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"}`}>{task.active === false ? "INACTIVE" : "ACTIVE"}</button></td>
                                     <td className="px-4 py-4 text-right">
@@ -3760,10 +3837,9 @@ export default function AdminView() {
                                   </tr>
                                 );
                               })}
-                            </React.Fragment>
-                          );
-                        })
-                      })()}
+                                    </React.Fragment>
+                                  );
+                              })()}
                     </tbody>
                           </table>
                         </div>
@@ -3801,7 +3877,7 @@ export default function AdminView() {
                           </label>
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Milestone tier
                             <div className="flex gap-2 mt-1.5">
-                              <select required value={vipTaskCategory} onChange={(event) => { const category = event.target.value; setVipTaskCategory(category); if (isVipManualClaimCategory(category)) { setVipTaskMetric("manual_claim"); setVipTaskRequiredBonus(1); } }} className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm">
+                              <select required value={vipTaskCategory} onChange={(event) => setVipTaskCategory(event.target.value)} className="theme-input min-w-0 flex-1 px-3 py-2.5 text-sm">
                                 <option value="" disabled>Select category</option>
                                 {getVipTaskCategories().map((category) => <option key={category} value={category}>{category}</option>)}
                               </select>
@@ -3816,10 +3892,10 @@ export default function AdminView() {
                             const preset = VIP_SOCIAL_TASKS.find((item) => item.id === value);
                             if (preset) {
                               setVipTaskTitle(preset.title);
-                              setVipTaskDescription("Complete this social task, then submit your profile or post link, or a short note.");
+                              setVipTaskDescription("Complete this social task. Our team will verify it.");
                               setVipTaskMetric("manual_claim");
                               setVipTaskRequiredBonus(1);
-                            } else if (!isVipManualClaimCategory(vipTaskCategory)) {
+                            } else {
                               setVipTaskMetric("operator_points");
                               setVipTaskRequiredBonus(0);
                             }
@@ -3827,7 +3903,7 @@ export default function AdminView() {
                             <option value="">Choose a social action (optional)</option>
                             {VIP_SOCIAL_TASKS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                           </select>
-                          <span className="block mt-1.5 text-[10px] normal-case tracking-normal opacity-55">Social actions use submissions and admin review. Add the destination in Task link.</span>
+                          <span className="block mt-1.5 text-[10px] normal-case tracking-normal opacity-55">Social tasks are checked by your team after the user taps Verify. Add the destination in Task link.</span>
                         </label>
                         <label className="text-xs font-bold uppercase tracking-wider opacity-75">Description
                           <textarea value={vipTaskDescription} onChange={(event) => setVipTaskDescription(event.target.value)} placeholder="Explain what this reward unlocks." rows={3} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 resize-none" />
@@ -3835,14 +3911,19 @@ export default function AdminView() {
                         <label className="text-xs font-bold uppercase tracking-wider opacity-75">Task link
                           <input type="url" value={vipTaskActionUrl} onChange={(event) => setVipTaskActionUrl(event.target.value)} placeholder="https://…" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
                         </label>
-                        {(isVipManualClaimCategory(vipTaskCategory) || Boolean(vipTaskSocialType)) ? (
+                        {editingVipTaskId && getVipTasks().some((task) => task.id === editingVipTaskId && task.metric === "manual_claim" && !task.socialType) && !vipTaskSocialType && (
+                          <p className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--theme-text)] opacity-75">
+                            This older task was saved without its progress metric. Select the intended metric and requirement below before saving it.
+                          </p>
+                        )}
+                        {Boolean(vipTaskSocialType) ? (
                           <div className="rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5 text-xs opacity-75 space-y-2">
-                            <p>Users submit this task with a link or note. Approval marks it complete and credits the tier’s per-task reward.</p>
-                            {vipTaskSocialType && (!isVipManualClaimCategory(vipTaskCategory) || (Number(getVipTierTaskRewards()[vipTaskCategory]) || 0) <= 0) && <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-amber-500">Enable task submissions and set an amount per task for this tier.</span><button type="button" onClick={openTierEditor} className="font-black text-[var(--theme-primary)] underline underline-offset-2">Manage tiers</button></div>}
+                            <p>Users open the social link and tap Verify. Your team checks completion and approval credits the tier’s per-task reward.</p>
+                            {vipTaskSocialType && (!isVipManualClaimCategory(vipTaskCategory) || (Number(getVipTierTaskRewards()[vipTaskCategory]) || 0) <= 0) && <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-amber-500">Enable social verification and set a reward per task for this tier.</span><button type="button" onClick={openTierEditor} className="font-black text-[var(--theme-primary)] underline underline-offset-2">Manage tiers</button></div>}
                           </div>
                         ) : <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Unlocks from
-                            <select value={vipTaskMetric} onChange={(event) => setVipTaskMetric(event.target.value)} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
+                            <select value={vipTaskMetric} onChange={(event) => { const metric = event.target.value; setVipTaskMetric(metric); if (metric === "account_created") setVipTaskRequiredBonus(1); }} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5">
                               <option value="operator_points">Operator lifetime points</option>
                               <option value="runs_started">Runs started</option>
                               <option value="active_runs">Active runs</option>
@@ -3852,11 +3933,11 @@ export default function AdminView() {
                               <option value="lifetime_yield">Lifetime run yield ({currency})</option>
                               <option value="invites_count">Invites (count)</option>
                               <option value="milestones_claimed">Milestones claimed (count)</option>
-                              <option value="account_created">Account created (auto)</option>
+                              <option value="account_created">Account created (automatic)</option>
                             </select>
                           </label>
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "collectibles_claimed" ? "(collectibles)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
-                            <input type="text" inputMode="numeric" required value={vipTaskRequiredBonus || ""} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                            <input type="text" inputMode="numeric" required value={vipTaskMetric === "account_created" ? "1" : vipTaskRequiredBonus || ""} disabled={vipTaskMetric === "account_created"} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 disabled:opacity-60" />
                           </label>
                         </div>}
                         <div className="space-y-1.5">
@@ -3938,7 +4019,7 @@ export default function AdminView() {
                               </div>
                               <label className="flex items-start gap-2 rounded-lg border border-[var(--theme-card-border)] p-2.5 text-[11px] font-semibold normal-case tracking-normal opacity-85">
                                 <input type="checkbox" checked={draft.manualClaims} onChange={(event) => patchTierDraft(idx, { manualClaims: event.target.checked })} className="mt-0.5 accent-[var(--theme-primary)]" />
-                                <span><span className="block font-black">Task submissions reviewed in admin</span><span className="block mt-0.5 opacity-65">Users submit each task; approval credits its per-task amount.</span></span>
+                                <span><span className="block font-black">Social tasks require admin verification</span><span className="block mt-0.5 opacity-65">Users tap Verify; approval credits the per-task amount.</span></span>
                               </label>
                               <label className="text-[11px] font-bold uppercase tracking-wider opacity-75 block">Description
                                 <input type="text" value={draft.description} maxLength={220} onChange={(event) => patchTierDraft(idx, { description: event.target.value })} placeholder="e.g. Getting started" className="theme-input w-full px-2.5 py-2 text-sm mt-1" />
@@ -3990,8 +4071,8 @@ export default function AdminView() {
                               <span className="text-right text-[11px] font-bold text-[var(--theme-primary)]">{parsedVipImport.tiers.length} tiers · {parsedVipImport.tasks.length} tasks</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tiers</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tiers.slice(0, 8).map((tier) => <div key={tier.name} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate font-bold">{tier.name}{tier.manualClaims && <span className="ml-1.5 text-[9px] uppercase text-[var(--theme-primary)]">Manual</span>}</span><span className="shrink-0 text-right tabular-nums opacity-70">{formatCurrency(tier.taskReward)} / task</span></div>)}{parsedVipImport.tiers.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tiers.length - 8} more</p>}</div></section>
-                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tasks</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tasks.slice(0, 8).map((task) => <div key={task.id} className="text-xs"><p className="font-bold truncate">{task.title}</p><p className="text-[10px] opacity-55">{task.category} · {task.metric === "manual_claim" ? "Task submission" : metricMeta(task.metric).source}</p></div>)}{parsedVipImport.tasks.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tasks.length - 8} more</p>}</div></section>
+                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tiers</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tiers.slice(0, 8).map((tier) => <div key={tier.name} className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate font-bold">{tier.name}{tier.manualClaims && <span className="ml-1.5 text-[9px] uppercase text-[var(--theme-primary)]">Social check</span>}</span><span className="shrink-0 text-right tabular-nums opacity-70">{formatCurrency(tier.taskReward)} / task</span></div>)}{parsedVipImport.tiers.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tiers.length - 8} more</p>}</div></section>
+                              <section className="rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/35 p-3"><h4 className="text-[10px] font-black uppercase tracking-wider opacity-55 mb-2">Tasks</h4><div className="space-y-2 max-h-40 overflow-y-auto">{parsedVipImport.tasks.slice(0, 8).map((task) => <div key={task.id} className="text-xs"><p className="font-bold truncate">{task.title}</p><p className="text-[10px] opacity-55">{task.category} · {task.metric === "manual_claim" ? "Social verification" : metricMeta(task.metric).source}</p></div>)}{parsedVipImport.tasks.length > 8 && <p className="text-[10px] opacity-50">and {parsedVipImport.tasks.length - 8} more</p>}</div></section>
                             </div>
                           </div>
                         )}

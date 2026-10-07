@@ -208,8 +208,8 @@ export const transactions = mysqlTable(
   })
 );
 
-// Manual milestone submissions. Rewards are snapshotted on submission so
-// later tier edits cannot change a claim awaiting admin review.
+// Milestone verification records. Rewards are snapshotted so later tier edits
+// cannot change a claim awaiting admin review.
 export const vipTaskClaims = mysqlTable(
   "vip_task_claims",
   {
