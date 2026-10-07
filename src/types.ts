@@ -49,6 +49,8 @@ export interface SiteConfig {
   vipTasks?: VipTaskConfig[];
   vipTaskCategories?: string[];
   vipTierRewards?: Record<string, number>;
+  vipTierTaskRewards?: Record<string, number>;
+  vipManualClaimCategories?: string[];
   vipTierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   checkinBaseBonus?: number;
   checkinIncrement?: number;
@@ -99,6 +101,7 @@ export interface VipTaskConfig {
   reward: number;
   active?: boolean;
   imageUrl?: string;
+  actionUrl?: string;
 }
 
 export interface VipTask {
@@ -113,8 +116,12 @@ export interface VipTask {
   unlocked: boolean;
   claimed: boolean;
   imageUrl?: string;
+  actionUrl?: string;
   stageIndex?: number;
   stageLocked?: boolean;
+  manualClaim?: boolean;
+  claimStatus?: "none" | "pending" | "rejected" | "approved";
+  claimReviewNote?: string;
 }
 
 export interface VipTaskboard {
@@ -122,6 +129,8 @@ export interface VipTaskboard {
   vipLevel?: number;
   stageOrder?: string[];
   tierRewards?: Record<string, number>;
+  tierTaskRewards?: Record<string, number>;
+  manualClaimCategories?: string[];
   tierMeta?: Record<string, { description?: string; imageUrl?: string }>;
   claimedTierRewards?: string[];
   referralRates?: {

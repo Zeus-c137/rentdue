@@ -181,6 +181,23 @@ export async function ensureDatabaseSchema(): Promise<void> {
       INDEX idx_transactions_status (status),
       INDEX idx_transactions_user_status_type (user_id, status, type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS vip_task_claims (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      user_id VARCHAR(32) NOT NULL,
+      task_id VARCHAR(64) NOT NULL,
+      category VARCHAR(64) NOT NULL,
+      task_title VARCHAR(255) NOT NULL,
+      reward DOUBLE NOT NULL DEFAULT 0,
+      proof TEXT NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      submitted_at VARCHAR(64) NOT NULL,
+      reviewed_at VARCHAR(64) NULL,
+      reviewed_by VARCHAR(32) NULL,
+      review_note TEXT NULL,
+      UNIQUE INDEX uq_vip_task_claim_user_task (user_id, task_id),
+      INDEX idx_vip_task_claim_status_submitted (status, submitted_at),
+      INDEX idx_vip_task_claim_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS announcements (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,

@@ -56,6 +56,9 @@ import {
   adminGetCatalogItems,
   getVipTaskboard,
   claimTierReward,
+  submitVipTaskClaim,
+  listPendingVipTaskClaims,
+  reviewVipTaskClaim,
   adminUpdateUserLockStatus,
   adminAdjustBalance,
   adminCreateAnnouncement,
@@ -1042,6 +1045,20 @@ app.post("/api/profile/vip-tasks/claim", async (req, res) => {
   }
 });
 
+app.post("/api/profile/vip-tasks/submit", async (req, res) => {
+  const { phone, taskId, proof } = req.body || {};
+  const authenticatedPhone = await getAuthenticatedUserPhone(req);
+  if (!authenticatedPhone || authenticatedPhone !== normalizePhone(phone)) {
+    return res.status(401).json({ error: "Please sign in again before submitting a task." });
+  }
+  try {
+    const result = await submitVipTaskClaim(authenticatedPhone, String(taskId || ""), String(proof || ""));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || "Unable to submit this task." });
+  }
+});
+
 // Helper to authenticate with the payment gateway API
 async function getGatewayToken(): Promise<string> {
   const publicKey = process.env.PAYMENT_PUBLIC_KEY;
@@ -2021,6 +2038,29 @@ app.get("/api/admin/users", async (req, res) => {
   } catch (err: any) {
     logError("[Admin API Error] Fetch all users failed:", err);
     res.status(500).json({ error: "Failed to load users list", details: err.message });
+  }
+});
+
+app.get("/api/admin/vip-task-claims", async (_req, res) => {
+  try {
+    res.json(await listPendingVipTaskClaims());
+  } catch (err: any) {
+    logError("[Admin API Error] Fetch milestone submissions failed:", err);
+    res.status(500).json({ error: "Unable to load task submissions." });
+  }
+});
+
+app.post("/api/admin/vip-task-claims/review", async (req, res) => {
+  const { claimId, decision, note } = req.body || {};
+  if (!claimId || !["approve", "reject"].includes(String(decision))) {
+    return res.status(400).json({ error: "Choose a valid review action." });
+  }
+  try {
+    const config = await getSiteConfig();
+    const result = await reviewVipTaskClaim(String(claimId), decision, String(config.adminPhone || "admin"), String(note || ""));
+    res.json(result);
+  } catch (err: any) {
+    res.status(409).json({ error: err.message || "Unable to review this submission." });
   }
 });
 

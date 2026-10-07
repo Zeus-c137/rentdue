@@ -2417,6 +2417,13 @@ export async function getVipTaskboard(phone: string) {
   const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
   const claimedTiers: string[] = Array.isArray((user as any).claimedTierRewards) ? (user as any).claimedTierRewards : [];
   const rawTierRewards: Record<string, any> = readJsonRecord((config as any).vipTierRewards);
+  const rawTierTaskRewards: Record<string, any> = readJsonRecord((config as any).vipTierTaskRewards);
+  const manualClaimCategories = Array.isArray((config as any).vipManualClaimCategories)
+    ? (config as any).vipManualClaimCategories.map((name: unknown) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const manualCategoryKeys = new Set(manualClaimCategories.map((name: string) => name.toLowerCase()));
+  const taskClaimRows = await drizzleDb.select().from(schema.vipTaskClaims).where(eq(schema.vipTaskClaims.userId, phone));
+  const claimsByTask = new Map(taskClaimRows.map((claim) => [claim.taskId, claim]));
   const rawTierMeta: Record<string, any> = readJsonRecord((config as any).vipTierMeta);
   const invitesCount = Math.max(0, Number((user as any).invitesCount || 0));
   const milestonesClaimed = claimedTiers.length;
@@ -2496,9 +2503,12 @@ export async function getVipTaskboard(phone: string) {
     lowerRewards[String(key).trim().toLowerCase()] = Math.max(0, Number(value) || 0);
   }
   const tierRewards: Record<string, number> = {};
+  const tierTaskRewards: Record<string, number> = {};
   const tierMeta: Record<string, { description?: string; imageUrl?: string }> = {};
   for (const stage of stageOrder) {
     tierRewards[stage] = lowerRewards[stage.toLowerCase()] ?? 0;
+    const taskRewardKey = Object.keys(rawTierTaskRewards).find((key) => String(key).trim().toLowerCase() === stage.toLowerCase());
+    tierTaskRewards[stage] = taskRewardKey ? Math.max(0, Number(rawTierTaskRewards[taskRewardKey]) || 0) : 0;
     const metaHit = Object.keys(rawTierMeta).find((key) => String(key).trim().toLowerCase() === stage.toLowerCase());
     if (metaHit) {
       const entry = (rawTierMeta[metaHit] ?? {}) as Record<string, unknown>;
@@ -2514,21 +2524,29 @@ export async function getVipTaskboard(phone: string) {
     .map((task: any) => {
       const threshold = Math.max(0, Number(task.requiredBonus || 0));
       const metric = String(task.metric || "operator_points");
-      const progress = metricValue(metric);
       const art = String(task.imageUrl || "").trim();
       const category = String(task.category || "Milestone");
+      const manualClaim = manualCategoryKeys.has(category.trim().toLowerCase());
+      const claim = manualClaim ? claimsByTask.get(String(task.id)) : undefined;
+      const claimStatus = manualClaim ? String(claim?.status || "none") as "none" | "pending" | "rejected" | "approved" : "none";
+      const taskThreshold = manualClaim ? 1 : threshold;
+      const progress = manualClaim ? (claimStatus === "approved" ? 1 : 0) : metricValue(metric);
       return {
         id: String(task.id),
         title: String(task.title || "Milestone Task"),
         description: String(task.description || ""),
         category,
         metric,
-        requiredBonus: threshold,
-        reward: 0,
+        requiredBonus: taskThreshold,
+        reward: manualClaim ? (tierTaskRewards[category] || 0) : 0,
+        manualClaim,
+        claimStatus,
+        ...(manualClaim && claim?.status === "rejected" && claim.reviewNote ? { claimReviewNote: String(claim.reviewNote).slice(0, 1000) } : {}),
         ...(art ? { imageUrl: art } : {}),
+        ...(typeof task.actionUrl === "string" && /^https?:\/\//i.test(task.actionUrl.trim()) ? { actionUrl: task.actionUrl.trim().slice(0, 512) } : {}),
         progress,
-        unlocked: progress >= threshold,
-        claimed: false as boolean,
+        unlocked: progress >= taskThreshold,
+        claimed: manualClaim && claimStatus === "approved",
         stageIndex: Math.max(0, stageOrder.indexOf(category.trim() || "Milestone")),
         stageLocked: false as boolean,
       };
@@ -2554,6 +2572,8 @@ export async function getVipTaskboard(phone: string) {
     vipLevel,
     stageOrder,
     tierRewards,
+    tierTaskRewards,
+    manualClaimCategories,
     tierMeta,
     claimedTierRewards: claimedTiers,
     referralRates: {
@@ -2574,6 +2594,174 @@ export async function getVipTaskboard(phone: string) {
   };
 }
 
+export async function submitVipTaskClaim(phone: string, taskId: string, proof: string) {
+  const drizzleDb = requireDatabase("submit a milestone task");
+  const cleanPhone = String(phone || "").trim();
+  const cleanTaskId = String(taskId || "").trim().slice(0, 64);
+  const cleanProof = String(proof || "").trim().slice(0, 2000);
+  if (!cleanPhone || !cleanTaskId || !cleanProof) throw new Error("Add a link or short note before submitting.");
+
+  const config = await getSiteConfig();
+  const configuredTasks = Array.isArray(config.vipTasks) ? config.vipTasks : [];
+  const task = configuredTasks.find((entry: any) => String(entry?.id || "") === cleanTaskId && entry?.active !== false) as any;
+  if (!task) throw new Error("This task is no longer available.");
+  const category = String(task.category || "Milestone").trim();
+  const manualCategories = Array.isArray((config as any).vipManualClaimCategories)
+    ? (config as any).vipManualClaimCategories.map((name: unknown) => String(name || "").trim().toLowerCase())
+    : [];
+  if (!manualCategories.includes(category.toLowerCase())) throw new Error("This task does not accept submissions.");
+  const rawTaskRewards = readJsonRecord((config as any).vipTierTaskRewards);
+  const rewardKey = Object.keys(rawTaskRewards).find((key) => key.trim().toLowerCase() === category.toLowerCase());
+  const reward = rewardKey ? Math.max(0, Number(rawTaskRewards[rewardKey]) || 0) : 0;
+  if (!(reward > 0)) throw new Error("This task reward is not available yet.");
+
+  const stageOrder: string[] = [];
+  for (const entry of configuredTasks) {
+    if (!entry || (entry as any).active === false) continue;
+    const name = String((entry as any).category || "Milestone").trim() || "Milestone";
+    if (!stageOrder.some((stage) => stage.toLowerCase() === name.toLowerCase())) stageOrder.push(name);
+  }
+  const stageIndex = stageOrder.findIndex((stage) => stage.toLowerCase() === category.toLowerCase());
+  const timestamp = new Date().toISOString();
+  let claimId = "";
+
+  await drizzleDb.transaction(async (tx) => {
+    const userRows = await tx.select().from(schema.users)
+      .where(eq(schema.users.phone, cleanPhone)).limit(1).for("update");
+    const user = userRows[0];
+    if (!user) throw new Error("User not found.");
+    if (user.locked) throw new Error("This account cannot submit milestone tasks.");
+    const claimedTiers = readJsonStringArray((user as any).claimedTierRewards);
+    if (claimedTiers.some((name) => name.toLowerCase() === category.toLowerCase())) {
+      throw new Error("This tier has already been completed.");
+    }
+    if (stageIndex > 0 && !claimedTiers.some((name) => name.toLowerCase() === stageOrder[stageIndex - 1].toLowerCase())) {
+      throw new Error("Complete the previous tier first.");
+    }
+
+    const existingRows = await tx.select().from(schema.vipTaskClaims)
+      .where(and(eq(schema.vipTaskClaims.userId, cleanPhone), eq(schema.vipTaskClaims.taskId, cleanTaskId)))
+      .limit(1).for("update");
+    const existing = existingRows[0];
+    if (existing?.status === "approved") throw new Error("This task has already been completed.");
+    if (existing?.status === "pending") throw new Error("This task has already been submitted.");
+
+    if (existing) {
+      claimId = existing.id;
+      await tx.update(schema.vipTaskClaims).set({
+        category,
+        taskTitle: String(task.title || "Milestone task").slice(0, 255),
+        reward,
+        proof: cleanProof,
+        status: "pending",
+        submittedAt: timestamp,
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNote: null
+      }).where(eq(schema.vipTaskClaims.id, existing.id));
+    } else {
+      claimId = `vpc_${crypto.randomBytes(12).toString("hex")}`;
+      await tx.insert(schema.vipTaskClaims).values({
+        id: claimId,
+        userId: cleanPhone,
+        taskId: cleanTaskId,
+        category,
+        taskTitle: String(task.title || "Milestone task").slice(0, 255),
+        reward,
+        proof: cleanProof,
+        status: "pending",
+        submittedAt: timestamp
+      });
+    }
+  });
+
+  return { success: true, claimId, status: "pending" as const };
+}
+
+export async function listPendingVipTaskClaims() {
+  const drizzleDb = requireDatabase("load submitted milestone tasks");
+  return drizzleDb.select({
+    id: schema.vipTaskClaims.id,
+    userId: schema.vipTaskClaims.userId,
+    username: schema.users.username,
+    taskId: schema.vipTaskClaims.taskId,
+    taskTitle: schema.vipTaskClaims.taskTitle,
+    category: schema.vipTaskClaims.category,
+    reward: schema.vipTaskClaims.reward,
+    proof: schema.vipTaskClaims.proof,
+    submittedAt: schema.vipTaskClaims.submittedAt
+  }).from(schema.vipTaskClaims)
+    .leftJoin(schema.users, eq(schema.users.phone, schema.vipTaskClaims.userId))
+    .where(eq(schema.vipTaskClaims.status, "pending"))
+    .orderBy(asc(schema.vipTaskClaims.submittedAt))
+    .limit(250);
+}
+
+export async function reviewVipTaskClaim(
+  claimId: string,
+  decision: "approve" | "reject",
+  adminPhone: string,
+  reviewNote = ""
+) {
+  const drizzleDb = requireDatabase("review a milestone task");
+  const cleanId = String(claimId || "").trim().slice(0, 64);
+  const note = String(reviewNote || "").trim().slice(0, 1000);
+  let userId = "";
+  let taskTitle = "";
+  let reward = 0;
+
+  await drizzleDb.transaction(async (tx) => {
+    const rows = await tx.select().from(schema.vipTaskClaims)
+      .where(eq(schema.vipTaskClaims.id, cleanId)).limit(1).for("update");
+    const claim = rows[0];
+    if (!claim) throw new Error("Submission not found.");
+    if (claim.status !== "pending") throw new Error("This submission has already been reviewed.");
+    userId = claim.userId;
+    taskTitle = claim.taskTitle;
+    reward = Number(claim.reward) || 0;
+    const reviewedAt = new Date().toISOString();
+
+    if (decision === "approve") {
+      const userRows = await tx.select().from(schema.users)
+        .where(eq(schema.users.phone, claim.userId)).limit(1).for("update");
+      if (!userRows[0]) throw new Error("User account not found.");
+      await tx.update(schema.users).set({
+        points: sql`${schema.users.points} + ${reward}`
+      }).where(eq(schema.users.phone, claim.userId));
+      await tx.insert(schema.transactions).values({
+        id: `vip_${claim.id}`.slice(0, 64),
+        userId: claim.userId,
+        type: "vip_task",
+        amount: reward,
+        currency: "UGX",
+        status: "SUCCESSFUL",
+        paymentMethod: "VIP_TASK",
+        phone: claim.userId,
+        itemId: `task:${claim.taskId}`.slice(0, 64),
+        mode: "auto",
+        metadata: { claimId: claim.id, category: claim.category, taskTitle: claim.taskTitle },
+        timestamp: reviewedAt
+      });
+    }
+
+    await tx.update(schema.vipTaskClaims).set({
+      status: decision === "approve" ? "approved" : "rejected",
+      reviewedAt,
+      reviewedBy: String(adminPhone || "admin").slice(0, 32),
+      reviewNote: note || null
+    }).where(eq(schema.vipTaskClaims.id, cleanId));
+  });
+
+  if (decision === "approve") {
+    await createNotification(userId, "Community task reward", `${taskTitle} was approved and ${formatCurrencyForDb(reward)} was added to your balance.`, "rewards", reward);
+  }
+  return { success: true, status: decision === "approve" ? "approved" as const : "rejected" as const, reward };
+}
+
+function formatCurrencyForDb(amount: number) {
+  return `UGX ${Math.max(0, Number(amount) || 0).toLocaleString()}`;
+}
+
 export async function claimTierReward(phone: string, category: string) {
   const board = await getVipTaskboard(phone);
   const stage = String(category || "").trim();
@@ -2591,6 +2779,8 @@ export async function claimTierReward(phone: string, category: string) {
 
   const drizzleDb = requireDatabase("claim the journey stage reward");
   let claimedTierRewards: string[] = [];
+  const transactionId = `vip_${crypto.randomBytes(8).toString("hex")}`;
+  const claimedAt = new Date().toISOString();
   await drizzleDb.transaction(async (tx) => {
     const userRows = await tx.select().from(schema.users)
       .where(eq(schema.users.phone, phone))
@@ -2600,6 +2790,20 @@ export async function claimTierReward(phone: string, category: string) {
     if (!user) throw new Error("User not found");
     claimedTierRewards = readJsonStringArray((user as any).claimedTierRewards);
     if (claimedTierRewards.includes(stage)) throw new Error("Stage reward already claimed.");
+    const manualStage = (board.manualClaimCategories || []).some((name) => name.toLowerCase() === stage.toLowerCase());
+    if (manualStage) {
+      const manualTaskIds = inStage.map((task) => task.id);
+      const approvedClaims = await tx.select({ taskId: schema.vipTaskClaims.taskId })
+        .from(schema.vipTaskClaims)
+        .where(and(
+          eq(schema.vipTaskClaims.userId, phone),
+          eq(schema.vipTaskClaims.status, "approved"),
+          inArray(schema.vipTaskClaims.taskId, manualTaskIds)
+        ));
+      if (approvedClaims.length !== manualTaskIds.length) {
+        throw new Error("Complete every task in this tier before collecting its completion bonus.");
+      }
+    }
     claimedTierRewards.push(stage);
 
     // Credit directly to withdrawable balance (points)! The reward comes
@@ -2608,21 +2812,20 @@ export async function claimTierReward(phone: string, category: string) {
       points: sql`${schema.users.points} + ${reward}`,
       claimedTierRewards
     }).where(eq(schema.users.phone, phone));
-  });
 
-  // Record transaction in history
-  await saveTransaction({
-    id: "vip_" + crypto.randomBytes(8).toString("hex"),
-    userId: phone,
-    type: "vip_task",
-    amount: reward,
-    currency: "UGX",
-    status: "SUCCESSFUL",
-    paymentMethod: "VIP_TASK",
-    phone: phone,
-    itemId: `tier:${stage}`,
-    mode: "auto",
-    timestamp: new Date().toISOString()
+    await tx.insert(schema.transactions).values({
+      id: transactionId,
+      userId: phone,
+      type: "vip_task",
+      amount: reward,
+      currency: "UGX",
+      status: "SUCCESSFUL",
+      paymentMethod: "VIP_TASK",
+      phone,
+      itemId: `tier:${stage}`.slice(0, 64),
+      mode: "auto",
+      timestamp: claimedAt
+    });
   });
 
   // Create notification alert
@@ -2851,6 +3054,29 @@ export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<
         if (name) clean[name] = Math.max(0, Number(value) || 0);
       }
       (updated as any).vipTierRewards = clean;
+    }
+
+    if ((updated as any).vipTierTaskRewards && typeof (updated as any).vipTierTaskRewards === "object" && !Array.isArray((updated as any).vipTierTaskRewards)) {
+      const clean: Record<string, number> = {};
+      for (const [key, value] of Object.entries((updated as any).vipTierTaskRewards)) {
+        const name = String(key).trim();
+        if (name) clean[name] = Math.max(0, Number(value) || 0);
+      }
+      (updated as any).vipTierTaskRewards = clean;
+    }
+
+    if (Array.isArray((updated as any).vipManualClaimCategories)) {
+      const seen = new Set<string>();
+      (updated as any).vipManualClaimCategories = (updated as any).vipManualClaimCategories
+        .map((value: unknown) => String(value || "").trim())
+        .filter((name: string) => {
+          const key = name.toLowerCase();
+          if (!name || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    } else {
+      (updated as any).vipManualClaimCategories = [];
     }
 
     if ((updated as any).vipTierMeta && typeof (updated as any).vipTierMeta === "object" && !Array.isArray((updated as any).vipTierMeta)) {
