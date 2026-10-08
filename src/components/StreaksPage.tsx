@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
-import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, msUntilPlatformMidnight } from "../utils/runs";
+import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, getPlatformYesterdayKey, msUntilPlatformMidnight } from "../utils/runs";
 import type { TransactionRow, UserProfile } from "../types";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 
@@ -39,9 +39,13 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const [claimedLedger, setClaimedLedger] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
+  const claimBusyRef = useRef(false);
+  const claimRevisionRef = useRef(0);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const accruedRef = useRef<HTMLParagraphElement>(null);
+  const profileRef = useRef(userProfile);
+  profileRef.current = userProfile;
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => { if (!document.hidden) setNowMs(Date.now()); }, 1000);
@@ -57,9 +61,10 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   // Ledger truth from daily_checkin_bonus transactions.
   useEffect(() => {
     const ctrl = new AbortController();
+    const revision = claimRevisionRef.current;
     fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${phone}`, ctrl.signal)
       .then((rows) => {
-        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
+        if (ctrl.signal.aborted || revision !== claimRevisionRef.current || claimBusyRef.current || !Array.isArray(rows)) return;
         const days = new Set<string>();
         const ledger: Record<string, number> = {};
         for (const tx of rows) {
@@ -128,18 +133,59 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
   const todayMs = Date.UTC(nowPlat.y, nowPlat.m, nowPlat.d);
   const tomorrowMs = todayMs + 86400000;
   const nextIn = msUntilPlatformMidnight(nowMs);
-  const todayStreak = checkedInToday ? streak : streak + 1;
+  const todayStreak = checkedInToday ? streak : userProfile.lastCheckinDate === getPlatformYesterdayKey() ? streak + 1 : 1;
   const todayAmount = base + (todayStreak - 1) * inc;
 
   const handleCheckin = async (e?: React.MouseEvent<HTMLElement>) => {
     if (e) e.stopPropagation();
-    if (checkedInToday || claimBusy) return;
-    // Capture the source before the request completes; React events and the
-    // tile position may no longer be available after awaiting the response.
+    if (checkedInToday || claimBusyRef.current) return;
     const sourceRect = e?.currentTarget.getBoundingClientRect() ?? null;
-    unlockCheckinSound();
+    const key = todayKey;
+    const previousProfile = profileRef.current;
+    const previousHadDay = claimedDays.has(key);
+    const previousLedgerAmount = Number(claimedLedger[key]) || 0;
+    const optimisticStreak = previousProfile.lastCheckinDate === getPlatformYesterdayKey()
+      ? streak + 1
+      : 1;
+    const optimisticBonus = Math.max(0, Number(base) + (optimisticStreak - 1) * Number(inc));
+    const optimisticProfile = {
+      ...previousProfile,
+      points: (Number(previousProfile.points) || 0) + optimisticBonus,
+      lastCheckinDate: key,
+      checkinStreak: optimisticStreak,
+    };
+
+    claimRevisionRef.current += 1;
+    claimBusyRef.current = true;
     setClaimBusy(true);
-    let releaseBusyAfterFlight = false;
+    setClaimedDays((prev) => new Set(prev).add(key));
+    setClaimedLedger((prev) => ({ ...prev, [key]: (Number(prev[key]) || 0) + optimisticBonus }));
+    profileRef.current = optimisticProfile;
+    onClaimSuccess?.(optimisticProfile);
+    unlockCheckinSound();
+    playCheckinSound();
+
+    // Coin travel begins with the local claim and never holds the balance update.
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const root = rootRef.current;
+    const target = accruedRef.current?.getBoundingClientRect();
+    if (!reduced && sourceRect && root && target) {
+      const rootRect = root.getBoundingClientRect();
+      const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
+      const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+      const endX = target.left + target.width / 2 - rootRect.left;
+      const endY = target.top + target.height / 2 - rootRect.top;
+      setCoins(Array.from({ length: 10 }, (_, i) => ({
+        id: Date.now() + i,
+        startX: startX + (Math.random() - 0.5) * 24,
+        startY: startY + (Math.random() - 0.5) * 10,
+        dx: endX - startX + (Math.random() - 0.5) * 30,
+        dy: endY - startY,
+        delay: i * 0.06,
+      })));
+      window.setTimeout(() => setCoins(null), 1050);
+    }
+
     try {
       const res = await fetch("/api/user/checkin", {
         method: "POST",
@@ -148,49 +194,50 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Check-in failed.");
-      const bonus = Number(data.amount ?? data.bonus ?? 0);
-      const nextStreak = Number(data.streak ?? streak + 1);
-      const key = getTodayKey();
-      playCheckinSound();
-      const finishClaim = () => {
-        setClaimedDays((prev) => new Set(prev).add(key));
-        setClaimedLedger((prev) => ({ ...prev, [key]: (prev[key] || 0) + bonus }));
-        setCoins(null);
-        toast.success("Check-in collected", {
-          description: bonus > 0
-            ? `+${formatCurrency(bonus)} added to your balance · Day ${nextStreak} streak.`
-            : `Day ${nextStreak} streak saved.`,
-          duration: 4500,
-        });
-        onClaimSuccess?.({ ...userProfile, points: (Number(userProfile.points) || 0) + bonus, lastCheckinDate: key, checkinStreak: nextStreak });
-        setClaimBusy(false);
+      claimRevisionRef.current += 1;
+      const bonus = Math.max(0, Number(data.amount ?? data.bonus ?? optimisticBonus) || 0);
+      const nextStreak = Number(data.streak ?? optimisticStreak);
+      const latest = profileRef.current;
+      const confirmedProfile = {
+        ...latest,
+        points: (Number(latest.points) || 0) + bonus - optimisticBonus,
+        lastCheckinDate: key,
+        checkinStreak: nextStreak,
       };
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const root = rootRef.current;
-      const target = accruedRef.current?.getBoundingClientRect();
-      if (!reduced && sourceRect && root && target) {
-        const rootRect = root.getBoundingClientRect();
-        const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
-        const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
-        const endX = target.left + target.width / 2 - rootRect.left;
-        const endY = target.top + target.height / 2 - rootRect.top;
-        setCoins(Array.from({ length: 10 }, (_, i) => ({
-          id: Date.now() + i,
-          startX: startX + (Math.random() - 0.5) * 24,
-          startY: startY + (Math.random() - 0.5) * 10,
-          dx: endX - startX + (Math.random() - 0.5) * 30,
-          dy: endY - startY,
-          delay: i * 0.06,
-        })));
-        releaseBusyAfterFlight = true;
-        window.setTimeout(finishClaim, 1050);
-      } else {
-        finishClaim();
+      profileRef.current = confirmedProfile;
+      onClaimSuccess?.(confirmedProfile);
+      if (bonus !== optimisticBonus) {
+        setClaimedLedger((prev) => ({ ...prev, [key]: Math.max(0, (Number(prev[key]) || 0) + bonus - optimisticBonus) }));
       }
+      toast.success("Check-in collected", {
+        description: bonus > 0
+          ? `+${formatCurrency(bonus)} added to your balance. Day ${nextStreak} streak.`
+          : `Day ${nextStreak} streak saved.`,
+        duration: 4500,
+      });
     } catch (err: any) {
+      claimRevisionRef.current += 1;
+      const latest = profileRef.current;
+      const rollbackProfile = {
+        ...latest,
+        points: Math.max(0, (Number(latest.points) || 0) - optimisticBonus),
+        lastCheckinDate: previousProfile.lastCheckinDate,
+        checkinStreak: previousProfile.checkinStreak,
+      };
+      profileRef.current = rollbackProfile;
+      onClaimSuccess?.(rollbackProfile);
+      setClaimedDays((prev) => {
+        if (previousHadDay) return prev;
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setClaimedLedger((prev) => ({ ...prev, [key]: previousLedgerAmount }));
+      setCoins(null);
       toast.error(err.message || "Check-in failed.");
     } finally {
-      if (!releaseBusyAfterFlight) setClaimBusy(false);
+      claimBusyRef.current = false;
+      setClaimBusy(false);
     }
   };
 
@@ -270,7 +317,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               if (day === null) return <span key={`blank-${i}`} />;
               const ms = Date.UTC(view.y, view.m, day);
               const key = new Date(ms).toISOString().split("T")[0];
-              const claimed = claimedDays.has(key);
+              const claimed = (checkedInToday && ms === todayMs) || claimedDays.has(key);
               const isToday = ms === todayMs;
               const isFuture = ms > todayMs;
               const isNext = checkedInToday && ms === tomorrowMs;

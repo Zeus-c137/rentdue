@@ -1,12 +1,12 @@
 import crypto from "crypto";
 import path from "path";
 import { ensureDatabaseSchema, getDb, schema } from "../db/index";
-import { and, eq, desc, asc, isNull, inArray, sql } from "drizzle-orm";
+import { and, eq, desc, asc, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { UserProfile, SubscriptionItem, SubscribedNode, Collectible, CollectibleRarity, ChatMessage, ReferralStat, NotificationItem, SiteConfig } from "../types";
 import { normalizeRarity, rarityForItem } from "../utils/rarity";
 import { sanitizeSiteConfig } from "../utils/themeTokens";
-import { canonicalTypeOf } from "../utils/transactionMeta";
-import { dedupeCategories, normalizeVipTask } from "../utils/vip";
+import { canonicalTypeOf, normalizeExternalReference } from "../utils/transactionMeta";
+import { dedupeCategories, normalizeVipActionUrl, normalizeVipTask } from "../utils/vip";
 
 
 export class DatabaseOperationError extends Error {
@@ -756,8 +756,10 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
   await createNotification(
     phone,
     "New run activated",
-    `🎉 Congratulations! You successfully rented "${item.name}". Your run is active and Day 1 returns of UGX ${immediateYield.toLocaleString()} has been immediately credited to your withdrawable balance.`,
-    "rewards"
+    `${item.name} is active. Day 1 returns of UGX ${immediateYield.toLocaleString()} were credited to your withdrawable balance.`,
+    "rewards",
+    undefined,
+    { eventType: "product_activation", sourceItemId: item.id, sourceItemName: item.name, sourceItemImage: item.imageUrl || "" }
   );
 
   const drizzleDb = getDb();
@@ -1227,10 +1229,11 @@ export async function claimDailyReward(arg1: string, arg2: string): Promise<{ su
   if (reward > 0) {
     await createNotification(
       userId,
-      "Daily returns credited",
-      `Your daily returns of UGX ${reward.toLocaleString()} from ${itemName} was credited to your withdrawable balance for ${today}.`,
+      `${itemName} Returns Credited`,
+      `UGX ${reward.toLocaleString()} in returns from ${itemName} was credited to your withdrawable balance for ${today}.`,
       "daily accumulation",
-      reward
+      reward,
+      { eventType: "daily_yield", sourceItemId: sub.itemId, sourceItemName: itemName, sourceItemImage: claimImage }
     );
   }
 
@@ -1591,7 +1594,8 @@ export async function createNotification(
   title: string,
   message: string,
   category: string = "system",
-  amount?: number
+  amount?: number,
+  metadata?: Record<string, unknown>
 ) {
   const notif: NotificationItem = {
     id: "notif_" + crypto.randomBytes(8).toString("hex"),
@@ -1602,6 +1606,7 @@ export async function createNotification(
     timestamp: new Date().toISOString()
   };
   if (amount !== undefined) notif.amount = amount;
+  if (metadata) notif.metadata = metadata;
 
   const drizzleDb = getDb();
   if (drizzleDb) {
@@ -1613,6 +1618,7 @@ export async function createNotification(
         message: notif.message,
         category: notif.category,
         amount: notif.amount ?? 0,
+        metadata: notif.metadata || null,
         timestamp: notif.timestamp
       });
     } catch (err) {
@@ -1635,6 +1641,7 @@ export async function getUserNotifications(phone: string): Promise<NotificationI
       message: n.message,
       category: n.category,
       amount: n.amount || undefined,
+      metadata: n.metadata || undefined,
       timestamp: n.timestamp,
       read: false
     }));
@@ -1732,6 +1739,7 @@ export async function saveTransaction(
       phone: depositPhone || phone || "",
       itemId: itemId || "",
       mode: mode || "online",
+      externalReference: canonType === "deposit" ? normalizeExternalReference(txOrId) : null,
       timestamp: new Date().toISOString()
     };
   }
@@ -1752,6 +1760,7 @@ export async function saveTransaction(
         operator: tx.operator || "",
         mode: tx.mode || "",
         metadata: tx.metadata || null,
+        externalReference: normalizeExternalReference(tx.externalReference || (tx.type === "deposit" ? tx.id : "")) || null,
         balanceAppliedAt: tx.balanceAppliedAt || null,
         timestamp: tx.timestamp || new Date().toISOString()
       });
@@ -1771,13 +1780,23 @@ export async function getTransaction(txId: string) {
   }
 }
 
-export async function getTransactionByExternalReference(reference: string) {
-  const normalizedReference = String(reference || "").trim();
+export async function getTransactionByExternalReference(reference: string, operator?: string) {
+  const normalizedReference = normalizeExternalReference(reference);
   if (!normalizedReference) return null;
   const drizzleDb = requireDatabase("find the external transaction reference");
   try {
+    const referenceMatch = or(
+      eq(schema.transactions.externalReference, normalizedReference),
+      sql`UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${schema.transactions.metadata}, '$.externalReference')))) = ${normalizedReference}`
+    );
+    const lookup = operator
+      ? or(
+        sql`UPPER(${schema.transactions.id}) = ${normalizedReference}`,
+        and(sql`UPPER(${schema.transactions.operator}) = ${normalizeExternalReference(operator)}`, referenceMatch)
+      )
+      : or(sql`UPPER(${schema.transactions.id}) = ${normalizedReference}`, referenceMatch);
     const rows = await drizzleDb.select().from(schema.transactions)
-      .where(sql`JSON_UNQUOTE(JSON_EXTRACT(${schema.transactions.metadata}, '$.externalReference')) = ${normalizedReference}`)
+      .where(lookup)
       .limit(1);
     return rows[0] || null;
   } catch (err) {
@@ -1810,6 +1829,32 @@ export async function completeSuccessfulDeposit(
       // balanceAppliedAt is the idempotency key. A webhook, status poll, or
       // admin click can safely repeat this function without double-crediting.
       if (!transaction.balanceAppliedAt) {
+        const paymentReference = normalizeExternalReference(
+          transaction.externalReference || readJsonRecord(transaction.metadata).externalReference || transaction.id
+        );
+        const paymentOperator = normalizeExternalReference(transaction.operator);
+        if (paymentReference) {
+          const duplicateReferenceRows = await tx.select({ id: schema.transactions.id })
+            .from(schema.transactions)
+            .where(and(
+              ne(schema.transactions.id, transaction.id),
+              or(
+                sql`UPPER(${schema.transactions.id}) = ${paymentReference}`,
+                and(
+                  sql`UPPER(${schema.transactions.operator}) = ${paymentOperator}`,
+                  or(
+                    eq(schema.transactions.externalReference, paymentReference),
+                    sql`UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(${schema.transactions.metadata}, '$.externalReference')))) = ${paymentReference}`
+                  )
+                )
+              )
+            ))
+            .limit(1);
+          if (duplicateReferenceRows.length) {
+            throw new DepositSettlementError("This payment reference is attached to another transaction and cannot be credited again.");
+          }
+        }
+
         const userRows = await tx.select().from(schema.users)
           .where(eq(schema.users.phone, transaction.userId))
           .limit(1)
@@ -2546,6 +2591,7 @@ export async function getVipTaskboard(phone: string) {
       const metric = String(task.metric || "operator_points");
       const threshold = metric === "account_created" ? 1 : Math.max(0, Number(task.requiredBonus || 0));
       const art = String(task.imageUrl || "").trim();
+      const actionUrl = normalizeVipActionUrl(task.actionUrl);
       const category = String(task.category || "Milestone");
       const socialType = ["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"].includes(String(task.socialType || ""))
         ? String(task.socialType)
@@ -2569,7 +2615,7 @@ export async function getVipTaskboard(phone: string) {
         ...(socialType ? { socialType } : {}),
         claimStatus,
         ...(art ? { imageUrl: art } : {}),
-        ...(typeof task.actionUrl === "string" && /^https?:\/\//i.test(task.actionUrl.trim()) ? { actionUrl: task.actionUrl.trim().slice(0, 512) } : {}),
+        ...(actionUrl ? { actionUrl } : {}),
         progress,
         unlocked: progress >= taskThreshold,
         claimed: claimStatus === "approved",
@@ -2631,6 +2677,7 @@ export async function verifyVipTask(phone: string, taskId: string) {
   const task = configuredTasks.find((entry: any) => String(entry?.id || "") === cleanTaskId && entry?.active !== false) as any;
   if (!task) throw new Error("This task is no longer available.");
   const category = String(task.category || "Milestone").trim();
+  const tierImageUrl = vipTierImage(config, category);
   const board = await getVipTaskboard(cleanPhone);
   const boardTask = board.tasks.find((candidate) => candidate.id === cleanTaskId);
   if (!boardTask) throw new Error("This task is no longer available.");
@@ -2698,7 +2745,7 @@ export async function verifyVipTask(phone: string, taskId: string) {
         phone: cleanPhone,
         itemId: `task:${cleanTaskId}`.slice(0, 64),
         mode: "auto",
-        metadata: { claimId, category, taskTitle: String(task.title || "Milestone task") },
+        metadata: { claimId, category, tierName: category, tierImageUrl, taskTitle: String(task.title || "Milestone task") },
         timestamp
       });
     }
@@ -2717,7 +2764,7 @@ export async function verifyVipTask(phone: string, taskId: string) {
 
   if (!requiresAdminCheck) {
     try {
-      await createNotification(cleanPhone, "Milestone reward", `${String(task.title || "Milestone task")} was completed and ${formatCurrencyForDb(reward)} was added to your balance.`, "rewards", reward);
+      await createNotification(cleanPhone, `${category} Bonus`, `${category} milestone bonus of ${formatCurrencyForDb(reward)} was credited to your withdrawable balance.`, "rewards", reward, { eventType: "milestone_bonus", tierName: category, tierImageUrl });
     } catch (error) {
       logError("[VIP Task] Reward notification failed after successful credit:", error);
     }
@@ -2735,6 +2782,8 @@ export async function claimVerifiedVipTask(phone: string, taskId: string) {
   const task = (Array.isArray(config.vipTasks) ? config.vipTasks : [])
     .find((entry: any) => String(entry?.id || "") === cleanTaskId && entry?.active !== false) as any;
   if (!task || !task.socialType) throw new Error("This community task is no longer available.");
+  const tierName = String(task.category || "Milestone").trim();
+  const tierImageUrl = vipTierImage(config, tierName);
   const board = await getVipTaskboard(cleanPhone);
   const boardTask = board.tasks.find((entry) => entry.id === cleanTaskId);
   if (!boardTask || boardTask.stageLocked) throw new Error("Complete the previous tier first.");
@@ -2773,13 +2822,13 @@ export async function claimVerifiedVipTask(phone: string, taskId: string) {
       phone: cleanPhone,
       itemId: `task:${cleanTaskId}`.slice(0, 64),
       mode: "auto",
-      metadata: { claimId: claim.id, category: claim.category, taskTitle: claim.taskTitle },
+      metadata: { claimId: claim.id, category: claim.category, tierName, tierImageUrl, taskTitle: claim.taskTitle },
       timestamp
     });
     await tx.update(schema.vipTaskClaims).set({ status: "approved" }).where(eq(schema.vipTaskClaims.id, claim.id));
   });
   try {
-    await createNotification(cleanPhone, "Community task reward", `${String(task.title || "Community task")} reward of ${formatCurrencyForDb(reward)} was added to your balance.`, "rewards", reward);
+    await createNotification(cleanPhone, `${tierName} Bonus`, `${tierName} milestone bonus of ${formatCurrencyForDb(reward)} was credited to your withdrawable balance.`, "rewards", reward, { eventType: "milestone_bonus", tierName, tierImageUrl });
   } catch (error) {
     logError("[VIP Task] Reward notification failed after successful claim:", error);
   }
@@ -2853,7 +2902,8 @@ export async function reviewVipTaskClaim(
   const cleanId = String(claimId || "").trim().slice(0, 64);
   const note = String(reviewNote || "").trim().slice(0, 1000);
   let userId = "";
-  let taskTitle = "";
+  let tierName = "Milestone";
+  let tierImageUrl = "";
   let reward = 0;
 
   await drizzleDb.transaction(async (tx) => {
@@ -2863,7 +2913,7 @@ export async function reviewVipTaskClaim(
     if (!claim) throw new Error("Submission not found.");
     if (claim.status !== "pending") throw new Error("This submission has already been reviewed.");
     userId = claim.userId;
-    taskTitle = claim.taskTitle;
+    tierName = String(claim.category || "Milestone").trim();
     reward = Number(claim.reward) || 0;
     const reviewedAt = new Date().toISOString();
 
@@ -2873,6 +2923,7 @@ export async function reviewVipTaskClaim(
         (task: any) => String(task?.id || "") === claim.taskId && Boolean(task?.socialType) && task.active !== false
       );
       if (!configured) throw new Error("This community task is no longer available.");
+      tierImageUrl = vipTierImage(config, tierName);
     }
 
     await tx.update(schema.vipTaskClaims).set({
@@ -2884,13 +2935,19 @@ export async function reviewVipTaskClaim(
   });
 
   if (decision === "approve") {
-    await createNotification(userId, "Community task verified", `${taskTitle} was verified. Tap its reward in Milestones to claim ${formatCurrencyForDb(reward)}.`, "rewards");
+    await createNotification(userId, `${tierName} Task Verified`, `Your ${tierName} social task was verified. Claim the ${formatCurrencyForDb(reward)} bonus from Milestones.`, "rewards", undefined, { eventType: "milestone_task_verified", tierName, tierImageUrl });
   }
   return { success: true, status: decision === "approve" ? "verified" as const : "rejected" as const, reward };
 }
 
 function formatCurrencyForDb(amount: number) {
   return `UGX ${Math.max(0, Number(amount) || 0).toLocaleString()}`;
+}
+
+function vipTierImage(config: SiteConfig, category: string): string {
+  const tierMeta = readJsonRecord((config as any).vipTierMeta);
+  const key = Object.keys(tierMeta).find((name) => name.trim().toLowerCase() === category.trim().toLowerCase());
+  return key ? String(tierMeta[key]?.imageUrl || "").trim() : "";
 }
 
 export async function claimTierReward(phone: string, category: string) {
@@ -2909,6 +2966,7 @@ export async function claimTierReward(phone: string, category: string) {
   if (pending.length > 0) throw new Error(`Complete all ${stage} achievements first.`);
   const reward = Math.max(0, Number(board.tierRewards?.[stage] || 0));
   if (!(reward > 0)) throw new Error("No reward is set for this stage yet.");
+  const tierImageUrl = String(board.tierMeta?.[stage]?.imageUrl || "").trim();
 
   const drizzleDb = requireDatabase("claim the journey stage reward");
   let claimedTierRewards: string[] = [];
@@ -2956,6 +3014,7 @@ export async function claimTierReward(phone: string, category: string) {
       phone,
       itemId: `tier:${stage}`.slice(0, 64),
       mode: "auto",
+      metadata: { category: stage, tierName: stage, tierImageUrl },
       timestamp: claimedAt
     });
   });
@@ -2963,9 +3022,11 @@ export async function claimTierReward(phone: string, category: string) {
   // Create notification alert
   await createNotification(
     phone,
-    "Stage Reward Claimed",
-    `Successfully claimed ${stage} stage reward of UGX ${reward.toLocaleString()} credited to your withdrawable balance!`,
-    "rewards"
+    `${stage} Bonus`,
+    `${stage} milestone bonus of UGX ${reward.toLocaleString()} was credited to your withdrawable balance.`,
+    "rewards",
+    reward,
+    { eventType: "milestone_bonus", tierName: stage, tierImageUrl }
   );
 
   await sendChatMessage({

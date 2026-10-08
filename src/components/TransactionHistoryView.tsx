@@ -1,19 +1,7 @@
-import React, { useState, useEffect, useMemo, memo } from "react";
-import { Search, Loader2 } from "lucide-react";
-import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
-import plus3d from "@/src/assets/3d/3dplus.png";
-import wallet3d from "@/src/assets/3d/3dicons-wallet-iso-premium.png";
-import bag3d from "@/src/assets/3d/3dicons-bag-iso-premium.png";
-import fire3d from "@/src/assets/3d/3dicons-fire-iso-premium.png";
-import giftBox3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
-import trophy3d from "@/src/assets/3d/3dicons-trophy-iso-premium.png";
-import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
-import bell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
-import money3d from "@/src/assets/3d/3dicons-money-iso-premium.png";
-import calendar3d from "@/src/assets/3d/3dicons-calendar-iso-premium.png";
-import link3d from "@/src/assets/3d/3dicons-link-iso-premium.png";
+import React, { useState, useEffect, useMemo } from "react";
+import { Search, Loader2, CirclePlus, Wallet, ShoppingBag, TrendingUp, CalendarCheck, BadgeCheck, Gift, Link2, Trophy, SlidersHorizontal, Bell, type LucideIcon } from "lucide-react";
 import { useCurrency } from "../currency";
-import { canonicalTypeOf, getTransactionDisplayMeta, isPositiveTransaction, getWithdrawalDisplayAmounts } from "@/src/utils/transactionMeta";
+import { asMetadataRecord, canonicalTypeOf, getTransactionDisplayMeta, isPositiveTransaction, getWithdrawalDisplayAmounts } from "@/src/utils/transactionMeta";
 import { fixGitHubImageUrl } from "@/src/utils/imageUtils";
 
 interface Props {
@@ -22,17 +10,18 @@ interface Props {
   onBack?: () => void;
 }
 
-const ICON_BY_CANON: Record<string, string> = {
-  deposit: plus3d,
-  withdrawal: money3d,
-  product_activation: bag3d,
-  daily_yield: fire3d,
-  daily_checkin_bonus: calendar3d,
-  registration_bonus: medal3d,
-  gift_code: giftBox3d,
-  referral_signup_bonus: link3d,
-  referral_level_income: link3d,
-  vip_task: trophy3d,
+const ICON_BY_CANON: Record<string, LucideIcon> = {
+  deposit: CirclePlus,
+  withdrawal: Wallet,
+  product_activation: ShoppingBag,
+  daily_yield: TrendingUp,
+  daily_checkin_bonus: CalendarCheck,
+  registration_bonus: BadgeCheck,
+  gift_code: Gift,
+  referral_signup_bonus: Link2,
+  referral_level_income: Link2,
+  vip_task: Trophy,
+  admin_adjustment: SlidersHorizontal,
 };
 
 // Browsers can only render URL-like sources. Legacy ledger rows carry
@@ -41,6 +30,14 @@ const ICON_BY_CANON: Record<string, string> = {
 const isUrlLike = (v: unknown) => {
   const s = String(v || "").trim().toLowerCase();
   return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("data:") || s.startsWith("/") || s.startsWith("blob:");
+};
+
+const firstRenderableImage = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    const image = fixGitHubImageUrl(String(candidate || "").trim());
+    if (isUrlLike(image)) return image;
+  }
+  return "";
 };
 
 export default function TransactionHistoryView({ phone, siteConfig, onBack }: Props) {
@@ -102,15 +99,15 @@ export default function TransactionHistoryView({ phone, siteConfig, onBack }: Pr
 
   const getProductForTx = (tx: unknown, canon: string) => {
     if (canon !== "daily_yield") return null;
-    const meta = (tx as { metadata?: Record<string, unknown>; itemId?: unknown }).metadata || {};
+    const meta = asMetadataRecord((tx as { metadata?: unknown }).metadata);
     const directId = String((tx as { itemId?: unknown }).itemId || "").trim();
-    const id = String((meta as Record<string, unknown>).sourceItemId || (meta as Record<string, unknown>).subscriptionId || directId || "").trim();
+    const id = String(meta.sourceItemId || meta.subscriptionId || directId || "").trim();
     const lookupId = id || directId;
     if (lookupId) {
       const product = catalogById.get(lookupId);
       if (product) return product;
     }
-    const name = String((meta as Record<string, unknown>).sourceItemName || "").trim().toLowerCase();
+    const name = String(meta.sourceItemName || "").trim().toLowerCase();
     if (name) {
       const byName = catalogByName.get(name);
       if (byName) return byName;
@@ -138,8 +135,10 @@ export default function TransactionHistoryView({ phone, siteConfig, onBack }: Pr
     if (search) {
       const q = search.toLowerCase();
       const meta = getTransactionDisplayMeta(tx.type, tx.metadata);
-      const productName = String(tx.metadata?.sourceItemName || "").toLowerCase();
-      return canon.includes(q) || (tx.status || "").toLowerCase().includes(q) || String(tx.amount).includes(q) || productName.includes(q) || meta.label.toLowerCase().includes(q) || (meta.isReferralLevel && String(meta.level).includes(q));
+      const metadata = asMetadataRecord(tx.metadata);
+      const productName = String(metadata.sourceItemName || "").toLowerCase();
+      const tierName = String(metadata.tierName || metadata.category || "").toLowerCase();
+      return canon.includes(q) || (tx.status || "").toLowerCase().includes(q) || String(tx.amount).includes(q) || productName.includes(q) || tierName.includes(q) || meta.label.toLowerCase().includes(q) || (meta.isReferralLevel && String(meta.level).includes(q));
     }
     return true;
   }), [transactions, search, historyFilter]);
@@ -149,7 +148,7 @@ export default function TransactionHistoryView({ phone, siteConfig, onBack }: Pr
     const canon = canonicalTypeOf(type, metadata) as string;
     return {
       label: disp.label,
-      icon3d: ICON_BY_CANON[canon] ?? bell3d,
+      icon: ICON_BY_CANON[canon] ?? Bell,
       card: "border-0 bg-transparent",
       canon,
       isProductWithName: disp.isProductWithName,
@@ -199,7 +198,7 @@ export default function TransactionHistoryView({ phone, siteConfig, onBack }: Pr
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-14 text-center">
-            <img src={bell3d} alt="" loading="lazy" decoding="async" className="w-11 h-11 object-contain opacity-40 mx-auto mb-3" />
+            <Bell className="w-9 h-9 text-[var(--theme-text)] opacity-35 mx-auto mb-3" aria-hidden="true" />
             <p className="text-xs font-sans font-semibold tracking-wide text-[var(--theme-text)]">No transactions</p>
             <p className="text-[11px] font-sans font-normal text-[var(--theme-text)] opacity-50 mt-1">Try a different filter or check back later.</p>
           </div>
@@ -211,27 +210,39 @@ export default function TransactionHistoryView({ phone, siteConfig, onBack }: Pr
             const amount = meta.canon === "withdrawal" ? payout : (tx.amount||0);
             const showFee = meta.canon === "withdrawal" && fee>0;
             const level = meta.isReferralLevel ? meta.level : undefined;
+            const txMetadata = asMetadataRecord(tx.metadata);
 
             const product = getProductForTx(tx, meta.canon);
             const catalogFallback = tx.itemId ? catalogById.get(String(tx.itemId)) : null;
-            const productImageFromMeta = tx.metadata?.sourceItemImage ? fixGitHubImageUrl(String(tx.metadata.sourceItemImage)) : null;
-            const productImage = productImageFromMeta || (product ? fixGitHubImageUrl(product.imageUrl || product.image) : catalogFallback ? fixGitHubImageUrl(catalogFallback.imageUrl || catalogFallback.image) : null);
-            const productName = product?.name || catalogFallback?.name || String(tx.metadata?.sourceItemName || "").trim();
+            const productImage = firstRenderableImage(
+              txMetadata.sourceItemImage,
+              product?.imageUrl,
+              product?.image,
+              catalogFallback?.imageUrl,
+              catalogFallback?.image
+            );
+            const productName = product?.name || catalogFallback?.name || String(txMetadata.sourceItemName || "").trim();
+            const tierNameFromItem = String(tx.itemId || "").startsWith("tier:") ? String(tx.itemId).slice(5) : "";
+            const tierName = String(txMetadata.tierName || txMetadata.category || tierNameFromItem).trim();
+            const configuredTier = Object.entries(siteConfig?.vipTierMeta || {}).find(([name]) => name.trim().toLowerCase() === tierName.toLowerCase())?.[1];
+            const tierImage = firstRenderableImage(txMetadata.tierImageUrl, configuredTier?.imageUrl);
+            const milestoneImage = meta.canon === "vip_task" ? tierImage : "";
+            const returnsImage = meta.canon === "daily_yield" ? productImage : "";
+            const mappedImage = milestoneImage || returnsImage;
 
-            const displayLabel = meta.canon === "daily_yield" && productName
-                ? `${productName} Income`
+            const displayLabel = meta.canon === "daily_yield"
+              ? `${productName || "Product"} Returns`
+              : meta.canon === "vip_task"
+                ? `${tierName || "Milestone"} Bonus`
                 : meta.label;
-
-            const iconSrc = meta.canon === "daily_yield" && isUrlLike(productImage)
-              ? String(productImage)
-              : meta.icon3d;
-
-            const isProductIcon = meta.canon === "daily_yield" && isUrlLike(productImage);
+            const TransactionIcon = meta.icon;
 
             return (
               <div key={tx.id} className={`rounded-[20px] border-0 p-3.5 flex items-center gap-3 bg-transparent ${meta.card}`}>
-                <div className={`${isProductIcon ? "w-14 h-14 rounded-2xl bg-white/5 border-0 p-1.5" : "w-11 h-11 rounded-2xl bg-transparent border-0"} flex items-center justify-center shrink-0 overflow-hidden`}>
-                  <img src={iconSrc} alt="" loading="lazy" decoding="async" className={`${isProductIcon ? "w-full h-full object-contain rounded-xl" : "w-10 h-10 object-contain"}`} />
+                <div className={`${mappedImage ? "w-12 h-12 rounded-2xl bg-white/5 p-1" : "w-11 h-11 rounded-2xl bg-[var(--theme-card-bg)]/60"} flex items-center justify-center shrink-0 overflow-hidden`}>
+                  {mappedImage
+                    ? <img src={mappedImage} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover rounded-xl" />
+                    : <TransactionIcon className={`w-5 h-5 ${isPositive ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-70"}`} strokeWidth={1.8} aria-hidden="true" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">

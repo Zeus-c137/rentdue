@@ -8,6 +8,20 @@ export function getNextVipRequirement(tasks: Pick<VipTask, "requiredBonus" | "un
   return tasks.find((task) => !task.unlocked && !task.claimed)?.requiredBonus || accumulatedBonus || 1;
 }
 
+/** Keep admin-entered social links usable even when pasted without a scheme. */
+export function normalizeVipActionUrl(value: unknown): string | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withScheme);
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) return undefined;
+    return withScheme.slice(0, 512);
+  } catch {
+    return undefined;
+  }
+}
+
 export function normalizeVipTaskboard(data: unknown): VipTaskboard {
   const raw = (data ?? {}) as Record<string, unknown>;
   const rp = ((raw.progress ?? {}) as Record<string, unknown>);
@@ -35,8 +49,8 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
     : [];
   return {
     tasks: Array.isArray(raw.tasks) ? (raw.tasks as VipTask[]).map((task) => {
-      const actionUrl = String(task.actionUrl || "").trim();
-      return { ...task, ...(actionUrl && /^https?:\/\//i.test(actionUrl) ? { actionUrl: actionUrl.slice(0, 512) } : { actionUrl: undefined }) };
+      const actionUrl = normalizeVipActionUrl(task.actionUrl);
+      return { ...task, actionUrl };
     }) : [],
     vipLevel: Number((raw.vipLevel as number) || 0),
     stageOrder: Array.isArray(raw.stageOrder) ? (raw.stageOrder as unknown[]).map((e) => String(e)) : [],
@@ -61,8 +75,7 @@ export function normalizeVipTaskboard(data: unknown): VipTaskboard {
 export function normalizeVipTask(raw: unknown): VipTaskConfig {
   const d = (raw ?? {}) as Record<string, unknown>;
   const imageUrl = String(d.imageUrl ?? "").trim();
-  const rawActionUrl = String(d.actionUrl ?? "").trim();
-  const actionUrl = /^https?:\/\//i.test(rawActionUrl) ? rawActionUrl.slice(0, 512) : "";
+  const actionUrl = normalizeVipActionUrl(d.actionUrl);
   const socialType = ["facebook_follow", "facebook_like", "facebook_comment", "facebook_share", "telegram_join", "whatsapp_join"].includes(String(d.socialType || ""))
     ? String(d.socialType) as VipTaskConfig["socialType"]
     : undefined;
