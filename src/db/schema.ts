@@ -129,6 +129,7 @@ export const notifications = mysqlTable(
     title: varchar("title", { length: 255 }).notNull(),
     message: text("message").notNull(),
     amount: double("amount").default(0),
+    metadata: json("metadata"),
     timestamp: varchar("timestamp", { length: 64 }).notNull()
   },
   (table) => ({
@@ -197,6 +198,7 @@ export const transactions = mysqlTable(
     operator: varchar("operator", { length: 16 }),
     mode: varchar("mode", { length: 16 }),
     metadata: json("metadata"),
+    externalReference: varchar("external_reference", { length: 160 }),
     // Set exactly once when a successful deposit has been applied to the user
     // balance. This makes webhook/status retries idempotent.
     balanceAppliedAt: varchar("balance_applied_at", { length: 64 }),
@@ -204,7 +206,8 @@ export const transactions = mysqlTable(
   },
   (table) => ({
     userTxIdx: index("idx_transactions_user_id").on(table.userId),
-    statusIdx: index("idx_transactions_status").on(table.status)
+    statusIdx: index("idx_transactions_status").on(table.status),
+    externalReferenceUnique: uniqueIndex("uq_transactions_external_reference").on(table.operator, table.externalReference)
   })
 );
 

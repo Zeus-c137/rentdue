@@ -84,6 +84,7 @@ import {
   getUserProfileByTelegramId
 } from "./src/server/db";
 import { verifyTelegramIdToken } from "./src/server/telegramAuth";
+import { normalizeExternalReference } from "./src/utils/transactionMeta";
 import { migratePreset as migratePresetServer, migrateCardStyle as migrateCardStyleServer, migrateFontFamily as migrateFontFamilyServer, sanitizeSiteConfig as sanitizeSiteConfigServer } from "./src/utils/themeTokens";
 
 // Ensure .env is loaded robustly in production iisnode and custom hosting environments (like SmarterASP)
@@ -1198,9 +1199,11 @@ app.post("/api/payment/deposit", async (req, res) => {
 app.post("/api/manual/deposit", async (req, res) => {
   const { phone, amount, operator, senderPhone, transId, itemId } = req.body;
   const depAmt = parseInt(amount);
+  const reference = String(transId || "").trim();
+  const normalizedReference = normalizeExternalReference(reference);
 
-  if (!phone || isNaN(depAmt) || depAmt <= 0 || !operator || !senderPhone || !transId) {
-    return res.status(400).json({ error: "Please fill in all deposit fields with a valid amount." });
+  if (!phone || isNaN(depAmt) || depAmt <= 0 || !operator || !senderPhone || !normalizedReference || normalizedReference.length > 160) {
+    return res.status(400).json({ error: "Please provide a valid amount and transaction reference." });
   }
 
   try {
@@ -1214,9 +1217,9 @@ app.post("/api/manual/deposit", async (req, res) => {
       return res.status(400).json({ error: `Maximum deposit is UGX ${maximumDeposit.toLocaleString()}.` });
     }
 
-    const existingTx = await getTransaction(transId) || await getTransactionByExternalReference(transId);
+    const existingTx = await getTransaction(reference) || await getTransactionByExternalReference(normalizedReference, operator);
     if (existingTx) {
-      return res.status(400).json({ error: "This transaction reference / ID has already been submitted." });
+      return res.status(409).json({ error: "This transaction reference has already been submitted." });
     }
 
     const internalTransactionId = itemId ? createTransactionId("RNT") : createTransactionId("DEP");
@@ -1234,7 +1237,8 @@ app.post("/api/manual/deposit", async (req, res) => {
       itemId: itemId || "",
       operator,
       mode: "manual",
-      metadata: { externalReference: transId },
+      metadata: { externalReference: reference },
+      externalReference: normalizedReference,
       timestamp: new Date().toISOString()
     });
     await createNotification(
@@ -1254,6 +1258,9 @@ app.post("/api/manual/deposit", async (req, res) => {
     });
   } catch (error: any) {
     logError("Manual deposit submission error:", error);
+    if (error?.name === "DuplicateEntryError" && String(error.message).includes("uq_transactions_external_reference")) {
+      return res.status(409).json({ error: "This transaction reference has already been submitted." });
+    }
     res.status(550).json({ error: error.message });
   }
 });
@@ -2124,7 +2131,7 @@ app.post("/api/admin/transactions/update-status", async (req, res) => {
     res.json({ success: true, message: `Transaction ${transId} successfully updated to status: ${status}.` });
   } catch (err: any) {
     logError("[Admin API Error] Transaction update failed:", err);
-    res.status(500).json({ error: err.message });
+    res.status(Number(err?.statusCode) || 500).json({ error: err.message });
   }
 });
 

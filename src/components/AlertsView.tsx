@@ -1,33 +1,33 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { NotificationItem, UserProfile } from "../types";
-import { X, ExternalLink } from "lucide-react";
+import { X, ExternalLink, CirclePlus, Wallet, BadgeCheck, CalendarCheck, Trophy, Zap, Link2, Gift, Shield, Megaphone, Bell, TrendingUp, ShoppingBag, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
-import bell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
-import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
-import plus3d from "@/src/assets/3d/3dplus.png";
-import wallet3d from "@/src/assets/3d/3dicons-wallet-iso-premium.png";
-import giftBox3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
-import shield3d from "@/src/assets/3d/3dicons-shield-iso-premium.png";
-import megaphone3d from "@/src/assets/3d/3dicons-megaphone-iso-premium.png";
-import money3d from "@/src/assets/3d/3dicons-money-iso-premium.png";
-import calendar3d from "@/src/assets/3d/3dicons-calendar-iso-premium.png";
-import trophy3d from "@/src/assets/3d/3dicons-trophy-iso-premium.png";
-import link3d from "@/src/assets/3d/3dicons-link-iso-premium.png";
-import flash3d from "@/src/assets/3d/3dicons-flash-iso-premium.png";
-import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
 import { motion, AnimatePresence } from "motion/react";
+import { useCurrency } from "../currency";
+import { fixGitHubImageUrl } from "@/src/utils/imageUtils";
+
+const firstRenderableImage = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    const image = fixGitHubImageUrl(String(candidate || "").trim());
+    if (/^(https?:\/\/|\/|data:|blob:)/i.test(image)) return image;
+  }
+  return "";
+};
 
 interface AlertsViewProps {
   profile: UserProfile;
   onBack: () => void;
   initialNotifications?: NotificationItem[];
   onNotificationsChange?: (notifications: NotificationItem[]) => void;
+  siteConfig?: any;
 }
 
-export default function AlertsView({ profile, onBack, initialNotifications = [], onNotificationsChange }: AlertsViewProps) {
+export default function AlertsView({ profile, onBack, initialNotifications = [], onNotificationsChange, siteConfig }: AlertsViewProps) {
+  const { formatCurrency } = useCurrency();
   const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications);
   const [loading, setLoading] = useState(false);
+  const [catalog, setCatalog] = useState<any[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<NotificationItem | null>(null);
   const [readIds, setReadIds] = useState<string[]>(() => {
     try {
@@ -55,6 +55,16 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
   useEffect(() => {
     setNotifications(initialNotifications);
   }, [initialNotifications]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/items").then(async (res) => {
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : data.items || [];
+    }).then((items) => { if (active) setCatalog(items); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const controllerRef = React.useRef<AbortController | null>(null);
   const fetchAlerts = useCallback(async () => {
@@ -117,6 +127,101 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
     });
   }
 
+  const getAlertPresentation = (alert: NotificationItem) => {
+    const metadata = alert.metadata || {};
+    const category = String(alert.category || "").toLowerCase();
+    const title = String(alert.title || "");
+    const lowerTitle = title.toLowerCase();
+    const message = String(alert.message || "");
+    const lowerMessage = message.toLowerCase();
+    const tierFromMessage = message.match(/(?:claimed\s+)?(.+?)\s+stage reward/i)?.[1]?.trim();
+    const configuredTierEntry = Object.entries(siteConfig?.vipTierMeta || {}).find(([name]) => {
+      const normalizedName = name.trim().toLowerCase();
+      return normalizedName && (
+        String(metadata.tierName || "").trim().toLowerCase() === normalizedName ||
+        lowerTitle.includes(`${normalizedName} bonus`) ||
+        lowerTitle.includes(`${normalizedName} task verified`) ||
+        lowerMessage.includes(`${normalizedName} milestone bonus`)
+      );
+    });
+    const tierName = String(metadata.tierName || tierFromMessage || configuredTierEntry?.[0] || "").trim();
+    const amountFromMessage = message.match(/UGX\s*([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
+    const amount = Number(alert.amount || amountFromMessage || 0);
+    const isReturns = metadata.eventType === "daily_yield" || metadata.eventType === "product_activation" || category === "daily accumulation" || lowerTitle.includes("daily returns");
+    const isMilestone = metadata.eventType === "milestone_bonus" || lowerTitle.includes("milestone reward") || lowerTitle.includes("community task reward") || lowerTitle.includes("stage reward claimed") || Boolean(tierFromMessage) || (Boolean(configuredTierEntry) && (lowerTitle.includes("bonus") || lowerMessage.includes("milestone bonus")));
+    const isMilestoneTaskVerified = metadata.eventType === "milestone_task_verified" || (Boolean(configuredTierEntry) && lowerTitle.includes("task verified"));
+    const isTierNotice = isMilestone || isMilestoneTaskVerified;
+    let productName = String(metadata.sourceItemName || "").trim();
+    if (!productName && isReturns) {
+      productName = message.match(/from\s+(.+?)\s+(?:was|were)\s+credited/i)?.[1]?.trim() || title.replace(/\s+returns credited$/i, "").trim();
+    }
+    const sourceItemId = String(metadata.sourceItemId || "").trim();
+    const catalogProduct = catalog.find((item) => sourceItemId && String(item.id || "").trim() === sourceItemId)
+      || (productName
+        ? catalog.find((item) => String(item.name || "").trim().toLowerCase() === productName.toLowerCase())
+        : null);
+
+    let Icon: LucideIcon = Bell;
+    let badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
+    let categoryLabel = alert.category;
+    if (category === "deposit") {
+      Icon = CirclePlus;
+      badgeClass = "bg-[var(--theme-primary)] text-white border border-[var(--theme-primary)]";
+    } else if (category === "withdraw") {
+      Icon = Wallet;
+      badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
+    } else if (category === "register") {
+      Icon = BadgeCheck;
+    } else if (category.includes("checkin") || lowerTitle.includes("check-in")) {
+      Icon = CalendarCheck;
+    } else if (category.includes("referral") || lowerTitle.includes("referral")) {
+      Icon = Link2;
+      badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
+    } else if (category === "system") {
+      Icon = Shield;
+    } else if (category === "announcement") {
+      Icon = Megaphone;
+    } else if (category === "rewards" || category === "daily accumulation") {
+      Icon = Gift;
+      badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
+    }
+    if (isTierNotice) {
+      Icon = Trophy;
+      categoryLabel = isMilestoneTaskVerified ? `${tierName} task` : tierName ? `${tierName} bonus` : "milestone bonus";
+      badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
+    } else if (isReturns) {
+      Icon = TrendingUp;
+      categoryLabel = "returns";
+    } else if (metadata.eventType === "product_activation") {
+      Icon = ShoppingBag;
+    } else if (lowerTitle.includes("new run activated")) {
+      Icon = Zap;
+    }
+
+    const configuredTier = configuredTierEntry?.[1] as any;
+    const image = isTierNotice
+      ? firstRenderableImage(metadata.tierImageUrl, configuredTier?.imageUrl)
+      : (isReturns || metadata.eventType === "product_activation")
+        ? firstRenderableImage(metadata.sourceItemImage, catalogProduct?.imageUrl, catalogProduct?.image)
+        : "";
+    const displayTitle = isMilestone && tierName
+      ? `${tierName} Bonus`
+      : isMilestone
+        ? "Milestone Bonus"
+      : isReturns && productName
+        ? `${productName} Returns Credited`
+        : title;
+    const displayMessage = isMilestone && tierName && amount > 0
+      ? `${tierName} milestone bonus of ${formatCurrency(amount)} was credited to your withdrawable balance.`
+      : isMilestone && !tierName && amount > 0
+        ? `A milestone bonus of ${formatCurrency(amount)} was credited to your withdrawable balance.`
+        : isReturns && productName && amount > 0
+          ? `${formatCurrency(amount)} in returns from ${productName} was credited to your withdrawable balance.`
+          : message;
+
+    return { Icon, badgeClass, categoryLabel, image, displayTitle, displayMessage };
+  };
+
   const alertNotifications = notifications.filter(
     (n) => n.category !== "news" || n.metadata?.alertUsers === true
   );
@@ -132,20 +237,8 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
         createPortal(
           <AnimatePresence>
             {selectedAlert && (() => {
-          let categoryIcon3d: string = bell3d;
-          let modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
-          const cat = selectedAlert.category.toLowerCase();
-          const title = selectedAlert.title.toLowerCase();
-          if (cat === "deposit") { categoryIcon3d = plus3d; modalBadgeClass = "bg-[var(--theme-primary)] text-white border border-[var(--theme-primary)]"; }
-          else if (cat === "withdraw") { categoryIcon3d = money3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
-          else if (cat === "register") { categoryIcon3d = medal3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (cat === "checkin" || cat.includes("checkin") || title.includes("check-in")) { categoryIcon3d = calendar3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (cat.includes("vip") || cat.includes("milestone") || title.includes("vip") || title.includes("milestone")) { categoryIcon3d = trophy3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (title.includes("new run activated")) { categoryIcon3d = flash3d; modalBadgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]"; }
-          else if (cat.includes("referral") || title.includes("referral")) { categoryIcon3d = link3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
-          else if (cat === "rewards" || cat === "daily accumulation" || title.includes("daily returns")) { categoryIcon3d = giftBox3d; modalBadgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]"; }
-          else if (cat === "system") { categoryIcon3d = shield3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]"; }
-          else if (cat === "announcement") { categoryIcon3d = megaphone3d; modalBadgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]"; }
+          const presentation = getAlertPresentation(selectedAlert);
+          const AlertIcon = presentation.Icon;
 
           return (
             <div key={selectedAlert.id} className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -166,13 +259,15 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                 {/* Header mimicking the Alert Card */}
                 <div className="flex justify-between items-center p-5 bg-transparent shrink-0">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-transparent border-0 flex items-center justify-center shrink-0">
-                      <img src={categoryIcon3d} alt="" loading="lazy" decoding="async" className={`w-10 h-10 object-contain ${categoryIcon3d === flash3d ? "opacity-90 scale-[0.9]" : ""}`} />
+                    <div className="w-10 h-10 rounded-xl bg-[var(--theme-card-bg)]/70 flex items-center justify-center shrink-0 overflow-hidden">
+                      {presentation.image
+                        ? <img src={presentation.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                        : <AlertIcon className="w-5 h-5 text-[var(--theme-primary)]" strokeWidth={1.8} aria-hidden="true" />}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[9px] uppercase tracking-wider font-sans font-extrabold px-2 py-0.5 rounded-full ${modalBadgeClass}`}>
-                          {(selectedAlert.category === "daily accumulation" || selectedAlert.category === "rewards") ? "rewards" : selectedAlert.category}
+                        <span className={`text-[9px] uppercase tracking-wider font-sans font-extrabold px-2 py-0.5 rounded-full ${presentation.badgeClass}`}>
+                          {presentation.categoryLabel}
                         </span>
                         <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 font-semibold">
                           {new Date(selectedAlert.timestamp).toLocaleDateString(undefined, {
@@ -183,7 +278,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                           })}
                         </span>
                       </div>
-                      <h4 className="font-extrabold text-sm text-[var(--theme-text)] mt-1 tracking-tight leading-snug">{selectedAlert.title}</h4>
+                      <h4 className="font-extrabold text-sm text-[var(--theme-text)] mt-1 tracking-tight leading-snug">{presentation.displayTitle}</h4>
                     </div>
                   </div>
                   <button
@@ -197,7 +292,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                 {/* Body mimicking the Card layout */}
                 <div className="p-6 overflow-y-auto space-y-5 bg-transparent">
                   <div className="text-[13.5px] text-[var(--theme-text)] opacity-90 leading-relaxed space-y-4 font-sans whitespace-pre-line select-text">
-                    {renderMessageWithLinks(selectedAlert.message)}
+                    {renderMessageWithLinks(presentation.displayMessage)}
                   </div>
 
                   {selectedAlert.metadata?.link && (
@@ -250,7 +345,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
             </div>
           ) : alertNotifications.length === 0 ? (
             <div className="text-center py-16 bg-slate-900/10 border border-dashed border-slate-900 rounded-2xl flex flex-col items-center justify-center gap-4">
-              <img src={bell3d} alt="" loading="lazy" decoding="async" className="w-12 h-12 object-contain opacity-60" />
+              <Bell className="w-9 h-9 text-[var(--theme-text)] opacity-45" aria-hidden="true" />
               <div className="space-y-1">
                 <span className="text-[11px] font-bold font-mono text-slate-400 block uppercase">No Alert Records Registered</span>
                 <p className="text-[12px] text-slate-500 max-w-[240px] mx-auto leading-normal font-mono">
@@ -261,43 +356,8 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
           ) : (
             <div className="space-y-3 pb-24">
               {alertNotifications.map((logs) => {
-                let categoryIcon3dList: string = bell3d;
-                let badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
-
-                const lcat = logs.category.toLowerCase();
-                const ltitle = logs.title.toLowerCase();
-                if (lcat === "deposit") {
-                  categoryIcon3dList = plus3d;
-                  badgeClass = "bg-[var(--theme-primary)] text-white border border-[var(--theme-primary)]";
-                } else if (lcat === "withdraw") {
-                  categoryIcon3dList = money3d;
-                  badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
-                } else if (lcat === "register") {
-                  categoryIcon3dList = medal3d;
-                  badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (lcat === "checkin" || lcat.includes("checkin") || ltitle.includes("check-in")) {
-                  categoryIcon3dList = calendar3d;
-                  badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (lcat.includes("vip") || lcat.includes("milestone") || ltitle.includes("vip") || ltitle.includes("milestone")) {
-                  categoryIcon3dList = trophy3d;
-                  badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (ltitle.includes("new run activated")) {
-                  categoryIcon3dList = flash3d;
-                  badgeClass = "bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 text-[var(--theme-primary)]";
-                } else if (lcat.includes("referral") || ltitle.includes("referral")) {
-                  categoryIcon3dList = link3d;
-                  badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
-                } else if (lcat === "rewards" || lcat === "daily accumulation" || ltitle.includes("daily returns")) {
-                  categoryIcon3dList = giftBox3d;
-                  badgeClass = "bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] text-[var(--theme-text)]";
-                } else if (logs.category === "system") {
-                  categoryIcon3dList = shield3d;
-                  badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
-                } else if (logs.category === "announcement") {
-                  categoryIcon3dList = megaphone3d;
-                  badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
-                }
-
+                const presentation = getAlertPresentation(logs);
+                const AlertIcon = presentation.Icon;
                 const isUnread = !readIds.includes(logs.id);
 
                 return (
@@ -306,14 +366,16 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                     onClick={() => handleOpenAlert(logs)}
                     className="bg-transparent border-0 p-4 rounded-[20px] flex gap-3.5 transition-all text-left cursor-pointer active:scale-[0.98]"
                   >
-                    <div className="w-10 h-10 bg-transparent border-0 flex items-center justify-center shrink-0">
-                      <img src={categoryIcon3dList} alt="" loading="lazy" decoding="async" className={`w-10 h-10 object-contain ${categoryIcon3dList === flash3d ? "opacity-90 scale-[0.9]" : ""}`} />
+                    <div className="w-10 h-10 rounded-xl bg-[var(--theme-card-bg)]/70 flex items-center justify-center shrink-0 overflow-hidden">
+                      {presentation.image
+                        ? <img src={presentation.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                        : <AlertIcon className="w-5 h-5 text-[var(--theme-primary)]" strokeWidth={1.8} aria-hidden="true" />}
                     </div>
                     
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`text-[9px] uppercase tracking-wider font-mono font-black px-2 py-0.5 rounded-full ${badgeClass}`}>
-                          {(logs.category === "daily accumulation" || logs.category === "rewards") ? "rewards" : logs.category}
+                        <span className={`text-[9px] uppercase tracking-wider font-mono font-black px-2 py-0.5 rounded-full ${presentation.badgeClass}`}>
+                          {presentation.categoryLabel}
                         </span>
                         <div className="flex items-center gap-1.5">
                           {isUnread && (
@@ -330,10 +392,10 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
                         </div>
                       </div>
                       <h4 className="font-extrabold text-[var(--theme-text)] text-xs tracking-tight leading-tight font-sans">
-                        {logs.title}
+                        {presentation.displayTitle}
                       </h4>
                       <p className="text-[var(--theme-text)] opacity-80 text-[11.5px] font-sans leading-relaxed select-text break-normal whitespace-normal">
-                        {renderMessageWithLinks(logs.message)}
+                        {renderMessageWithLinks(presentation.displayMessage)}
                       </p>
                       {logs.metadata?.link && (
                         <div className="pt-2">

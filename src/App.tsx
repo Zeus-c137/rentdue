@@ -1020,6 +1020,7 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto scrollbar-none pb-6">
                   <AlertsView
                     profile={userProfile!}
+                    siteConfig={siteConfig}
                     initialNotifications={userNotifications}
                     onBack={() => setActiveTab(previousTab)}
                     onNotificationsChange={setUserNotifications}

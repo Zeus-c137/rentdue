@@ -133,6 +133,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       title VARCHAR(255) NOT NULL,
       message TEXT NOT NULL,
       amount DOUBLE DEFAULT 0,
+      metadata JSON NULL,
       timestamp VARCHAR(64) NOT NULL,
       INDEX idx_notifications_user_id (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -175,11 +176,13 @@ export async function ensureDatabaseSchema(): Promise<void> {
       operator VARCHAR(16) NULL,
       mode VARCHAR(16) NULL,
       metadata JSON NULL,
+      external_reference VARCHAR(160) NULL,
       balance_applied_at VARCHAR(64) NULL,
       timestamp VARCHAR(64) NOT NULL,
       INDEX idx_transactions_user_id (user_id),
       INDEX idx_transactions_status (status),
-      INDEX idx_transactions_user_status_type (user_id, status, type)
+      INDEX idx_transactions_user_status_type (user_id, status, type),
+      UNIQUE INDEX uq_transactions_external_reference (operator, external_reference)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS vip_task_claims (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -232,6 +235,12 @@ export async function ensureDatabaseSchema(): Promise<void> {
     await connection.query(statement);
   }
 
+  try {
+    await connection.query("ALTER TABLE notifications ADD COLUMN metadata JSON NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+
   // CREATE TABLE IF NOT EXISTS does not alter a database created by an older
   // release. Keep this migration small and idempotent so existing deposits are
   // preserved while the settlement guard is introduced.
@@ -241,6 +250,17 @@ export async function ensureDatabaseSchema(): Promise<void> {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
       throw error;
     }
+  }
+
+  try {
+    await connection.query("ALTER TABLE transactions ADD COLUMN external_reference VARCHAR(160) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  try {
+    await connection.query("CREATE UNIQUE INDEX uq_transactions_external_reference ON transactions (operator, external_reference)");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
   }
 
   // Journey stage rewards: one claim per tier, tracked per user.

@@ -251,6 +251,7 @@ export interface TransactionRow {
   itemId?: string;
   operator?: string;
   mode?: string;
+  externalReference?: string;
   metadata?: {
     level?: number;
     sourceItemId?: string;

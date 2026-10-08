@@ -39,6 +39,11 @@ export const TRANSACTION_ICON_KEYS: Record<TransactionType, string> = {
   admin_adjustment: "dollar3d",
 };
 
+/** Canonical form used to prevent one payment reference from creating two credits. */
+export function normalizeExternalReference(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
 export const LEGACY_TO_CANONICAL: Record<string, TransactionType> = {
   deposit: "deposit",
   balance: "deposit",

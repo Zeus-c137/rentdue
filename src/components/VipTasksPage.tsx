@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { ArrowLeft, Check, Lock, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, Lock, ChevronRight, Loader2, Info } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
@@ -77,6 +77,18 @@ export function AchievementGlyph({ metric, socialType, className }: { metric?: s
   return <img src={art} alt="" aria-hidden="true" className={`${className || "h-8 w-8"} object-contain drop-shadow-sm`} />;
 }
 
+function socialActionLabel(socialType?: string) {
+  switch (socialType) {
+    case "facebook_follow": return "Follow Page";
+    case "facebook_like": return "Like Page";
+    case "facebook_comment": return "Comment";
+    case "facebook_share": return "Share";
+    case "telegram_join":
+    case "whatsapp_join": return "Join Group";
+    default: return "Open";
+  }
+}
+
 interface StageGroup {
   name: string;
   description: string;
@@ -101,12 +113,17 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   });
   const [loading, setLoading] = useState(false);
   const [bulkStage, setBulkStage] = useState<string | null>(null);
-  const [submittingTask, setSubmittingTask] = useState<string | null>(null);
+  const [submittingTasks, setSubmittingTasks] = useState<Set<string>>(() => new Set());
+  const [openedTaskLinks, setOpenedTaskLinks] = useState<Set<string>>(() => new Set());
   const [selectedStage, setSelectedStage] = useState<string | null>(focusStage || null);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
-  const [rewardFlightBusy, setRewardFlightBusy] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLDivElement>(null);
+  const userProfileRef = useRef(userProfile);
+  userProfileRef.current = userProfile;
+  const taskClaimsInFlight = useRef(new Set<string>());
+  const stageClaimsInFlight = useRef(new Set<string>());
+  const coinFlightSequence = useRef(0);
   // A header-tile tap while the journey is already open retargets the detail
   // instead of stranding it on the old stage.
   useEffect(() => { if (focusStage) setSelectedStage(focusStage); }, [focusStage]);
@@ -129,7 +146,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     finally{ setLoading(false); }
   }, [phone]);
 
-  useEffect(()=>{ void load(); const onVis=()=>{ if(!document.hidden) void load(); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
+  useEffect(()=>{ void load(true); const onVis=()=>{ if(!document.hidden) void load(true); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
 
   useEffect(() => {
     if (!board.tasks.some((task) => task.claimStatus === "pending")) return;
@@ -183,90 +200,177 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     return `${p.toLocaleString()}/${q.toLocaleString()}${meta.unit ? ` ${meta.unit}` : ""}`;
   }, [formatCurrency]);
 
-  const animateRewardClaim = useCallback((sourceRect: DOMRect | null, nextProfile: any) => new Promise<void>((resolve) => {
+  const applyPointsDelta = useCallback((delta: number, extra: Record<string, any> = {}) => {
+    const current = userProfileRef.current;
+    if (!current || !onClaimSuccess) return;
+    const next = { ...current, ...extra, points: (Number(current.points) || 0) + delta };
+    userProfileRef.current = next;
+    onClaimSuccess(next);
+  }, [onClaimSuccess]);
+
+  const animateRewardClaim = useCallback((sourceRect: DOMRect | null) => {
     playCheckinSound();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const root = rootRef.current;
     const target = balanceRef.current?.getBoundingClientRect();
-    const finish = () => {
-      setCoins(null);
-      if (userProfile && onClaimSuccess) onClaimSuccess(nextProfile);
-      resolve();
-    };
-    if (!reduced && sourceRect && root && target) {
-      const rootRect = root.getBoundingClientRect();
-      const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
-      const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
-      const endX = target.left + target.width / 2 - rootRect.left;
-      const endY = target.top + target.height / 2 - rootRect.top;
-      setCoins(Array.from({ length: 10 }, (_, i) => ({
-        id: Date.now() + i,
-        startX: startX + (Math.random() - 0.5) * 24,
-        startY: startY + (Math.random() - 0.5) * 10,
-        dx: endX - startX + (Math.random() - 0.5) * 30,
-        dy: endY - startY,
-        delay: i * 0.06,
-      })));
-      window.setTimeout(finish, 1050);
-    } else finish();
-  }), [onClaimSuccess, userProfile]);
+    if (reduced || !sourceRect || !root || !target) return [] as number[];
+
+    const rootRect = root.getBoundingClientRect();
+    const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
+    const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+    const endX = target.left + target.width / 2 - rootRect.left;
+    const endY = target.top + target.height / 2 - rootRect.top;
+    const flight = ++coinFlightSequence.current;
+    const flightIds = Array.from({ length: 10 }, (_, i) => Date.now() * 100 + flight * 10 + i);
+    const nextCoins = flightIds.map((id, i) => ({
+      id,
+      startX: startX + (Math.random() - 0.5) * 24,
+      startY: startY + (Math.random() - 0.5) * 10,
+      dx: endX - startX + (Math.random() - 0.5) * 30,
+      dy: endY - startY,
+      delay: i * 0.06,
+    }));
+    setCoins((current) => [...(current || []), ...nextCoins]);
+    window.setTimeout(() => {
+      setCoins((current) => {
+        const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
+        return remaining.length > 0 ? remaining : null;
+      });
+    }, 1050);
+    return flightIds;
+  }, []);
 
   // CLAIM LEVEL REWARD: the single one-time payout for the whole stage.
-  const handleClaimStage = async(stage: StageGroup, event?: React.MouseEvent<HTMLElement>)=>{
-    if (bulkStage || rewardFlightBusy) return;
-    if (!stage.claimable) {
-      toast.info(`Complete ${stage.done}/${stage.total} tasks to unlock the stage reward.`);
-      return;
-    }
+  const handleClaimStage = async (stage: StageGroup, event?: React.MouseEvent<HTMLElement>) => {
+    if (!stage.claimable || stageClaimsInFlight.current.has(stage.name)) return;
     const sourceRect = event?.currentTarget.getBoundingClientRect() ?? null;
+    const optimisticReward = Math.max(0, Number(stage.tierReward) || 0);
+    const previousBoard = board;
+    const previousProfile = userProfileRef.current;
+    const previousProfileTiers = previousProfile?.claimedTierRewards || [];
+    const optimisticTiers = [...new Set([...(board.claimedTierRewards || []), stage.name])];
+
+    stageClaimsInFlight.current.add(stage.name);
+    setBulkStage(stage.name);
+    setBoard((current) => ({ ...current, claimedTierRewards: optimisticTiers }));
+    applyPointsDelta(optimisticReward, { claimedTierRewards: optimisticTiers });
     unlockCheckinSound();
-    setBulkStage(stage.name); setRewardFlightBusy(true); const s=renew();
-    try{
-      const data=await fetchJsonWithSignal<{bonus:number; claimedTierRewards?:string[]}>(`/api/profile/vip-tasks/claim`, s, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({phone, category: stage.name})});
-      const bonus=Number(data.bonus||0);
-      toast.success(`Stage reward claimed: ${formatCurrency(bonus)} added to withdrawable balance`);
-      await animateRewardClaim(sourceRect, {...userProfile, points:Number(userProfile?.points||0)+bonus, claimedTierRewards: data.claimedTierRewards || [...(userProfile?.claimedTierRewards||[]), stage.name]});
-      vipCache=null; await load(true);
-    } catch(e:any){ if(e?.name!=="AbortError") toast.error(e.message||"Claim failed"); }
-    finally{ setBulkStage(null); setRewardFlightBusy(false); }
+    const flightIds = animateRewardClaim(sourceRect);
+
+    try {
+      const s = renew();
+      const data = await fetchJsonWithSignal<{ bonus: number; claimedTierRewards?: string[] }>("/api/profile/vip-tasks/claim", s, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, category: stage.name }),
+      });
+      const reward = Math.max(0, Number(data.bonus) || 0);
+      const claimedTierRewards = data.claimedTierRewards || optimisticTiers;
+      if (reward !== optimisticReward) applyPointsDelta(reward - optimisticReward, { claimedTierRewards });
+      else if (data.claimedTierRewards) applyPointsDelta(0, { claimedTierRewards });
+      setBoard((current) => ({ ...current, claimedTierRewards }));
+      toast.success(`Stage reward claimed: ${formatCurrency(reward)} added to withdrawable balance`);
+      vipCache = null;
+      void load(true);
+    } catch (error: any) {
+      applyPointsDelta(-optimisticReward, { claimedTierRewards: previousProfileTiers });
+      setBoard((current) => ({ ...current, claimedTierRewards: previousBoard.claimedTierRewards }));
+      if (flightIds.length) setCoins((current) => {
+        const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
+        return remaining.length > 0 ? remaining : null;
+      });
+      if (error?.name !== "AbortError") toast.error(error.message || "Claim failed");
+    } finally {
+      stageClaimsInFlight.current.delete(stage.name);
+      setBulkStage(null);
+    }
   };
 
   const handleTaskAction = async (task: VipTask, event?: React.MouseEvent<HTMLElement>) => {
-    if (task.claimStatus === "approved" || (task.socialType && task.claimStatus === "pending") || rewardFlightBusy) return;
+    if (task.claimStatus === "approved" || (task.socialType && task.claimStatus === "pending") || taskClaimsInFlight.current.has(task.id)) return;
     const claimingVerifiedSocial = Boolean(task.socialType) && task.claimStatus === "verified";
     const isRewardClaim = !task.socialType || claimingVerifiedSocial;
     if (!task.socialType && !isTaskMet(task)) {
       toast.info("Complete this task requirement first.");
       return;
     }
-    if (submittingTask) return;
+
     const sourceRect = isRewardClaim ? (event?.currentTarget.getBoundingClientRect() ?? null) : null;
-    if (isRewardClaim) { unlockCheckinSound(); setRewardFlightBusy(true); }
-    setSubmittingTask(task.id);
+    const optimisticReward = isRewardClaim ? Math.max(0, Number(task.reward) || 0) : 0;
+    taskClaimsInFlight.current.add(task.id);
+    setSubmittingTasks((current) => new Set(current).add(task.id));
+    let flightIds: number[] = [];
+
+    if (isRewardClaim) {
+      setBoard((current) => ({
+        ...current,
+        tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
+      }));
+      applyPointsDelta(optimisticReward);
+      unlockCheckinSound();
+      flightIds = animateRewardClaim(sourceRect);
+    }
+
     const s = renew();
     try {
       const endpoint = task.socialType && !claimingVerifiedSocial ? "/api/profile/vip-tasks/verify" : "/api/profile/vip-tasks/claim";
       const result = await fetchJsonWithSignal<{ status: "pending" | "verified" | "approved"; reward: number }>(endpoint, s, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, taskId: task.id })
+        body: JSON.stringify({ phone, taskId: task.id }),
       });
-      if (result.status === "pending") {
-        toast.success("Task is being verified.");
-      } else if (result.status === "verified") {
-        toast.success("Task verified. Tap its reward to claim.");
-      } else {
-        const reward = Number(result.reward || 0);
+
+      if (result.status === "approved") {
+        const reward = Math.max(0, Number(result.reward) || 0);
+        if (!isRewardClaim) {
+          setBoard((current) => ({
+            ...current,
+            tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
+          }));
+          applyPointsDelta(reward);
+          unlockCheckinSound();
+          flightIds = animateRewardClaim(sourceRect);
+        } else if (reward !== optimisticReward) {
+          applyPointsDelta(reward - optimisticReward);
+        }
         toast.success(`${formatCurrency(reward)} added to your balance.`);
-        await animateRewardClaim(sourceRect, { ...userProfile, points: Number(userProfile?.points || 0) + reward });
+        vipCache = null;
+        void load(true);
+      } else {
+        if (isRewardClaim) {
+          applyPointsDelta(-optimisticReward);
+          if (flightIds.length) setCoins((current) => {
+            const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
+            return remaining.length > 0 ? remaining : null;
+          });
+        }
+        setBoard((current) => ({
+          ...current,
+          tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: false, claimStatus: result.status } : item),
+        }));
+        toast.success(result.status === "pending" ? "Task is being verified." : "Task verified. Tap its reward to claim.");
+        void load(true);
       }
-      vipCache = null;
-      await load(true);
     } catch (error: any) {
+      if (isRewardClaim) {
+        applyPointsDelta(-optimisticReward);
+        setBoard((current) => ({
+          ...current,
+          tasks: current.tasks.map((item) => item.id === task.id ? task : item),
+        }));
+        if (flightIds.length) setCoins((current) => {
+          const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
+          return remaining.length > 0 ? remaining : null;
+        });
+      }
       if (error?.name !== "AbortError") toast.error(error.message || "Could not complete this task.");
     } finally {
-      setSubmittingTask(null);
-      if (isRewardClaim) setRewardFlightBusy(false);
+      taskClaimsInFlight.current.delete(task.id);
+      setSubmittingTasks((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
     }
   };
 
@@ -329,7 +433,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                     <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain" /> {formatCurrency(detail.tierReward)}
                   </span>
                 ) : (
-                  <button type="button" onClick={(event) => void handleClaimStage(detail, event)} disabled={claiming || rewardFlightBusy || !detail.claimable} aria-label={detail.claimable ? `Claim stage reward of ${formatCurrency(detail.tierReward)}` : "Stage reward locked"}
+                  <button type="button" onClick={(event) => void handleClaimStage(detail, event)} disabled={claiming || !detail.claimable} aria-label={detail.claimable ? `Claim stage reward of ${formatCurrency(detail.tierReward)}` : "Stage reward locked"}
                     className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-sans font-black transition-transform active:scale-[0.97] disabled:cursor-not-allowed ${detail.claimable ? "streak-tile-pulse tile-shimmer-5s overflow-hidden bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-[0_3px_0_0_var(--theme-primary-shadow)]" : "border border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-55 saturate-50"}`}>
                     {!detail.claimable && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
                     <img src={dollar3d} alt="" loading="lazy" decoding="async" className="w-4 h-4 object-contain" /> {claiming ? "CLAIMING…" : formatCurrency(detail.tierReward)}
@@ -351,6 +455,8 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 const taskVerified = Boolean(task.socialType) && task.claimStatus === "verified";
                 const taskApproved = task.claimStatus === "approved";
                 const socialTask = Boolean(task.socialType);
+                const actionLinkKey = `${task.id}:${task.actionUrl || ""}`;
+                const actionLinkOpened = openedTaskLinks.has(actionLinkKey);
                 const rewardAvailable = taskVerified || (!socialTask && met && !taskApproved);
                 const taskInProgress = !socialTask && Number(task.progress || 0) > 0 && !rewardAvailable && !taskApproved;
                 return (
@@ -372,25 +478,46 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                           </span> : <button
                             type="button"
                             onClick={(event) => void handleTaskAction(task, event)}
-                            disabled={locked || !rewardAvailable || task.reward <= 0 || Boolean(submittingTask) || rewardFlightBusy}
+                            disabled={locked || !rewardAvailable || task.reward <= 0 || submittingTasks.has(task.id)}
                             aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
                             className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-sans font-black tabular-nums transition-transform disabled:cursor-not-allowed ${rewardAvailable && !locked && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)] tile-shimmer-5s streak-tile-pulse overflow-hidden cursor-pointer active:scale-[0.97] disabled:opacity-45" : taskInProgress && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50 cursor-not-allowed" : "border-white/10 bg-[var(--theme-card-bg)]/60 text-[var(--theme-text)] cursor-not-allowed disabled:opacity-45"}`}
                           >
                             {locked && <Lock className="w-3 h-3 opacity-70" aria-hidden="true" />}
                             <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />
-                            {submittingTask === task.id ? "CLAIMING…" : formatCurrency(task.reward)}
+                            {submittingTasks.has(task.id) ? "CLAIMING…" : formatCurrency(task.reward)}
                           </button>}
                         </span>
                       </div>
                       {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
                       {socialTask ? (
                         <div className="mt-2 flex items-center justify-between gap-2">
-                          {task.socialType && task.actionUrl ? <a href={task.actionUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[10px] font-sans font-black text-[var(--theme-text)]">VIEW LINK</a> : <span />}
-                          {taskPending ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] animate-shimmer">VERIFYING</span>
-                            : taskApproved ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">CLAIMED</span>
-                            : taskVerified ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">VERIFIED · TAP REWARD</span>
-                            : <button type="button" onClick={(event) => void handleTaskAction(task, event)} disabled={locked || task.reward <= 0 || Boolean(submittingTask) || rewardFlightBusy} className="shrink-0 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[10px] font-sans font-black text-[var(--theme-text)] cursor-pointer active:scale-[0.97] transition-transform disabled:opacity-45" aria-label={`Verify ${task.title}`}>
-                                {submittingTask === task.id ? "VERIFYING…" : "VERIFY"}
+                          <div className="flex min-w-0 items-center gap-3">
+                            {task.actionUrl ? (
+                              <a
+                                href={task.actionUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => setOpenedTaskLinks((current) => new Set(current).add(actionLinkKey))}
+                                aria-label={`${socialActionLabel(task.socialType)}: ${task.title}`}
+                                className="cursor-pointer text-[11px] font-sans font-bold text-[var(--theme-primary)] underline underline-offset-4 decoration-[var(--theme-primary)]/60 transition-opacity duration-150 hover:opacity-75 active:opacity-55"
+                              >
+                                {socialActionLabel(task.socialType)}
+                              </a>
+                            ) : (
+                              <span className="text-[11px] font-sans font-bold text-[var(--theme-primary)]/55 underline underline-offset-4">
+                                {socialActionLabel(task.socialType)}
+                              </span>
+                            )}
+                          </div>
+                          {taskPending ? (
+                            <span role="status" className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-sans font-black tracking-[0.08em] animate-shimmer">
+                              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> VERIFYING
+                            </span>
+                          ) : taskApproved ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">CLAIMED</span>
+                            : taskVerified ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">VERIFIED - TAP REWARD</span>
+                            : <button type="button" onClick={(event) => void handleTaskAction(task, event)} disabled={locked || task.reward <= 0 || submittingTasks.has(task.id) || !actionLinkOpened} title={task.actionUrl ? `Open the link and ${socialActionLabel(task.socialType).toLowerCase()} before verifying.` : "This task needs a social link before it can be verified."} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[10px] font-sans font-black text-[var(--theme-text)] cursor-pointer active:scale-[0.97] transition-transform disabled:cursor-not-allowed disabled:opacity-45" aria-label={`Verify ${task.title}. Open and ${socialActionLabel(task.socialType).toLowerCase()} the social link first.`}>
+                                <Info className="h-3 w-3 opacity-65" aria-hidden="true" />
+                                {submittingTasks.has(task.id) ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> VERIFYING</> : "VERIFY"}
                               </button>}
                         </div>
                       ) : (

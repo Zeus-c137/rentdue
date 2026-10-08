@@ -3909,7 +3909,8 @@ export default function AdminView() {
                           <textarea value={vipTaskDescription} onChange={(event) => setVipTaskDescription(event.target.value)} placeholder="Explain what this reward unlocks." rows={3} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 resize-none" />
                         </label>
                         <label className="text-xs font-bold uppercase tracking-wider opacity-75">Task link
-                          <input type="url" value={vipTaskActionUrl} onChange={(event) => setVipTaskActionUrl(event.target.value)} placeholder="https://…" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <input type="text" inputMode="url" value={vipTaskActionUrl} onChange={(event) => setVipTaskActionUrl(event.target.value)} placeholder="https://… or facebook.com/…" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+                          <span className="block mt-1.5 text-[10px] normal-case tracking-normal opacity-55">Links without https:// are opened securely over HTTPS.</span>
                         </label>
                         {editingVipTaskId && getVipTasks().some((task) => task.id === editingVipTaskId && task.metric === "manual_claim" && !task.socialType) && !vipTaskSocialType && (
                           <p className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--theme-text)] opacity-75">

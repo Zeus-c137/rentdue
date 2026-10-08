@@ -115,10 +115,13 @@ export default function DashboardView({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [weekSeries, setWeekSeries] = useState<number[] | null>(null);
   const [checkinBusy, setCheckinBusy] = useState(false);
+  const checkinBusyRef = useRef(false);
+  const checkinRevisionRef = useRef(0);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
   const [msClaimBusy, setMsClaimBusy] = useState<string | null>(null);
+  const msClaimBusyRef = useRef(false);
   const [checkinEcon, setCheckinEcon] = useState<{ base: number; inc: number } | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +147,48 @@ export default function DashboardView({
   const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "collectibles_claimed" ? "collectibles" : m === "account_created" ? "" : "runs");
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const coinFlightSequence = useRef(0);
+
+  const launchCoinFlight = (sourceRect: DOMRect | null, targetElement: HTMLElement | null) => {
+    const root = rootRef.current;
+    const target = targetElement?.getBoundingClientRect();
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !sourceRect || !root || !target) return [] as number[];
+    const rootRect = root.getBoundingClientRect();
+    const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
+    const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
+    const endX = target.left + target.width / 2 - rootRect.left;
+    const endY = target.top + target.height / 2 - rootRect.top;
+    const flight = ++coinFlightSequence.current;
+    const ids = Array.from({ length: 10 }, (_, i) => Date.now() * 100 + flight * 10 + i);
+    setCoins((current) => [
+      ...(current || []),
+      ...ids.map((id, i) => ({
+        id,
+        startX: startX + (Math.random() - 0.5) * 24,
+        startY: startY + (Math.random() - 0.5) * 10,
+        dx: endX - startX + (Math.random() - 0.5) * 30,
+        dy: endY - startY,
+        delay: i * 0.06,
+      })),
+    ]);
+    window.setTimeout(() => {
+      setCoins((current) => {
+        const remaining = current?.filter((coin) => !ids.includes(coin.id)) || [];
+        return remaining.length > 0 ? remaining : null;
+      });
+    }, 1050);
+    return ids;
+  };
+
+  const removeCoinFlight = (ids: number[]) => {
+    if (ids.length === 0) return;
+    setCoins((current) => {
+      const remaining = current?.filter((coin) => !ids.includes(coin.id)) || [];
+      return remaining.length > 0 ? remaining : null;
+    });
+  };
   const todayKey = getTodayKey();
 
   // Rent Clock tick — gated to visible tab.
@@ -176,9 +221,10 @@ export default function DashboardView({
   // and weekly total stay atomic with the balance card.
   useEffect(() => {
     const ctrl = new AbortController();
+    const revision = checkinRevisionRef.current;
     fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
       .then((rows) => {
-        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
+        if (ctrl.signal.aborted || checkinBusyRef.current || revision !== checkinRevisionRef.current || !Array.isArray(rows)) return;
         const days: number[] = [0, 0, 0, 0, 0, 0, 0];
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
@@ -296,38 +342,38 @@ export default function DashboardView({
       ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
   }, []);
 
-  const deliverCheckin = (bonus: number, streak: number) => {
-    // Atomic balance update: parent profile swaps the moment coins land.
-    onProfileUpdate({
-      ...profile,
-      points: (Number(profile.points) || 0) + bonus,
+  const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
+    if (checkedInToday || checkinBusyRef.current) return;
+    // Capture tile geometry synchronously before the optimistic update re-renders it.
+    const tileRect = source === "tile" && event ? event.currentTarget.getBoundingClientRect() : null;
+    const previousProfile = profileRef.current;
+    const optimisticBonus = Math.max(0, Number(checkinAmount) || 0);
+    const optimisticStreak = previousProfile.lastCheckinDate === getPlatformYesterdayKey() ? streak + 1 : 1;
+    const optimisticProfile = {
+      ...previousProfile,
+      points: (Number(previousProfile.points) || 0) + optimisticBonus,
       lastCheckinDate: todayKey,
-      checkinStreak: streak,
-    });
-    // Optimistic weekly chart update: today's bucket gets the bonus immediately.
+      checkinStreak: optimisticStreak,
+    };
+
+    checkinRevisionRef.current += 1;
+    checkinBusyRef.current = true;
+    setCheckinBusy(true);
+    setCheckedInLocal(true);
+    profileRef.current = optimisticProfile;
+    onProfileUpdate(optimisticProfile);
     setWeekSeries((prev) => {
       if (!prev) return prev;
       const next = [...prev];
-      next[6] = (next[6] || 0) + bonus;
+      next[6] = (next[6] || 0) + optimisticBonus;
       return next;
     });
-    setCheckedInLocal(true);
-    setCoins(null);
-    toast.success("Daily check-in complete", {
-      description:
-        bonus > 0
-          ? `Day ${streak}: +${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
-          : "Streak kept alive. See you tomorrow.",
-      duration: 6000,
-    });
-  };
-
-  const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
-    if (checkedInToday || checkinBusy) return;
-    // Capture tile geometry synchronously — React synthetic events go stale after await.
-    const tileRect = source === "tile" && event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
     unlockCheckinSound();
-    setCheckinBusy(true);
+    playCheckinSound();
+
+    // Coin travel is immediate feedback; it never delays the balance.
+    const flightIds = source === "tile" ? launchCoinFlight(tileRect, balanceRef.current) : [];
+
     try {
       const res = await fetch("/api/user/checkin", {
         method: "POST",
@@ -336,53 +382,82 @@ export default function DashboardView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Check-in failed.");
-      const bonus = Number(data.amount ?? data.bonus ?? 0);
-      const nextStreak = Number(data.streak ?? streak + 1);
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      playCheckinSound();
-      // Coin flight plays only on tile tap, flying to the balance hero. Header
-      // button claims instantly with no animation and no confetti.
-      if (source === "tile" && !reduced && tileRect) {
-        const root = rootRef.current;
-        const to = balanceRef.current?.getBoundingClientRect();
-        if (root && to) {
-          const rootRect = root.getBoundingClientRect();
-          const startX = tileRect.left + tileRect.width / 2 - rootRect.left;
-          const startY = tileRect.top + tileRect.height / 2 - rootRect.top;
-          const endX = to.left + to.width / 2 - rootRect.left;
-          const endY = to.top + to.height / 2 - rootRect.top;
-          setCoins(
-            Array.from({ length: 10 }, (_, i) => ({
-              id: Date.now() + i,
-              startX: startX + (Math.random() - 0.5) * 24,
-              startY: startY + (Math.random() - 0.5) * 10,
-              dx: endX - startX + (Math.random() - 0.5) * 30,
-              dy: endY - startY,
-              delay: i * 0.06,
-            }))
-          );
-          window.setTimeout(() => deliverCheckin(bonus, nextStreak), 1050);
-        } else {
-          deliverCheckin(bonus, nextStreak);
-        }
-      } else {
-        deliverCheckin(bonus, nextStreak);
+      checkinRevisionRef.current += 1;
+      const bonus = Math.max(0, Number(data.amount ?? data.bonus ?? optimisticBonus) || 0);
+      const nextStreak = Number(data.streak ?? optimisticStreak);
+      const latest = profileRef.current;
+      const confirmedProfile = {
+        ...latest,
+        points: (Number(latest.points) || 0) + bonus - optimisticBonus,
+        lastCheckinDate: todayKey,
+        checkinStreak: nextStreak,
+      };
+      profileRef.current = confirmedProfile;
+      onProfileUpdate(confirmedProfile);
+      if (bonus !== optimisticBonus) {
+        setWeekSeries((prev) => {
+          if (!prev) return prev;
+          const next = [...prev];
+          next[6] = Math.max(0, (next[6] || 0) + bonus - optimisticBonus);
+          return next;
+        });
       }
+      toast.success(`Daily ${nextStreak} check-in complete 🔥`, {
+        description: bonus > 0
+          ? `${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
+          : "Streak kept alive. See you tomorrow.",
+        duration: 6000,
+      });
     } catch (err: any) {
+      checkinRevisionRef.current += 1;
+      const latest = profileRef.current;
+      const rollbackProfile = {
+        ...latest,
+        points: Math.max(0, (Number(latest.points) || 0) - optimisticBonus),
+        lastCheckinDate: previousProfile.lastCheckinDate,
+        checkinStreak: previousProfile.checkinStreak,
+      };
+      profileRef.current = rollbackProfile;
+      onProfileUpdate(rollbackProfile);
+      setCheckedInLocal(false);
+      removeCoinFlight(flightIds);
+      setWeekSeries((prev) => {
+        if (!prev) return prev;
+        const next = [...prev];
+        next[6] = Math.max(0, (next[6] || 0) - optimisticBonus);
+        return next;
+      });
       toast.error(err.message || "Check-in failed.");
     } finally {
+      checkinBusyRef.current = false;
       setCheckinBusy(false);
     }
   };
 
   const handleClaimMilestoneTask = async (task: VipTask, event: React.MouseEvent<HTMLButtonElement>) => {
-    if (msClaimBusy) return;
+    if (msClaimBusyRef.current) return;
     const isSocialVerified = Boolean(task.socialType) && task.claimStatus === "verified";
     const isMetricReady = !task.socialType && Number(task.progress || 0) >= Number(task.requiredBonus || 0);
     if (task.claimed || task.stageLocked || !(isSocialVerified || isMetricReady)) return;
+
     const sourceRect = event.currentTarget.getBoundingClientRect();
-    unlockCheckinSound();
+    const optimisticReward = Math.max(0, Number(task.reward) || 0);
+    const previousBoard = msBoard;
+    const previousProfile = profileRef.current;
+    const optimisticProfile = { ...previousProfile, points: (Number(previousProfile.points) || 0) + optimisticReward };
+    msClaimBusyRef.current = true;
     setMsClaimBusy(task.id);
+    setMsBoard((current) => current ? {
+      ...current,
+      tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
+    } : current);
+    profileRef.current = optimisticProfile;
+    onProfileUpdate(optimisticProfile);
+    unlockCheckinSound();
+    playCheckinSound();
+
+    const flightIds = launchCoinFlight(sourceRect, balanceRef.current);
+
     try {
       const result = await fetchJsonWithSignal<{ status: string; reward: number }>("/api/profile/vip-tasks/claim", new AbortController().signal, {
         method: "POST",
@@ -390,36 +465,26 @@ export default function DashboardView({
         body: JSON.stringify({ phone: profile.phone, taskId: task.id }),
       });
       const reward = Math.max(0, Number(result.reward) || 0);
-      playCheckinSound();
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const root = rootRef.current;
-      const target = balanceRef.current?.getBoundingClientRect();
-      if (!reduced && root && target) {
-        const rootRect = root.getBoundingClientRect();
-        const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
-        const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
-        const endX = target.left + target.width / 2 - rootRect.left;
-        const endY = target.top + target.height / 2 - rootRect.top;
-        setCoins(Array.from({ length: 10 }, (_, i) => ({
-          id: Date.now() + i,
-          startX: startX + (Math.random() - 0.5) * 24,
-          startY: startY + (Math.random() - 0.5) * 10,
-          dx: endX - startX + (Math.random() - 0.5) * 30,
-          dy: endY - startY,
-          delay: i * 0.06,
-        })));
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 1050));
+      if (reward !== optimisticReward) {
+        const latest = profileRef.current;
+        const confirmedProfile = { ...latest, points: (Number(latest.points) || 0) + reward - optimisticReward };
+        profileRef.current = confirmedProfile;
+        onProfileUpdate(confirmedProfile);
       }
-      setCoins(null);
-      onProfileUpdate({ ...profile, points: (Number(profile.points) || 0) + reward });
       toast.success(`${formatCurrency(reward)} added to your balance.`);
       bustMilestoneCache();
       const controller = new AbortController();
       void getMilestoneBoard(profile.phone, controller.signal).then(setMsBoard).catch(() => {});
     } catch (err: any) {
-      setCoins(null);
+      const latest = profileRef.current;
+      const rollbackProfile = { ...latest, points: Math.max(0, (Number(latest.points) || 0) - optimisticReward) };
+      profileRef.current = rollbackProfile;
+      onProfileUpdate(rollbackProfile);
+      setMsBoard(previousBoard);
+      removeCoinFlight(flightIds);
       toast.error(err.message || "Could not claim this milestone reward.");
     } finally {
+      msClaimBusyRef.current = false;
       setMsClaimBusy(null);
     }
   };
