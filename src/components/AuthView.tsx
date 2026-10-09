@@ -755,7 +755,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     type="text"
                     autoComplete="off"
                     aria-label="Invite code"
-                    placeholder="Invite code"
+                    placeholder="Invite code (Optional)"
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
                   />
@@ -824,10 +824,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="flex-1" />
 
                 {regBonus > 0 && (
-                  <div className="relative overflow-hidden rounded-2xl border border-dashed border-[var(--theme-primary)] bg-[var(--theme-primary)]/10 px-4 py-3.5 tile-shimmer-5s">
+                  <div className="relative overflow-hidden rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
                     <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
-                      <Gift className="w-3.5 h-3.5 text-[var(--theme-primary)]" />
-                      Plus UGX {regBonus.toLocaleString()} welcome bonus on sign-up.
+                      <Gift className="w-12 h-12 text-[var(--theme-primary)]" />
+                      Plus UGX {regBonus.toLocaleString()} Registration bonus upon first login.
                     </p>
                   </div>
                 )}
