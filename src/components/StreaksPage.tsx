@@ -273,26 +273,31 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <img src={flameSvg} alt="" aria-hidden="true" className="h-8 w-auto shrink-0" />
-          <h1 className="font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)]">Daily check-in</h1>
+           <div className="min-w-0 flex-1 mx-12">
+            <p className="text-[12px] font-black tracking-[0.14em] text-[var(--theme-text)]  leading-none">
+              Your daily streak {isCurrentMonth ? "this month" : monthName}
+            </p>
+            <div className="flex items-baseline gap-2.5 mt-2">
+              <p className="inline-flex items-center gap-1 text-[13px] font-sans font-black text-[var(--theme-primary)]">
+                <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
+                {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
+              </p>
+              <p ref={accruedRef} className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
+                {formatCurrency(monthSum)}
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* Accrued — days then amount, follows the viewed month */}
-        <div className="px-1 py-1 mt-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--theme-text)] opacity-55 leading-none">
-            Accrued {isCurrentMonth ? "this month" : monthName}
-          </p>
-          <div className="flex items-baseline gap-2.5 mt-2">
-            <p className="inline-flex items-center gap-1 text-[13px] font-sans font-black text-[var(--theme-primary)]">
-              <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
-              {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
+        {/*   the viewed month */}
+        <div className="px-1 py-1 mt-3 flex items-end justify-between gap-3">
+
+          {checkedInToday ? (
+            <p className="text-right text-[11px] font-sans font-bold tabular-nums text-[var(--theme-primary)] shrink-0">
+              Come back in<br />{formatClock(nextIn)}
             </p>
-            <p ref={accruedRef} className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
-              {formatCurrency(monthSum)}
-            </p>
-          </div>
-          {!checkedInToday && (
-            <p className="text-[12px] font-sans font-bold mt-2 tabular-nums text-[var(--theme-primary)]">
+          ) : (
+            <p className="text-right text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)] shrink-0">
               {`Day ${todayStreak} reward • ${formatCurrency(todayAmount)}`}
             </p>
           )}
@@ -322,7 +327,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               const isFuture = ms > todayMs;
               const isNext = checkedInToday && ms === tomorrowMs;
               const missed = !isFuture && !isToday && !claimed;
-              const dimmed = (missed || isFuture) && !isNext;
+              const dimmed = missed || isFuture;
               const active = isToday && !claimed;
               const inner = (
                 <>
@@ -334,7 +339,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                     className={`w-10 h-10 object-contain ${dimmed ? "grayscale" : ""}`}
                   />
                   {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
-                  <span className={`text-[11px] font-sans font-black uppercase tracking-wide ${claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"}`}>
+                  <span className={`text-[11px] font-sans font-black uppercase tracking-wide ${claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"}`}>
                     {day}
                   </span>
                 </>
@@ -345,7 +350,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
                   : active
                     ? "border border-[var(--theme-primary)]/70 tile-shimmer streak-tile-pulse"
                     : isNext
-                      ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
+                      ? "border border-dashed border-[var(--theme-text)]/25 bg-[var(--theme-text)]/[0.03] opacity-40"
                       : isFuture
                         ? "opacity-40"
                         : ""
@@ -407,11 +412,6 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--theme-primary)] shadow-[0_0_6px_var(--theme-primary)]" />Claimed</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />Missed</span>
           </div>
-          {checkedInToday && (
-            <p className="mt-3 text-center text-[15px] font-sans font-medium tabular-nums text-[var(--theme-primary)]">
-              Come back in {formatClock(nextIn)}
-            </p>
-          )}
         </div>
       </div>
     </div>

@@ -30,6 +30,7 @@ interface IncomeViewProps {
   activeNodes: SubscribedNode[];
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
+  onNavigateToIncomeHistory: () => void;
   onNavigateToCollection?: () => void;
   onRenew?: (item: SubscriptionItem) => void;
   onClaimSuccess?: (pointsEarned: number, newBalance: number, subId: string) => void;
@@ -41,6 +42,7 @@ export default function IncomeView({
   activeNodes,
   items,
   onNavigateToCatalog,
+  onNavigateToIncomeHistory,
   onNavigateToCollection,
   onRenew,
   onClaimSuccess,
@@ -306,10 +308,16 @@ export default function IncomeView({
                   {/* Earnings split */}
                   <div className="mt-3 flex items-baseline justify-between gap-3 text-[var(--theme-primary)]">
                     <p className="text-[12px] font-semibold tracking-tight">Collected</p>
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-bold tracking-tight tabular-nums">
+                    <button
+                      type="button"
+                      onClick={onNavigateToIncomeHistory}
+                      aria-label={`View product income history. Collected ${formatCurrency(Number(node.totalEarned) || 0)}`}
+                      title="View product income history"
+                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-bold tracking-tight tabular-nums transition-colors hover:bg-[var(--theme-primary)]/20 active:scale-95"
+                    >
                       <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
                       {formatCurrency(Number(node.totalEarned) || 0)}
-                    </span>
+                    </button>
                   </div>
 
                   {/* Finished-run ownership actions */}

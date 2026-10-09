@@ -22,6 +22,7 @@ import { optimizedImageUrl } from "../utils/imageUtils";
 
 interface MilestoneChipProps {
   phone: string;
+  username?: string;
   onOpen: (stage: string) => void;
 }
 
@@ -62,13 +63,13 @@ function TierRing({ pct, art, metric }: { pct: number; art: string; metric: stri
   return (
     <span className="relative w-14 h-14 shrink-0" aria-hidden="true">
       <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full -rotate-90">
-        <circle cx="18" cy="18" r={R} fill="none" strokeWidth="2" strokeOpacity="0.14" style={{ stroke: "var(--theme-text)" }} />
+        <circle cx="18" cy="18" r={R} fill="none" strokeWidth="3.5" strokeOpacity="0.22" style={{ stroke: "var(--theme-text)" }} />
         <circle
           cx="18"
           cy="18"
           r={R}
           fill="none"
-          strokeWidth="2"
+          strokeWidth="3.5"
           strokeLinecap="round"
           style={{
             stroke: "var(--theme-primary)",
@@ -83,7 +84,7 @@ function TierRing({ pct, art, metric }: { pct: number; art: string; metric: stri
           <img
             src={optimizedImageUrl(art, 200)}
             alt=""
-            loading="lazy"
+            loading="eager"
             decoding="async"
             className="w-full h-full object-cover"
           />
@@ -95,7 +96,7 @@ function TierRing({ pct, art, metric }: { pct: number; art: string; metric: stri
   );
 }
 
-export default function MilestoneChip({ phone, onOpen }: MilestoneChipProps) {
+export default function MilestoneChip({ phone, username, onOpen }: MilestoneChipProps) {
   const [board, setBoard] = useState<VipTaskboard | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
@@ -115,10 +116,8 @@ export default function MilestoneChip({ phone, onOpen }: MilestoneChipProps) {
 
   const tier = useMemo(() => currentTierProgress(board), [board]);
 
-  if (unavailable || !tier) {
-    // Skeleton holds the tile's footprint so neighbors don't jump when the
-    // board lands; nothing at all when milestones are unavailable.
-    if (unavailable || board !== null) return null;
+  if (unavailable) return null;
+  if (!tier) {
     return (
       <span aria-hidden="true" className="flex items-center gap-2.5 shrink-0 animate-pulse">
         <span className="w-14 h-14 rounded-full bg-[var(--theme-text)]/10 shrink-0" />
@@ -139,15 +138,20 @@ export default function MilestoneChip({ phone, onOpen }: MilestoneChipProps) {
       onClick={() => onOpen(tier.name)}
       title={`${tier.name} — open journey`}
       aria-label={`${tier.name} tier, ${tier.done} of ${tier.total} milestones done. ${chipCaptionText(tier)}. Open journey.`}
-      className="flex items-center gap-1.5 min-w-0 shrink-0 bg-transparent border-0 p-0 cursor-pointer active:scale-[0.96] transition-transform duration-100"
+      className="flex items-center gap-1.5 min-w-0 w-full bg-transparent border-0 p-0 text-left cursor-pointer active:scale-[0.96] transition-transform duration-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary)]"
     >
       <TierRing pct={tier.pct} art={tier.art} metric={tier.metric} />
-      <span className="hidden min-[400px]:block min-w-0 text-left leading-none">
-        <span className="block font-display font-black text-[13px] uppercase tracking-tight truncate max-w-[160px]">
-          {tier.name}
+      <span className="min-w-0 flex-1 text-left leading-none">
+        <span className="block font-sans font-bold text-[11px] text-[var(--theme-primary)] truncate max-w-full">
+          @{username || "Operator"}
         </span>
-        <span className="mt-1 block font-sans text-[11px] text-[var(--theme-text-muted)] truncate max-w-[160px]">
-          {chipCaption(tier)}
+        <span className="mt-2.5 block min-w-0">
+          <span className="block font-display font-black text-[12px] sm:text-[13px] uppercase tracking-tight truncate max-w-full">
+            {tier.name}
+          </span>
+          <span className="mt-1 block font-sans text-[10px] sm:text-[11px] text-[var(--theme-text-muted)] truncate max-w-full">
+            {chipCaption(tier)}
+          </span>
         </span>
       </span>
     </motion.button>

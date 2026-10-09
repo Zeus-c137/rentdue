@@ -266,7 +266,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
           setUsername("");
         }, 1200);
       } else {
-        toast.success("Logged in successfully!");
         onAuthSuccess(data.profile);
       }
     } catch (err: any) {
@@ -292,7 +291,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Telegram sign-in failed.");
-      toast.success("Logged in successfully!");
       onAuthSuccess(data.profile);
     } catch (error: any) {
       toast.error(error.message || "Telegram sign-in failed.");
@@ -324,7 +322,6 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok) {
-        toast.success("Logged in successfully!");
         onAuthSuccess(data.profile);
         return;
       }

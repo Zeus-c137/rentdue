@@ -160,12 +160,7 @@ export default function CollectionView({
         </button>
       ) : null}
 
-      <div className="px-1">
-        <h1 className="font-display font-black text-[26px] leading-none tracking-tight">My Collection</h1>
-        <p className="text-[13px] font-sans opacity-65 leading-snug max-w-[320px] mt-1.5">
-          Finished runs become collectibles. Claim them to own them permanently.
-        </p>
-      </div>
+
 
       {items === null ? (
         <div aria-hidden="true" className="space-y-3">
@@ -198,9 +193,9 @@ export default function CollectionView({
         <div className="space-y-5">
           {/* Coverflow showroom — claimed collectibles */}
           {claimed.length > 0 && (
-            <div className="space-y-3" onClick={expanded ? collapse : undefined}>
+            <div className="space-y-16" onClick={expanded ? collapse : undefined}>
               <div className="flex items-baseline justify-between px-1">
-                <h3 className="font-display font-black text-[15px]">Showroom</h3>
+                <h3 className="font-display space-y-8 font-black text-[15px]">View collected artworks from completed runs</h3>
                 <p className="font-display font-bold text-[12px] tabular-nums text-[var(--theme-text)] opacity-55">
                   {String(Math.min(activeIndex + 1, claimed.length)).padStart(2, "0")} / {String(claimed.length).padStart(2, "0")}
                 </p>
