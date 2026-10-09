@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { SubscriptionItem, UserProfile } from "../types";
 import {
   AlertTriangle,
@@ -19,10 +19,10 @@ import {
   ArrowRight,
   Plus,
   Check,
-  Calendar,
   Percent,
   LayoutGrid,
-  Rows3
+  Rows3,
+  Calendar
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -85,9 +85,15 @@ export default function CatalogView({
       return "vertical";
     }
   });
+  const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
+  const horizontalScrollRef = useRef<HTMLDivElement>(null);
+  const horizontalRafRef = useRef<number>(0);
+  const categoryTabsRef = useRef<HTMLDivElement>(null);
+  const categoryTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const setLayoutAndPersist = (next: "horizontal" | "vertical") => {
     setLayout(next);
+    setHorizontalActiveIndex(0);
     try {
       localStorage.setItem(LAYOUT_KEY, next);
     } catch {
@@ -175,6 +181,7 @@ export default function CatalogView({
     const customConfigCats = siteConfig?.categories || [];
     const itemCats = items.map(i => i.category).filter(Boolean);
     const combined = Array.from(new Set([...customConfigCats, ...itemCats]));
+    if (items.some((item) => !item.category) && !combined.includes("Runs")) combined.push("Runs");
     return ["All", ...combined];
   }, [siteConfig?.categories, items]);
 
@@ -184,6 +191,57 @@ export default function CatalogView({
     if (activeCategory === "All") return true;
     return item.category === activeCategory;
   });
+
+  const carouselItems = activeCategory === "All"
+    ? categoryList
+      .filter((category) => category !== "All")
+      .flatMap((category) => filteredItems.filter((item) => (item.category || "Runs") === category))
+    : filteredItems;
+  const safeHorizontalActiveIndex = Math.max(0, Math.min(horizontalActiveIndex, Math.max(carouselItems.length - 1, 0)));
+  const horizontalActiveItem = carouselItems[safeHorizontalActiveIndex] || carouselItems[0] || null;
+  const visibleCategory = layout === "horizontal" && activeCategory === "All"
+    ? (horizontalActiveItem ? horizontalActiveItem.category || "Runs" : "All")
+    : activeCategory;
+
+  const updateHorizontalActive = React.useCallback(() => {
+    cancelAnimationFrame(horizontalRafRef.current);
+    horizontalRafRef.current = requestAnimationFrame(() => {
+      const scroller = horizontalScrollRef.current;
+      if (!scroller || scroller.children.length === 0) return;
+      const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      Array.from(scroller.children).forEach((child, index) => {
+        const card = child as HTMLElement;
+        const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+        const distance = Math.abs(cardCenter - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      setHorizontalActiveIndex(nearestIndex);
+    });
+  }, []);
+
+  React.useEffect(() => () => cancelAnimationFrame(horizontalRafRef.current), []);
+
+  const filteredItemsKey = carouselItems.map((item) => `${item.id}:${item.category || ""}`).join("|");
+  React.useEffect(() => {
+    setHorizontalActiveIndex(0);
+    if (layout === "horizontal") horizontalScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
+  }, [activeCategory, filteredItemsKey, layout]);
+
+  React.useEffect(() => {
+    if (layout !== "horizontal") return;
+    const scroller = categoryTabsRef.current;
+    const tab = categoryTabRefs.current[categoryList.indexOf(visibleCategory)];
+    if (!scroller || !tab) return;
+    const containerRect = scroller.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
+    scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [categoryList, layout, prefersReducedMotion, visibleCategory]);
 
   // Grouped sections: one "X Collection" header per category when browsing All.
   const groups = React.useMemo(() => {
@@ -202,7 +260,7 @@ export default function CatalogView({
     return cat;
   };
 
-  const renderStartButton = (item: SubscriptionItem, fullWidth = false) => {
+  const renderStartButton = (item: SubscriptionItem) => {
     const isOutOfStock = item.outOfStock || item.disabled;
     return (
       <button
@@ -210,7 +268,7 @@ export default function CatalogView({
         onClick={() => handleStartRun(item)}
         disabled={submittingItemId === item.id || isOutOfStock}
         aria-label={`Start ${item.name} run`}
-        className={`${fullWidth ? "w-full" : ""} shrink-0 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black transition-all active:scale-95 disabled:opacity-50 cursor-pointer`}
+        className="shrink-0 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
       >
         {submittingItemId === item.id ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -220,23 +278,6 @@ export default function CatalogView({
       </button>
     );
   };
-
-  const renderSpecs = (item: SubscriptionItem) => (
-    <div className="mt-3 space-y-2.5">
-      <div className="flex items-center justify-between gap-2 text-[13px] font-sans font-bold text-[var(--theme-text)]">
-        <span className="opacity-50">Daily return</span>
-        <span className="tabular-nums">{dailyPct(item)}</span>
-      </div>
-      <div className="flex items-center justify-between gap-2 text-[13px] font-sans font-bold text-[var(--theme-text)]">
-        <span className="opacity-50">Price</span>
-        <span className="tabular-nums truncate">{formatCurrency(item.amount)}</span>
-      </div>
-      <div className="pt-0.5">
-        <p className="text-[11px] font-sans font-bold uppercase tracking-wider text-[var(--theme-secondary)]">Total return</p>
-        <p className="font-display font-black text-[16px] text-[var(--theme-secondary)] tabular-nums mt-0.5">{formatCurrency(item.dailyYield * item.duration)}</p>
-      </div>
-    </div>
-  );
 
   const renderVerticalSpecs = (item: SubscriptionItem) => {
     const row = (label: string, value: string, highlight = false) => (
@@ -248,80 +289,10 @@ export default function CatalogView({
     return (
       <div className="mt-2 space-y-1.5">
         {row("Duration", `${item.duration} Days`)}
-        {row("Daily", dailyPct(item))}
+        {row("Daily", formatCurrency(item.dailyYield))}
         {row("Price", formatCurrency(item.amount))}
         {row("Total return", formatCurrency(item.dailyYield * item.duration), true)}
       </div>
-    );
-  };
-
-  const renderHorizontalCard = (item: SubscriptionItem, idx: number) => {
-    const isOutOfStock = item.outOfStock || item.disabled;
-    const ownedQuantity = activeSubscriptions.filter(
-      (sub) => (sub.itemId === item.id || sub.itemName === item.name) && sub.status === "active"
-    ).length;
-
-    return (
-      <motion.div
-        key={item.id}
-        initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: prefersReducedMotion ? 0 : Math.min(idx, 5) * 0.03, duration: prefersReducedMotion ? 0.15 : 0.25, ease: [0.23, 1, 0.32, 1] }}
-        className="relative flex flex-row items-stretch bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] overflow-hidden transition-all duration-150 group select-none shadow-sm hover:border-[var(--theme-primary)]/30"
-      >
-        {/* Left: art with rarity banner across the top */}
-        <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="w-40 sm:w-44 md:w-52 self-stretch relative overflow-hidden rounded-l-[var(--theme-radius)] bg-transparent border-0 shrink-0 cursor-zoom-in group-hover:border-[var(--theme-primary)]/30 transition-colors p-2.5">
-          {item.imageUrl ? (
-            <img
-              src={item.imageUrl}
-              alt={item.name}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover rounded-lg group-hover:scale-[1.02] transition-transform duration-500"
-            />
-          ) : (
-            <div className="w-full h-full bg-[var(--theme-bg)] flex items-center justify-center text-[var(--theme-text)] opacity-40 text-xs font-mono">
-              No Image
-            </div>
-          )}
-          <div className="absolute top-3 left-3">
-            <RarityBadge rarity={rarityMap[item.id] || "common"} />
-          </div>
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none" />
-          {ownedQuantity > 0 && (
-            <span className="absolute bottom-1.5 right-1.5 rounded-full border border-[var(--theme-primary)] bg-[var(--theme-card-bg)]/85 backdrop-blur-md text-[var(--theme-text)] px-2 py-0.5 text-[10px] font-black leading-none shadow-md whitespace-nowrap">
-              ×{ownedQuantity}
-            </span>
-          )}
-        </div>
-
-        {/* Right: name, specs, action */}
-        <div className="flex-1 min-w-0 p-4 flex flex-col justify-between gap-2 font-sans">
-          <div className="min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-display font-black text-[17px] text-[var(--theme-text)] tracking-tight leading-tight line-clamp-1 min-w-0">
-                {item.name}
-              </h3>
-              <div className="flex items-center gap-1 shrink-0 text-[12px] font-sans font-bold text-[var(--theme-text)] opacity-70">
-                <Calendar className="w-3.5 h-3.5" />
-                <span className="tabular-nums">{item.duration} days</span>
-              </div>
-            </div>
-            {renderSpecs(item)}
-          </div>
-          <div className="flex items-center justify-between gap-2 mt-2">
-            {renderStartButton(item)}
-          </div>
-        </div>
-
-        {isOutOfStock ? (
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10 pointer-events-none">
-            <span className="text-2xl md:text-3xl font-sans font-black tracking-wide text-white drop-shadow-md select-none">
-              SOLD OUT
-            </span>
-          </div>
-        ) : null}
-      </motion.div>
     );
   };
 
@@ -368,7 +339,7 @@ export default function CatalogView({
             {item.name}
           </h3>
           {renderVerticalSpecs(item)}
-          <div className="mt-2">{renderStartButton(item, true)}</div>
+          <div className="mt-2 flex justify-center">{renderStartButton(item)}</div>
         </div>
         {isOutOfStock ? (
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10 pointer-events-none">
@@ -377,6 +348,65 @@ export default function CatalogView({
             </span>
           </div>
         ) : null}
+      </motion.div>
+    );
+  };
+
+  const renderCarouselCard = (item: SubscriptionItem, idx: number) => {
+    const isOutOfStock = item.outOfStock || item.disabled;
+    const ownedQuantity = activeSubscriptions.filter(
+      (sub) => (sub.itemId === item.id || sub.itemName === item.name) && sub.status === "active"
+    ).length;
+    return (
+      <motion.div
+        key={item.id}
+        className="relative shrink-0 w-[86%] max-w-[390px] snap-center cursor-pointer"
+      >
+        <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/50 shadow-sm backdrop-blur-[20px]">
+          <div
+            onClick={() => {
+              if (idx !== horizontalActiveIndex) {
+                const scroller = horizontalScrollRef.current;
+                const target = scroller?.children[idx] as HTMLElement | undefined;
+                if (scroller && target) {
+                  const left = target.offsetLeft - (scroller.clientWidth - target.offsetWidth) / 2;
+                  scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
+                }
+              } else if (item.imageUrl) {
+                setPreviewImage(item.imageUrl);
+              }
+            }}
+            className="relative aspect-[16/10] overflow-hidden cursor-zoom-in bg-[var(--theme-bg)]"
+          >
+            {item.imageUrl ? (
+              <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover pointer-events-none" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-xs font-mono opacity-40">No Image</div>
+            )}
+            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+            <div className="absolute left-3 top-3"><RarityBadge rarity={rarityMap[item.id] || "common"} /></div>
+            {ownedQuantity > 0 && (
+              <span className="absolute right-3 top-3 rounded-full border border-[var(--theme-primary)] bg-[var(--theme-card-bg)]/85 px-2 py-1 text-[10px] font-black leading-none text-[var(--theme-text)] backdrop-blur-md">
+                ×{ownedQuantity} owned
+              </span>
+            )}
+            {isOutOfStock && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/45">
+                <span className="text-2xl font-black tracking-wide text-white drop-shadow-md">SOLD OUT</span>
+              </div>
+            )}
+          </div>
+          <div className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate font-display text-[18px] font-black tracking-tight text-[var(--theme-text)]">{item.name}</h3>
+              </div>
+              <span className="shrink-0 rounded-full bg-[var(--theme-primary)]/15 px-2.5 py-1 text-[10px] font-black text-[var(--theme-primary)]">{dailyPct(item)}</span>
+            </div>
+            {renderVerticalSpecs(item)}
+            <div className="mt-3 flex justify-center">{renderStartButton(item)}</div>
+          </div>
+        </div>
       </motion.div>
     );
   };
@@ -412,15 +442,17 @@ export default function CatalogView({
 
             {/* Category selection Tabs — no container bg (transparent) */}
             <div className="relative p-1.5 -mx-1 mb-2">
-              <div className="overflow-x-auto scrollbar-none">
+              <div ref={categoryTabsRef} className="overflow-x-auto scrollbar-none">
                 <div className="flex gap-2 min-w-max px-1">
-                  {categoryList.map((cat) => {
-                    const isSelected = activeCategory === cat;
+                  {categoryList.map((cat, i) => {
+                    const isSelected = (layout === "horizontal" ? visibleCategory : activeCategory) === cat;
                     return (
                       <button
                         key={cat}
+                        ref={(el) => { categoryTabRefs.current[i] = el; }}
                         onClick={() => {
                           setActiveCategory(cat);
+                          setHorizontalActiveIndex(0);
                           setErrorMsg("");
                         }}
                         className={`py-2.5 px-5 text-[11px] font-sans font-black tracking-wider uppercase transition-all cursor-pointer outline-none select-none rounded-full ${
@@ -437,11 +469,8 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* List header: layout A/B toggle */}
-            <div className="flex items-center justify-between pt-1 px-1">
-              <p className="text-[11px] font-sans font-black uppercase tracking-[0.14em] opacity-55">
-                {filteredItems.length} run{filteredItems.length === 1 ? "" : "s"}
-              </p>
+            {/* List header: layout toggle and active position */}
+            <div className="flex items-center justify-end pt-1 px-1">
               <div className="flex items-center gap-1 rounded-full border border-white/10 p-1">
                 <button
                   type="button"
@@ -462,25 +491,44 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* Cards: grouped per category when browsing All */}
-            {groups.map((group) => (
-              <div key={group.category} className="space-y-3 pt-1">
-                {activeCategory === "All" && groups.length > 1 && (
-                  <h2 className="font-display font-black text-[17px] tracking-tight px-1">
-                    {getCategoryLabel(group.category)} Collection
-                  </h2>
-                )}
-                {layout === "horizontal" ? (
-                  <div className="space-y-3">
-                    {group.items.map((item, idx) => renderHorizontalCard(item, idx))}
+            {/* Horizontal showroom: swipe between runs, keeping the active
+                collection title and category tab aligned to the centered card. */}
+            {layout === "horizontal" && carouselItems.length > 0 ? (
+              <div className="space-y-3 pt-1">
+                <div className="flex items-end justify-between gap-3 px-1">
+                  <div className="min-w-0">
+                    <h2 className="mt-1 truncate font-display text-[17px] font-black tracking-tight">
+                      {getCategoryLabel(horizontalActiveItem?.category || activeCategory)} Collection
+                    </h2>
+                    {horizontalActiveItem && <p className="mt-0.5 truncate text-[11px] font-sans opacity-55">{horizontalActiveItem.name}</p>}
                   </div>
-                ) : (
+                  <span className="shrink-0 pb-0.5 text-[10px] font-sans font-bold tabular-nums opacity-50">
+                    {horizontalActiveItem ? `${horizontalActiveItem.duration} days` : ""}
+                  </span>
+                </div>
+                <div
+                  ref={horizontalScrollRef}
+                  onScroll={updateHorizontalActive}
+                  className="relative flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto overscroll-x-contain scrollbar-none -mx-1 px-[7%] pb-3 pt-1 touch-pan-x"
+                  style={{ WebkitOverflowScrolling: "touch" }}
+                >
+                  {carouselItems.map((item, idx) => renderCarouselCard(item, idx))}
+                </div>
+              </div>
+            ) : (
+              groups.map((group) => (
+                <div key={group.category} className="space-y-3 pt-1">
+                  {activeCategory === "All" && groups.length > 1 && (
+                    <h2 className="font-display font-black text-[17px] tracking-tight px-1">
+                      {getCategoryLabel(group.category)} Collection
+                    </h2>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {group.items.map((item, idx) => renderVerticalCard(item, idx))}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ))
+            )}
 
             {filteredItems.length === 0 && (
               <div className="text-center py-12 text-xs font-sans text-[var(--theme-text)] opacity-60 theme-card border border-dashed border-[var(--theme-card-border)] rounded-[var(--theme-radius)]">
@@ -489,6 +537,12 @@ export default function CatalogView({
             )}
           </motion.div>
       </AnimatePresence>
+      <div className="mt-4 rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 flex items-start gap-2.5">
+        <Calendar className="w-4 h-4 text-[var(--theme-primary)] shrink-0 mt-0.5" />
+        <p className="text-[12px] font-sans opacity-70 leading-relaxed">
+          Earnings are credited to your withdrawable balance daily. Completed runs become art collectibles in your account.
+        </p>
+      </div>
       {/* Single modal: confirm → loading → success */}
       <AnimatePresence>
         {(confirmingItem || activated) && (
@@ -555,68 +609,78 @@ export default function CatalogView({
                   </div>
                 </div>
               ) : confirmingItem ? (
-                <div className="p-6 flex flex-col items-center gap-4">
+                <div className="w-full overflow-y-auto">
                   {confirmingItem.imageUrl && (
-                    <img src={confirmingItem.imageUrl} alt={confirmingItem.name} loading="lazy" referrerPolicy="no-referrer" className="w-20 h-20 object-contain" />
+                    <div className="w-full overflow-hidden rounded-t-[24px] bg-[var(--theme-bg)]">
+                      <img
+                        src={confirmingItem.imageUrl}
+                        alt={confirmingItem.name}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="h-48 w-full object-cover sm:h-56"
+                      />
+                    </div>
                   )}
-                  <div className="text-center">
-                    <h3 className="font-display font-black text-[20px] tracking-tight">
-                      {modalPhase === "loading" ? "Starting your run..." : "Start this run?"}
-                    </h3>
-                    <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{confirmingItem.name}</p>
-                  </div>
-                  <div className="w-full divide-y divide-[var(--theme-card-border)]/60 border-y border-[var(--theme-card-border)]/60">
-                    <div className="flex items-center justify-between py-2.5">
-                      <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Price</span>
-                      <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{formatCurrency(confirmingItem.amount)}</span>
+                  <div className="flex w-full flex-col items-center gap-4 p-6 pt-5">
+                    <div className="text-center">
+                      <h3 className="font-display font-black text-[20px] tracking-tight">
+                        {modalPhase === "loading" ? "Starting your run..." : "Start this run?"}
+                      </h3>
+                      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{confirmingItem.name}</p>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
-                      <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Duration</span>
-                      <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{confirmingItem.duration} Days</span>
+                    <div className="w-full divide-y divide-[var(--theme-card-border)]/60 border-y border-[var(--theme-card-border)]/60">
+                      <div className="flex items-center justify-between py-2.5">
+                        <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Price</span>
+                        <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{formatCurrency(confirmingItem.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between py-2.5">
+                        <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Duration</span>
+                        <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{confirmingItem.duration} Days</span>
+                      </div>
+                      <div className="flex items-center justify-between py-2.5">
+                        <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Daily return</span>
+                        <span className="font-display font-black text-[14px] text-[var(--theme-primary)] tabular-nums">{formatCurrency(confirmingItem.dailyYield)}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
-                      <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Daily return</span>
-                      <span className="font-display font-black text-[14px] text-[var(--theme-primary)] tabular-nums">{formatCurrency(confirmingItem.dailyYield)}</span>
-                    </div>
-                  </div>
-                  {modalPhase === "loading" ? (
-                    <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
-                      Processing payment and activating your run...
-                    </p>
-                  ) : (
-                    <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
-                      {formatCurrency(confirmingItem.amount)} will be deducted from your recharge balance.
-                    </p>
-                  )}
-                  <div className="w-full space-y-2 mt-1">
                     {modalPhase === "loading" ? (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-wait opacity-80"
-                      >
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Starting...
-                      </button>
+                      <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
+                        Processing payment and activating your run...
+                      </p>
                     ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleConfirmSubscribe}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
-                        >
-                          <Check className="w-4 h-4" strokeWidth={3} />
-                          Confirm & Start
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCloseModal}
-                          className="w-full px-5 py-2.5 rounded-full text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </>
+                      <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
+                        {formatCurrency(confirmingItem.amount)} will be deducted from your recharge balance.
+                      </p>
                     )}
+                    <div className="w-full space-y-2 mt-1">
+                      {modalPhase === "loading" ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-wait opacity-80"
+                        >
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Starting...
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleConfirmSubscribe}
+                            className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
+                          >
+                            <Check className="w-4 h-4" strokeWidth={3} />
+                            Confirm & Start
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCloseModal}
+                            className="w-full px-5 py-2.5 rounded-full text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-all"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : null}

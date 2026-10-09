@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { SubscribedNode, SubscriptionItem, UserProfile, Collectible } from "../types";
 import {
   Lock,
@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Loader2,
   Award,
+  Rows3,
+  LayoutGrid,
 } from "lucide-react";
 import MetricCard from "./MetricCard";
 import CellsProgress from "./CellsProgress";
@@ -24,12 +26,16 @@ import RarityBadge from "./RarityBadge";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
+import { useReducedMotion } from "../hooks/useReducedMotion";
+
+const RUNS_LAYOUT_KEY = "rentdue_runs_layout";
 
 interface IncomeViewProps {
   profile: UserProfile;
   activeNodes: SubscribedNode[];
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
+  onNavigateToIncomeHistory: () => void;
   onNavigateToCollection?: () => void;
   onRenew?: (item: SubscriptionItem) => void;
   onClaimSuccess?: (pointsEarned: number, newBalance: number, subId: string) => void;
@@ -41,23 +47,111 @@ export default function IncomeView({
   activeNodes,
   items,
   onNavigateToCatalog,
+  onNavigateToIncomeHistory,
   onNavigateToCollection,
   onRenew,
   onClaimSuccess,
   onCollectibleClaimed
 }: IncomeViewProps) {
   const { formatCurrency } = useCurrency();
+  const prefersReducedMotion = useReducedMotion();
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimingCollectibleId, setClaimingCollectibleId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [collectibles, setCollectibles] = useState<Record<string, Collectible>>({});
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
+    try {
+      const stored = localStorage.getItem(RUNS_LAYOUT_KEY);
+      return stored === "horizontal" || stored === "vertical" ? stored : "vertical";
+    } catch {
+      return "vertical";
+    }
+  });
+  const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
+  const horizontalScrollRef = useRef<HTMLDivElement>(null);
+  const horizontalRafRef = useRef<number>(0);
+  const categoryTabsRef = useRef<HTMLDivElement>(null);
+  const categoryTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const shownNodes = showCompleted
-    ? activeNodes.filter((n) => getRunState(n, items) !== "active")
-    : activeNodes.filter((n) => getRunState(n, items) === "active");
+  const shownNodes = React.useMemo(
+    () => showCompleted
+      ? activeNodes.filter((n) => getRunState(n, items) !== "active")
+      : activeNodes.filter((n) => getRunState(n, items) === "active"),
+    [activeNodes, items, showCompleted]
+  );
 
   const rarityMap = React.useMemo(() => rarityMapForCatalog(items), [items]);
+  const runEntries = React.useMemo(
+    () => shownNodes.map((node) => {
+      const mappedItem = items.find((item) => item.id === node.itemId || item.name === node.itemName);
+      return { node, mappedItem, category: mappedItem?.category || "Runs" };
+    }),
+    [items, shownNodes]
+  );
+  const categoryList = React.useMemo(
+    () => ["All", ...Array.from(new Set(runEntries.map((entry) => entry.category)))],
+    [runEntries]
+  );
+  const filteredRuns = React.useMemo(
+    () => runEntries.filter((entry) => activeCategory === "All" || entry.category === activeCategory),
+    [activeCategory, runEntries]
+  );
+  const safeHorizontalActiveIndex = Math.max(0, Math.min(horizontalActiveIndex, Math.max(filteredRuns.length - 1, 0)));
+  const horizontalActiveRun = filteredRuns[safeHorizontalActiveIndex] || filteredRuns[0] || null;
+  const visibleCategory = layout === "horizontal" && activeCategory === "All"
+    ? (horizontalActiveRun?.category || "All")
+    : activeCategory;
+
+  const setLayoutAndPersist = (next: "horizontal" | "vertical") => {
+    setLayout(next);
+    setHorizontalActiveIndex(0);
+    try {
+      localStorage.setItem(RUNS_LAYOUT_KEY, next);
+    } catch {
+      // persistence is best-effort
+    }
+  };
+
+  const updateHorizontalActive = useCallback(() => {
+    cancelAnimationFrame(horizontalRafRef.current);
+    horizontalRafRef.current = requestAnimationFrame(() => {
+      const scroller = horizontalScrollRef.current;
+      if (!scroller || scroller.children.length === 0) return;
+      const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      Array.from(scroller.children).forEach((child, index) => {
+        const card = child as HTMLElement;
+        const distance = Math.abs(card.offsetLeft + card.offsetWidth / 2 - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      setHorizontalActiveIndex(nearestIndex);
+    });
+  }, []);
+
+  useEffect(() => () => cancelAnimationFrame(horizontalRafRef.current), []);
+
+  const filteredRunsKey = filteredRuns.map(({ node }) => node.id).join("|");
+  useEffect(() => {
+    setHorizontalActiveIndex(0);
+    if (layout === "horizontal") horizontalScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
+  }, [activeCategory, filteredRunsKey, layout, showCompleted]);
+
+  useEffect(() => {
+    if (layout !== "horizontal") return;
+    const scroller = categoryTabsRef.current;
+    const tab = categoryTabRefs.current[categoryList.indexOf(visibleCategory)];
+    if (!scroller || !tab) return;
+    const containerRect = scroller.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
+    scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [categoryList, layout, prefersReducedMotion, visibleCategory]);
 
   const loadCollectibles = useCallback(async () => {
     try {
@@ -172,21 +266,76 @@ export default function IncomeView({
 
       {/* Active runs list section */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between pb-2">
+        <div className="flex items-center justify-between gap-3 px-1">
           <h3 className="font-display font-black text-[15px] text-[var(--theme-text)]">
             {showCompleted ? "Completed Runs" : "Active Runs"}
           </h3>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowCompleted((v) => !v)}
+              onClick={() => {
+                setShowCompleted((value) => !value);
+                setActiveCategory("All");
+                setHorizontalActiveIndex(0);
+              }}
               aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
               className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
             >
               <SlidersHorizontal className="w-4 h-4" />
             </button>
+            <div className="flex items-center gap-1 rounded-full border border-white/10 p-1">
+              <button
+                type="button"
+                onClick={() => setLayoutAndPersist("horizontal")}
+                aria-label="Horizontal cards"
+                aria-pressed={layout === "horizontal"}
+                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "horizontal" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
+              >
+                <Rows3 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayoutAndPersist("vertical")}
+                aria-label="Vertical cards"
+                aria-pressed={layout === "vertical"}
+                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "vertical" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
+
+        {shownNodes.length > 0 && (
+          <div className="relative p-1.5 -mx-1 mb-2">
+            <div ref={categoryTabsRef} className="overflow-x-auto scrollbar-none">
+              <div className="flex gap-2 min-w-max px-1">
+                {categoryList.map((category, index) => {
+                  const isSelected = visibleCategory === category;
+                  return (
+                    <button
+                      key={category}
+                      ref={(element) => { categoryTabRefs.current[index] = element; }}
+                      type="button"
+                      onClick={() => {
+                        setActiveCategory(category);
+                        setHorizontalActiveIndex(0);
+                      }}
+                      aria-pressed={isSelected}
+                      className={`py-2.5 px-5 text-[11px] font-sans font-black tracking-wider uppercase transition-all cursor-pointer outline-none select-none rounded-full ${
+                        isSelected
+                          ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-md"
+                          : "border border-white/10 text-[var(--theme-text)] opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      {category === "All" ? category : category.toLowerCase().endsWith("series") ? category : category.length <= 3 ? `${category} series` : category}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {shownNodes.length === 0 ? (
           <div className="text-center py-12 px-4 max-w-xl mx-auto space-y-4">
@@ -205,13 +354,27 @@ export default function IncomeView({
               </button>
             )}
           </div>
+        ) : filteredRuns.length === 0 ? (
+          <div className="py-10 text-center text-xs font-sans opacity-60">
+            <p>No runs in this category.</p>
+            <button
+              type="button"
+              onClick={() => setActiveCategory("All")}
+              className="mt-3 font-bold text-[var(--theme-primary)] underline underline-offset-4"
+            >
+              Show all runs
+            </button>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3.5">
-            {shownNodes.map((node) => {
-              // Find the mapped item from catalog
-              const mappedItem = items.find(
-                (item) => item.id === node.itemId || item.name === node.itemName
-              );
+          <div
+            ref={layout === "horizontal" ? horizontalScrollRef : undefined}
+            onScroll={layout === "horizontal" ? updateHorizontalActive : undefined}
+            className={layout === "horizontal"
+              ? "relative flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto overscroll-x-contain scrollbar-none -mx-1 px-[7%] pb-3 pt-1 touch-pan-x"
+              : "grid grid-cols-1 sm:grid-cols-2 gap-3.5"}
+            style={layout === "horizontal" ? { WebkitOverflowScrolling: "touch" } : undefined}
+          >
+            {filteredRuns.map(({ node, mappedItem }) => {
               const imageUrl = mappedItem?.imageUrl || node.image;
               const itemName = mappedItem?.name || node.itemName;
               const totalDays = getRunTotalDays(node, items);
@@ -229,11 +392,16 @@ export default function IncomeView({
               return (
                 <div
                   key={node.id}
-                  className="group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30 transition-colors"
+                  className={layout === "horizontal"
+                    ? "group relative shrink-0 w-[86%] max-w-[390px] snap-center bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden shadow-sm"
+                    : "group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30 transition-colors"}
                 >
-                  <div className="flex flex-row gap-4">
+                  <div className="flex flex-col gap-4">
                     {/* Art with rarity banner */}
-                    <div onClick={() => imageUrl && setPreviewImage(imageUrl)} className="w-36 h-40 sm:w-44 sm:h-44 relative overflow-hidden rounded-2xl shrink-0 cursor-zoom-in bg-[var(--theme-text)]/5">
+                    <div
+                      onClick={() => imageUrl && setPreviewImage(imageUrl)}
+                      className="relative aspect-[16/10] overflow-hidden rounded-2xl cursor-zoom-in bg-[var(--theme-text)]/5"
+                    >
                       {imageUrl ? (
                         <img
                           src={imageUrl}
@@ -255,10 +423,14 @@ export default function IncomeView({
                     {/* Details */}
                     <div className="flex-1 min-w-0 font-sans">
                       <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-sans font-bold text-[var(--theme-text)] text-[18px] sm:text-[20px] leading-tight line-clamp-2">
+                        <h4 className="min-w-0 flex-1 font-sans font-bold text-[var(--theme-text)] text-[18px] sm:text-[20px] leading-tight line-clamp-2">
                           {itemName}
                         </h4>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--theme-primary)]">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span className="tabular-nums">{totalDays} days</span>
+                          </span>
                           {isDone && (
                             <span className="rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] bg-[var(--theme-text)]/5 text-[var(--theme-text)] opacity-60">
                               {isExpired ? "Expired" : "Completed"}
@@ -267,15 +439,6 @@ export default function IncomeView({
                         </div>
                       </div>
                       <div className="mt-5 space-y-3">
-                        <div className="flex items-center gap-2 text-[12px] font-medium text-[var(--theme-text)] opacity-65">
-                          <Calendar className="w-3.5 h-3.5 shrink-0" />
-                          <span className="tabular-nums">Duration</span>
-                          <span className="ml-auto font-semibold opacity-100 tabular-nums">{totalDays} days</span>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
-                          <span className="text-[11px] font-medium opacity-65">Price</span>
-                          <span className="font-semibold tabular-nums text-right">{formatCurrency(Number(node.amount) || 0)}</span>
-                        </div>
                         <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
                           <span className="text-[11px] font-medium opacity-65">Daily return</span>
                           <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield)}</span>
@@ -306,10 +469,16 @@ export default function IncomeView({
                   {/* Earnings split */}
                   <div className="mt-3 flex items-baseline justify-between gap-3 text-[var(--theme-primary)]">
                     <p className="text-[12px] font-semibold tracking-tight">Collected</p>
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-bold tracking-tight tabular-nums">
+                    <button
+                      type="button"
+                      onClick={onNavigateToIncomeHistory}
+                      aria-label={`View product income history. Collected ${formatCurrency(Number(node.totalEarned) || 0)}`}
+                      title="View product income history"
+                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-bold tracking-tight tabular-nums transition-colors hover:bg-[var(--theme-primary)]/20 active:scale-95"
+                    >
                       <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
                       {formatCurrency(Number(node.totalEarned) || 0)}
-                    </span>
+                    </button>
                   </div>
 
                   {/* Finished-run ownership actions */}

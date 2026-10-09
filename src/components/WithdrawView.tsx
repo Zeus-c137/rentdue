@@ -375,7 +375,6 @@ export default function WithdrawView({
                   if (withdrawOperator === "USDT") setUsdtAddress(e.target.value);
                 }}
                 className={`w-full ${withdrawOperator === "USDT" ? "px-4" : "pl-10 pr-4"} py-4 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-[15px] rounded-2xl outline-none font-bold placeholder:font-medium placeholder:opacity-40 focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] transition-all disabled:opacity-60`}
-                placeholder={withdrawOperator === "USDT" ? "T..." : "07XXXXXXXX"}
               />
             </div>
           </div>
@@ -389,7 +388,6 @@ export default function WithdrawView({
                 required
                 min={minimumWithdrawal}
                 max={maximumWithdrawal > 0 ? maximumWithdrawal : undefined}
-                placeholder={`Min ${minimumWithdrawal.toLocaleString()}${maximumWithdrawal > 0 ? ` - Max ${maximumWithdrawal.toLocaleString()}` : ""}`}
                 value={pointsToWithdraw || ""}
                 onChange={(e) => setPointsToWithdraw(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                 className="w-full px-4 py-4 bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-[var(--theme-text)] text-[15px] rounded-2xl outline-none font-bold placeholder:font-medium placeholder:opacity-40 focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] transition-all pr-20"
@@ -462,7 +460,7 @@ export default function WithdrawView({
                 <>
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-black block mb-0.5">Requirement</span>You need an active product to withdraw.
+                    <span className="font-black block mb-0.5">Requirement</span>Activate withdrawals by starting at least 1 run.
                   </div>
                 </>
               )}
@@ -485,7 +483,7 @@ export default function WithdrawView({
             className="w-full"
           >
             {!activeNodes || activeNodes.length === 0 ? (
-              <span>Purchase product first</span>
+              <span>Start a run first</span>
             ) : (
               <>
                 <ArrowUpRight className="w-4 h-4" /> Request withdrawal

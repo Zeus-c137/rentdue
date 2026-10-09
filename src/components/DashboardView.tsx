@@ -20,6 +20,7 @@ import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import {
   getRunProgress,
   getRunEndMs,
@@ -32,6 +33,7 @@ import {
 } from "../utils/runs";
 
 interface DashboardViewProps {
+  isHomeActive: boolean;
   profile: UserProfile;
   activeNodes: SubscribedNode[];
   items: SubscriptionItem[];
@@ -102,6 +104,7 @@ function WeekClimb({ data }: { data: number[] }) {
 }
 
 export default function DashboardView({
+  isHomeActive,
   profile,
   activeNodes,
   items,
@@ -336,11 +339,46 @@ export default function DashboardView({
     };
   }, [checkedInToday, streak, todayKey]);
   const tilesRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
-    tilesRef.current
-      ?.querySelector('[data-today="true"]')
-      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-  }, []);
+    if (!isHomeActive) return;
+    let resetFrame = 0;
+    let scrollFrame = 0;
+    const resetAndScrollFrame = requestAnimationFrame(() => {
+      const tiles = tilesRef.current;
+      const targetTile = tiles?.querySelector<HTMLElement>('[data-next="true"]')
+        || tiles?.querySelector<HTMLElement>('[data-today="true"]');
+      if (!tiles || !targetTile) return;
+
+      // Reset to the month's beginning first, then bring today into focus.
+      // scrollIntoView can skip the motion when today's tile is already barely
+      // visible and can also scroll the page vertically.
+      tiles.scrollLeft = 0;
+      resetFrame = requestAnimationFrame(() => {
+        const tileLeft = targetTile.getBoundingClientRect().left - tiles.getBoundingClientRect().left + tiles.scrollLeft;
+        const destination = Math.max(0, Math.min(tiles.scrollWidth - tiles.clientWidth, tileLeft - (tiles.clientWidth - targetTile.clientWidth) / 2));
+        if (reduceMotion || destination === 0) {
+          tiles.scrollLeft = destination;
+          return;
+        }
+
+        const startedAt = performance.now();
+        const duration = 520;
+        const animateScroll = (now: number) => {
+          const progress = Math.min(1, (now - startedAt) / duration);
+          const eased = 1 - Math.pow(1 - progress, 4);
+          tiles.scrollLeft = destination * eased;
+          if (progress < 1) scrollFrame = requestAnimationFrame(animateScroll);
+        };
+        scrollFrame = requestAnimationFrame(animateScroll);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(resetAndScrollFrame);
+      cancelAnimationFrame(resetFrame);
+      cancelAnimationFrame(scrollFrame);
+    };
+  }, [isHomeActive, reduceMotion]);
 
   const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusyRef.current) return;
@@ -559,18 +597,29 @@ export default function DashboardView({
       {/* Daily streak — frosted to match Store/Runs */}
       <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="min-w-0">
-            <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight">
-              <CalendarDays className="w-5 h-5 text-[var(--theme-primary)] shrink-0" />
-              {weekTiles.month} streak
-            </h2>
-            <div className="mt-1 min-h-[20px]">
+          <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight min-w-0">
+            <CalendarDays className="w-5 h-5 text-[var(--theme-primary)] shrink-0" />
+            {weekTiles.month} streak
+          </h2>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={onNavigateToStreaks}
+              aria-label="Open streaks"
+              className="inline-flex items-center gap-1 px-1 py-1 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform"
+            >
+              <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
+              <span className="text-[13px] font-sans font-bold tabular-nums leading-none">
+                {streak} day{streak === 1 ? "" : "s"}
+              </span>
+            </button>
+            <div className="min-h-[20px] text-right">
               {checkedInToday ? (
-                <span className="font-display font-bold tabular-nums text-[15px] text-[var(--theme-primary)]">
+                <span className="font-display font-bold tabular-nums text-[12px] text-[var(--theme-primary)]">
                   {formatClock(nextCheckinIn)}
                 </span>
               ) : checkinEcon === null ? (
-                <span aria-hidden className="block h-[20px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
+                <span aria-hidden className="ml-auto block h-[20px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
                   <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
@@ -579,24 +628,13 @@ export default function DashboardView({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onNavigateToStreaks}
-            aria-label="Open streaks"
-            className="inline-flex items-center gap-1 px-1 py-1.5 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform shrink-0"
-          >
-            <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
-            <span className="text-[13px] font-sans font-bold tabular-nums leading-none">
-              {streak} day{streak === 1 ? "" : "s"}
-            </span>
-          </button>
         </div>
         <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {weekTiles.days.map((d) => {
             const isNext = (d as { isNext?: boolean }).isNext === true;
             const missed = !d.isFuture && !d.isToday && !d.claimed;
             const active = d.isToday && !d.claimed;
-            const dimmed = (missed || d.isFuture) && !isNext;
+            const dimmed = missed || d.isFuture;
             const inner = (
               <>
                 <img
@@ -609,7 +647,7 @@ export default function DashboardView({
                 {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
                 <span
                   className={`text-[9px] font-sans font-black uppercase tracking-wide ${
-                    d.claimed || isNext ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
+                    d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
                   }`}
                 >
                   {d.label}
@@ -622,7 +660,7 @@ export default function DashboardView({
                 : active
                   ? "border border-[var(--theme-primary)]/70 tile-shimmer streak-tile-pulse"
                   : isNext
-                    ? "border border-dashed border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/5 tile-shimmer"
+                    ? "border border-dashed border-[var(--theme-text)]/25 bg-[var(--theme-text)]/[0.03] opacity-40"
                     : d.isFuture
                       ? "opacity-40"
                       : ""
@@ -675,6 +713,19 @@ export default function DashboardView({
         </div>
       </section>
 
+      {listsReady && activeNodes.length === 0 && (
+        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
+          <p className="font-display font-black text-lg">No active runs.</p>
+          <button
+            type="button"
+            onClick={onNavigateToCatalog}
+            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
+          >
+            <Plus className="w-4 h-4" /> Start your first Run
+          </button>
+        </section>
+      )}
+
       {/* Onboarding banner — sits above milestones */}
       {!onboardingDismissed && listsReady ? (
         <OnboardingCarousel slides={homeSlides} onCta={handleOnboardingCta} onDismiss={dismissOnboarding} />
@@ -712,7 +763,7 @@ export default function DashboardView({
         <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="font-display font-black text-[15px] leading-tight">Next milestone</h2>
+              <h2 className="font-display font-black text-[15px] leading-tight">Daily tasks</h2>
               <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
             </div>
             <button
@@ -823,19 +874,6 @@ export default function DashboardView({
               </div>
             ))}
           </div>
-        </section>
-      ) : activeNodes.length === 0 ? (
-        /* Empty state — the loop entry, kept with its runs card */
-        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
-          <p className="mt-1 text-[13px] font-sans text-[var(--theme-text-muted)]">Start one to put your money in motion.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
-          >
-            <Plus className="w-4 h-4" /> Start your first Run
-          </button>
         </section>
       ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
         /* Runs — one card, two rows, overflow as a count */

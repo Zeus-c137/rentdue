@@ -64,7 +64,6 @@ import navProfile3d from "@/src/assets/3d/3dicons-setting-iso-premium.png";
 import headerBell3d from "@/src/assets/3d/3dicons-bell-iso-premium.png";
 import { LevelBadge } from "./components/LevelBadge";
 import MilestoneChip from "./components/MilestoneChip";
-import UserAvatar from "./components/UserAvatar";
 import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -192,6 +191,7 @@ export default function App() {
     };
   }, [isAdminRoute]);
   const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  const [historyFilterRequest, setHistoryFilterRequest] = useState<string | null>(null);
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
   const [referralView, setReferralView] = useState<"overview" | "team">("overview");
   const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
@@ -330,6 +330,12 @@ export default function App() {
   }, [siteConfig]);
 
   const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+
+  useEffect(() => {
+    if (activeTab !== "history" && !(activeTab === "alerts" && previousTab === "history")) {
+      setHistoryFilterRequest(null);
+    }
+  }, [activeTab, previousTab]);
 
   useEffect(() => {
     if (activeTab !== "alerts") {
@@ -647,30 +653,19 @@ export default function App() {
         }}
       >
         
-        {/* Top Premium navigation Header ribbon — deliberately backgroundless so
-            the dashboard art reads through it. Operator mark, messages and
-            notifications left; the milestone tile right. The tile replaces
-            the greeting — identity now lives in the avatar. */}
+        {/* Header ribbon — milestone identity and progress on the left, actions on the right. */}
         <header className="sticky top-0 z-40 bg-transparent h-[72px] flex items-center justify-between gap-2 px-3.5 sm:px-4.5 shrink-0">
+          <div className="flex items-center min-w-0 flex-1">
+            <MilestoneChip
+              phone={userProfile.phone}
+              username={userProfile.username}
+              onOpen={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
+            />
+          </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Operator mark — username initials with the name below, opens profile */}
-            <button
-              type="button"
-              onClick={() => setActiveTab("profile")}
-              title={userProfile.username || "Operator"}
-              aria-label={`Open profile${userProfile.username ? ` — ${userProfile.username}` : ""}`}
-              className="flex flex-col items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-transform duration-100 bg-transparent border-0 p-0"
-            >
-              <UserAvatar
-                username={userProfile.username}
-                phone={userProfile.phone}
-              />
-              <span className="max-w-[52px] truncate text-[10px] font-sans font-bold leading-none text-[var(--theme-text-muted)]">
-                {userProfile.username || "Operator"}
-              </span>
-            </button>
             {/* Messages trigger button */}
             <button
+              type="button"
               onClick={() => setActiveTab("chat")}
               className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
               title="Messages"
@@ -684,6 +679,7 @@ export default function App() {
             </button>
             {/* Notification Bell trigger button */}
             <button
+              type="button"
               onClick={() => {
                 localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
                 setPreviousTab(activeTab as any);
@@ -702,13 +698,6 @@ export default function App() {
               )}
             </button>
           </div>
-          {/* Milestone tile — tier mark with a progress ring around it */}
-          <div className="flex items-center min-w-0">
-            <MilestoneChip
-              phone={userProfile.phone}
-              onOpen={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
-            />
-          </div>
         </header>
 
         {/* Main interactive tabs content view block */}
@@ -725,6 +714,7 @@ export default function App() {
                 className="w-full flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-1.5 sm:px-2 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
                 <DashboardView
+                  isHomeActive={activeTab === "dashboard"}
                   profile={userProfile}
                   activeNodes={activeNodes}
                   items={items}
@@ -776,6 +766,7 @@ export default function App() {
                   activeNodes={activeNodes}
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
+                  onNavigateToIncomeHistory={() => { setHistoryFilterRequest("yield"); setActiveTab("history"); }}
                   onNavigateToCollection={() => { setCollectionReturn("income"); setActiveTab("collection"); }}
                   onCollectibleClaimed={() => { void handleManualStatsRefresh(); }}
                   onClaimSuccess={handleClaimSuccess}
@@ -814,7 +805,7 @@ export default function App() {
                 transition={{ duration: 0.12 }}
                 className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
               >
-                <TransactionHistoryView phone={userProfile.phone} siteConfig={siteConfig} onBack={() => setActiveTab("profile")} />
+                <TransactionHistoryView phone={userProfile.phone} siteConfig={siteConfig} initialFilter={historyFilterRequest || "all"} onBack={() => setActiveTab("profile")} />
               </motion.div>
             )}
 

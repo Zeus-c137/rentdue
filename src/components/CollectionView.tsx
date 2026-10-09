@@ -39,6 +39,8 @@ export default function CollectionView({
   const [morphKey, setMorphKey] = useState<string | null>(null);
   const [swipeDir, setSwipeDir] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const rafRef = useRef<number>(0);
   const savedScroll = useRef(0);
 
@@ -83,6 +85,7 @@ export default function CollectionView({
 
   const claimed = (items || []).filter((c) => c.claimedAt);
   const pending = (items || []).filter((c) => !c.claimedAt);
+  const activeCollectible = claimed[activeIndex] || claimed[0] || null;
   const expanded = expandedId ? claimed.find((c) => c.id === expandedId) || null : null;
   const growTransition = prefersReducedMotion ? { duration: 0 } : GROW_SPRING;
 
@@ -91,21 +94,49 @@ export default function CollectionView({
     rafRef.current = requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (!el || el.children.length === 0) return;
-      const first = el.children[0] as HTMLElement;
-      const stride = first.offsetWidth + 12;
-      if (stride <= 0) return;
-      const idx = Math.round(el.scrollLeft / stride);
-      setActiveIndex(Math.max(0, Math.min(idx, claimed.length - 1)));
+      const viewportCenter = el.scrollLeft + el.clientWidth / 2;
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      Array.from(el.children).forEach((child, index) => {
+        const card = child as HTMLElement;
+        const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+        const distance = Math.abs(cardCenter - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      setActiveIndex(nearestIndex);
     });
-  }, [claimed.length]);
+  }, []);
 
   const centerOn = (i: number) => {
     const el = scrollRef.current;
     if (!el || el.children.length === 0) return;
     const target = el.children[i] as HTMLElement | undefined;
     if (!target) return;
-    el.scrollTo({ left: target.offsetLeft - (el.clientWidth - target.offsetWidth) / 2, behavior: prefersReducedMotion ? "auto" : "smooth" });
+    const left = target.offsetLeft - (el.clientWidth - target.offsetWidth) / 2;
+    el.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
   };
+
+  const selectArtwork = (i: number) => {
+    if (expanded) {
+      setActiveIndex(i);
+      collapse();
+    } else {
+      centerOn(i);
+    }
+  };
+
+  useEffect(() => {
+    const scroller = tabsRef.current;
+    const tab = tabRefs.current[activeIndex];
+    if (!scroller || !tab) return;
+    const containerRect = scroller.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
+    scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [activeIndex, expandedId, prefersReducedMotion]);
 
   const expand = (c: Collectible) => {
     if (scrollRef.current) savedScroll.current = scrollRef.current.scrollLeft;
@@ -160,12 +191,7 @@ export default function CollectionView({
         </button>
       ) : null}
 
-      <div className="px-1">
-        <h1 className="font-display font-black text-[26px] leading-none tracking-tight">My Collection</h1>
-        <p className="text-[13px] font-sans opacity-65 leading-snug max-w-[320px] mt-1.5">
-          Finished runs become collectibles. Claim them to own them permanently.
-        </p>
-      </div>
+
 
       {items === null ? (
         <div aria-hidden="true" className="space-y-3">
@@ -198,12 +224,49 @@ export default function CollectionView({
         <div className="space-y-5">
           {/* Coverflow showroom — claimed collectibles */}
           {claimed.length > 0 && (
-            <div className="space-y-3" onClick={expanded ? collapse : undefined}>
-              <div className="flex items-baseline justify-between px-1">
-                <h3 className="font-display font-black text-[15px]">Showroom</h3>
+            <div className="space-y-4" onClick={expanded ? collapse : undefined}>
+              <div className="flex items-baseline justify-between gap-3 px-1">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-sans font-black uppercase tracking-[0.14em] opacity-50">Collected artwork</p>
+                  <h3 className="mt-1 truncate font-display font-black text-[15px]">{activeCollectible?.itemName || "Your collection"}</h3>
+                </div>
                 <p className="font-display font-bold text-[12px] tabular-nums text-[var(--theme-text)] opacity-55">
                   {String(Math.min(activeIndex + 1, claimed.length)).padStart(2, "0")} / {String(claimed.length).padStart(2, "0")}
                 </p>
+              </div>
+              <div
+                ref={tabsRef}
+                role="tablist"
+                aria-label="Collected artworks"
+                className="flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1"
+              >
+                {claimed.map((c, i) => (
+                  <button
+                    key={c.id}
+                    ref={(el) => { tabRefs.current[i] = el; }}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === activeIndex}
+                    aria-controls={`collection-artwork-${c.id}`}
+                    tabIndex={i === activeIndex ? 0 : -1}
+                    onClick={(e) => { e.stopPropagation(); selectArtwork(i); }}
+                    onKeyDown={(e) => {
+                      let next = i;
+                      if (e.key === "ArrowRight") next = (i + 1) % claimed.length;
+                      else if (e.key === "ArrowLeft") next = (i - 1 + claimed.length) % claimed.length;
+                      else if (e.key === "Home") next = 0;
+                      else if (e.key === "End") next = claimed.length - 1;
+                      else return;
+                      e.preventDefault();
+                      tabRefs.current[next]?.focus();
+                      selectArtwork(next);
+                    }}
+                    className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-sans font-bold transition-colors ${i === activeIndex ? "border-[var(--theme-primary)]/50 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)]" : "border-white/10 bg-[var(--theme-card-bg)]/35 opacity-65"}`}
+                  >
+                    <span className="max-w-[120px] truncate">{c.itemName}</span>
+                    <span className="opacity-60">#{String(c.serial).padStart(3, "0")}</span>
+                  </button>
+                ))}
               </div>
               {expanded ? (
                 <div className="relative">
@@ -220,6 +283,7 @@ export default function CollectionView({
                   </motion.button>
                   <motion.div
                     key="expanded-view"
+                    id={`collection-artwork-${expanded.id}`}
                     layoutId={morphKey ?? undefined}
                     onLayoutAnimationComplete={() => setMorphKey(null)}
                     transition={growTransition}
@@ -272,7 +336,7 @@ export default function CollectionView({
                 <div
                   ref={scrollRef}
                   onScroll={updateActive}
-                  className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-none -mx-1 px-[7%] pb-2 pt-1"
+                  className="relative flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-none -mx-1 px-[7%] pb-2 pt-1"
                   style={{ perspective: "1200px" }}
                 >
                   {claimed.map((c: Collectible, i: number) => {
@@ -284,6 +348,7 @@ export default function CollectionView({
                     return (
                       <motion.div
                         key={`vault-${c.id}`}
+                        id={`collection-artwork-${c.id}`}
                         layoutId={`vault-${c.id}`}
                         transition={growTransition}
                         className="shrink-0 w-[86%] snap-center cursor-pointer"

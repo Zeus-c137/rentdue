@@ -150,14 +150,14 @@ export function msToNairobiMidnight(now = new Date()): number {
   return remaining;
 }
 
-/** Clock "07:12:44" for the sub-24h daily countdown. */
+/** Labeled clock "07h:12m:44s" for the sub-24h daily countdown. */
 export function formatClock(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  return `${pad(hours)}h:${pad(minutes)}m:${pad(seconds)}s`;
 }
 
 /** Compact "12D 04:00:11" for run rows — seconds included so rows visibly tick. */
