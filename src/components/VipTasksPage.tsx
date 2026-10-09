@@ -111,11 +111,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     referralRates: { level1: 15, level2: 5, level3: 0, level4: 0 },
     progress: { level1Bonus: 0, level2Bonus: 0, level3Bonus: 0, level4Bonus: 0, accumulatedBonus: 0, totalReferralBonus: 0, operatorPoints: 0 },
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(focusStage));
+  const [hasLoadedBoard, setHasLoadedBoard] = useState(false);
   const [bulkStage, setBulkStage] = useState<string | null>(null);
   const [submittingTasks, setSubmittingTasks] = useState<Set<string>>(() => new Set());
   const [openedTaskLinks, setOpenedTaskLinks] = useState<Set<string>>(() => new Set());
   const [selectedStage, setSelectedStage] = useState<string | null>(focusStage || null);
+  const [previousFocusStage, setPreviousFocusStage] = useState(focusStage);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLDivElement>(null);
@@ -124,9 +126,12 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   const taskClaimsInFlight = useRef(new Set<string>());
   const stageClaimsInFlight = useRef(new Set<string>());
   const coinFlightSequence = useRef(0);
-  // A header-tile tap while the journey is already open retargets the detail
-  // instead of stranding it on the old stage.
-  useEffect(() => { if (focusStage) setSelectedStage(focusStage); }, [focusStage]);
+  // Apply route focus before React commits. An effect here let one frame of the
+  // tier list show before switching to the requested tier detail.
+  if (focusStage !== previousFocusStage) {
+    setPreviousFocusStage(focusStage);
+    setSelectedStage(focusStage || null);
+  }
   // Bar fill-in on mount / stage open — same treatment as Home Active Runs.
   const [barsIn, setBarsIn] = useState(false);
   useEffect(() => {
@@ -137,16 +142,19 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   const { renew, abort } = useAbortSignal();
 
   const load = useCallback(async (force=false) => {
-    if (!force && vipCache && vipCache.phone===phone && Date.now()-vipCache.at < CACHE_TTL) { setBoard(vipCache.board); return; }
+    if (!force && vipCache && vipCache.phone===phone) { setBoard(vipCache.board); setLoading(false); setHasLoadedBoard(true); return; }
     if (typeof document !== "undefined" && document.hidden) return;
     setLoading(true);
     const s=renew();
-    try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); vipCache={phone, board:n, at:Date.now()}; publishBoard(n); }
+    try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); setHasLoadedBoard(true); vipCache={phone, board:n, at:Date.now()}; publishBoard(n); }
     catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"Journey unavailable"); }
-    finally{ setLoading(false); }
+    finally{ if (!s.aborted) { setLoading(false); setHasLoadedBoard(true); } }
   }, [phone]);
 
-  useEffect(()=>{ void load(true); const onVis=()=>{ if(!document.hidden) void load(true); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
+  // Reuse the board already loaded by the header or Home. Entry is navigation,
+  // so it should not force another request; refresh only when returning to a
+  // visible tab.
+  useEffect(()=>{ void load(); const onVis=()=>{ if(!document.hidden) void load(true); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
 
   useEffect(() => {
     if (!board.tasks.some((task) => task.claimStatus === "pending")) return;
@@ -374,7 +382,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     }
   };
 
-  const isInitial = loading && board.tasks.length===0;
+  const isInitial = (loading && board.tasks.length===0) || (Boolean(focusStage) && !hasLoadedBoard);
 
   if (isInitial) {
     return (

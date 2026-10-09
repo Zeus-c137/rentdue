@@ -170,12 +170,12 @@ export default function ProfileView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to redeem gift code.");
-      
+
       const formattedAmount = formatCurrency(data.amount);
       const formattedNewBalance = formatCurrency(userProfile.points + data.amount);
-      
+
       toast.success(`Redeemed gift code of ${formattedAmount}! New balance: ${formattedNewBalance}`);
-      
+
       // Trigger Confetti!
       try {
         confetti({
@@ -189,7 +189,7 @@ export default function ProfileView({
 
       setGiftCodeValue("");
       setTimeout(() => setShowGiftCodeSheet(false), 1500);
-      
+
       // Update profile locally
       onProfileUpdate({
         ...userProfile,
@@ -526,15 +526,15 @@ export default function ProfileView({
                       <X className="w-4 h-4" />
                     </button>
                     <div className="flex flex-col items-center justify-center mb-5 mt-1">
-                      <span className="w-20 h-20 rounded-[22px] bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/20 flex items-center justify-center mb-3">
+                      <span className="w-20 h-20 rounded-[22px]   flex items-center justify-center mb-3">
                         <img src={gift3d2} alt="" className="w-12 h-12 object-contain drop-shadow-sm" loading="lazy" decoding="async" />
                       </span>
                       <h3 className="text-lg font-display font-black text-[var(--theme-text)] tracking-tight">Gift code</h3>
-                      <p className="text-[12px] text-[var(--theme-text)] opacity-70 mt-1 text-center font-sans leading-relaxed">Enter the code shared with you — the bonus lands in your withdrawable balance.</p>
+                      <p className="text-[12px] text-[var(--theme-text)] opacity-70 mt-1 text-center font-sans leading-relaxed">Enter the code shared with you, the bonus lands in your withdrawable balance. </p>
                     </div>
                     <form onSubmit={handleRedeemGiftCode} className="space-y-4">
                       <div>
-                        <label htmlFor="gift-code-input" className="block text-[11px] font-sans font-black uppercase tracking-wider text-[var(--theme-text)] opacity-60 mb-1.5 text-center">Voucher code</label>
+
                         <input
                           id="gift-code-input"
                           type="text"
@@ -559,13 +559,7 @@ export default function ProfileView({
                         <Gift className="w-4 h-4" /> Redeem gift
                       </Button>
                     </form>
-                    <button
-                      type="button"
-                      onClick={() => { setShowGiftCodeSheet(false); setShowCommunitySheet(true); }}
-                      className="mt-4 w-full text-center text-[11px] font-sans font-bold text-[var(--theme-text)] opacity-60 hover:opacity-100 hover:text-[var(--theme-primary)] transition-all cursor-pointer"
-                    >
-                      New codes drop daily in the community groups
-                    </button>
+
                   </motion.div>
                 </div>
               )}

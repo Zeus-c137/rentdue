@@ -7,6 +7,7 @@ import { fixGitHubImageUrl } from "@/src/utils/imageUtils";
 interface Props {
   phone: string;
   siteConfig?: any;
+  initialFilter?: string;
   onBack?: () => void;
 }
 
@@ -40,11 +41,11 @@ const firstRenderableImage = (...candidates: unknown[]) => {
   return "";
 };
 
-export default function TransactionHistoryView({ phone, siteConfig, onBack }: Props) {
+export default function TransactionHistoryView({ phone, siteConfig, initialFilter = "all", onBack }: Props) {
   const { formatCurrency } = useCurrency();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [txLoading, setTxLoading] = useState(false);
-  const [historyFilter, setHistoryFilter] = useState<string>("all");
+  const [historyFilter, setHistoryFilter] = useState<string>(initialFilter);
   const [search, setSearch] = useState("");
   const [catalog, setCatalog] = useState<any[]>([]);
 

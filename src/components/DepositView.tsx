@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Clock,
   BadgeInfo,
+  InfoIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
@@ -429,6 +430,10 @@ export default function DepositView({
             {depositMode === "auto" && (
               <form onSubmit={handleStartPayment} className="space-y-5">
                 <div className="space-y-3">
+                  <p className="flex items-start gap-2 text-[13px] font-sans font-medium opacity-60">
+                    <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>Account recharge minimum is {formatCurrency(minimumDeposit)}. The funds reflect in your account instantly.</span>
+                  </p>
                   <div className="space-y-2">
                     <label className="text-[13px] font-sans font-medium opacity-60">Mobile money number</label>
                     <div className="relative">
@@ -472,9 +477,6 @@ export default function DepositView({
                 >
                   <span>Pay {formatCurrency(finalAmount)}</span>
                 </Button>
-                <p className="text-center text-xs font-sans font-medium opacity-60">
-                  {formatCurrency(minimumDeposit)} min{maximumDeposit > 0 ? ` • ${formatCurrency(maximumDeposit)} max` : " • no max"}
-                </p>
               </form>
             )}
 
@@ -630,11 +632,11 @@ export default function DepositView({
                         </div>
                       </div>
                     )}
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="text-[11px] font-medium opacity-50">Scan or copy</span>
-                    </div>
                     <div className="text-center space-y-1">
-                      <p className="text-[13px] font-sans font-medium opacity-60">Send exactly</p>
+                      <p className="flex items-start gap-2 text-[13px] font-sans font-medium opacity-60">
+                        <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>Recharge your account by sending an amount above {formatCurrency(minimumDeposit)} to the address below.</span>
+                      </p>
                       <p className="text-xl font-display font-black text-[var(--theme-primary)] tracking-tight leading-none">{formatCurrency(finalAmount)}</p>
                       {config.usdtRate ? <p className="text-[11px] font-semibold opacity-60">≈ ${(finalAmount / config.usdtRate).toFixed(2)}</p> : null}
                     </div>
@@ -675,16 +677,13 @@ export default function DepositView({
                         className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none disabled:opacity-60"
                       />
                     </div>
-                    {payType !== "gpu" && (
-                      <p className="text-[11px] font-bold opacity-50 px-1">≈ {formatCurrency(usdtAmountUSD * config.usdtRate)} • rate {config.usdtRate} UGX/USDT</p>
-                    )}
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Transaction hash / TxID</label>
+                    <label className="text-[13px] font-sans font-medium opacity-60">Transaction Hash</label>
                     <input
                       type="text"
                       required
-                      placeholder="Paste USDT hash"
+                      placeholder=""
                       value={manualRef}
                       onChange={(e) => setManualRef(e.target.value)}
                       className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
@@ -702,9 +701,6 @@ export default function DepositView({
                 >
                   <span>Submit USDT proof</span>
                 </Button>
-                <p className="text-center text-xs font-sans font-medium opacity-60">
-                  {formatCurrency(minimumDeposit)} min{maximumDeposit > 0 ? ` • ${formatCurrency(maximumDeposit)} max` : " • no max"}
-                </p>
               </form>
             )}
           </div>
