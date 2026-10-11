@@ -531,10 +531,13 @@ export default function CatalogView({
             )}
           </motion.div>
       </AnimatePresence>
-      <div className="mt-4 rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 flex items-start gap-2.5">
+      <div className="mt-4 rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 gap-2.5">
         <Calendar className="w-4 h-4 text-[var(--theme-primary)] shrink-0 mt-0.5" />
         <p className="text-[12px] font-sans opacity-70 leading-relaxed">
-          Earnings are credited to your withdrawable balance daily. Completed runs become art collectibles in your account.
+          Starting a run requires you to deposit funds into your wallet first.
+        </p>
+         <p className="text-[12px] mt-2 font-sans opacity-70 leading-relaxed">
+         The earnings are credited to your withdrawable balance daily. Completed runs become NFT art collectibles in your account.
         </p>
       </div>
       {/* Single modal: confirm → loading → success */}
