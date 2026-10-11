@@ -49,9 +49,7 @@ function TeamHero({ stats, isLoading, siteConfig }: { stats: ReferralStat[]; isL
             {isLoading && stats.length === 0 ? <div className="ml-auto mt-2 h-7 w-28 rounded bg-white/10 animate-pulse" /> : <p className="mt-1 font-display text-[24px] font-black leading-none text-[var(--theme-primary)]">{formatCurrency(totalEarned)}</p>}
           </div>
         </div>
-        <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-sans font-semibold text-[var(--theme-text)] opacity-55">
-          <Activity className="h-3.5 w-3.5" /> {activeRuns} active {activeRuns === 1 ? "run" : "runs"} across your team
-        </div>
+       
       </div>
     </section>
   );
@@ -67,7 +65,7 @@ function LevelTabs({
   metrics: ReturnType<typeof getLevelMetrics>;
 }) {
   return (
-    <div className="grid grid-cols-4 border-b border-white/10">
+    <div className="grid grid-cols-4 border-b mt-6 border-white/10">
       {metrics.map((metric) => {
         const selected = activeLevel === metric.level;
         return (
@@ -132,7 +130,7 @@ export default function InviteTeamView({ stats, isLoading, activeLevel, onActive
       <section aria-label="Referral levels" className="space-y-2">
         <div className="flex items-center justify-between gap-3 px-1">
           <div>
-            <h2 className="mt-1 font-display text-[18px] font-black leading-tight">Commission levels</h2>
+            <h2 className="mt-12 font-display text-[18px] font-black leading-tight">Commission levels</h2>
           </div>
           <div className="shrink-0 text-right">
             <p className="font-display text-[16px] font-black leading-none text-[var(--theme-primary)]">{activeMetric?.pct ?? 0}%</p>

@@ -16,9 +16,7 @@ import {
   ArrowDownLeft,
   Wallet,
   History,
-  UserPlus,
   Users,
-  MessageSquare,
   Gift,
   CalendarCheck,
   Calendar,
@@ -40,7 +38,8 @@ import {
   Cpu,
   Trophy,
   Award,
-  ChevronRight
+  ChevronRight,
+  Share2Icon
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { POLL_INTERVAL_MS } from "../utils/motion";
@@ -52,7 +51,6 @@ import { Button } from "./ui/button";
 import confetti from "canvas-confetti";
 import NewsCarousel from "./NewsCarousel";
 import VisaMetricCard from "./VisaMetricCard";
-import CommunitySheet from "./CommunitySheet";
 
 interface ProfileViewProps {
   userProfile: UserProfile;
@@ -208,7 +206,6 @@ export default function ProfileView({
   const [showWithdrawSheet, setShowWithdrawSheet] = useState(false);
 
   const [showHistorySheet, setShowHistorySheet] = useState(false);
-  const [showCommunitySheet, setShowCommunitySheet] = useState(false);
 
   // Withdraw form fields (bind-account settings moved to BindAccountView page)
   const [usdtAddress, setUsdtAddress] = useState(userProfile.usdtAddress || "");
@@ -352,12 +349,12 @@ export default function ProfileView({
         rightLabel="Withdrawable balance"
         rightValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.points || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.points || 0).toLocaleString()}`}
       />
-      <div className="grid grid-cols-2 gap-2 bg-transparent border-0 p-0">
-        <button onClick={onNavigateToDeposit} className="w-full py-3 px-4 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-sm font-sans font-extrabold flex items-center justify-center gap-1.5 shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer">
-          <Plus className="w-4 h-4" strokeWidth={3} /> Recharge
+      <div className="flex items-center justify-center gap-2 bg-transparent border-0 p-0">
+        <button onClick={onNavigateToDeposit} className="shrink-0 inline-flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black transition-all active:scale-95 cursor-pointer">
+          <Plus className="w-3.5 h-3.5" strokeWidth={3} /> Deposit
         </button>
-        <button onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))} className="w-full py-3 px-4 rounded-2xl bg-transparent border border-[var(--theme-primary)]/40 text-[var(--theme-primary)] text-sm font-sans font-extrabold flex items-center justify-center gap-2 hover:bg-[var(--theme-primary)]/10 active:scale-[0.98] transition-all cursor-pointer">
-          <ArrowUpRight className="w-4 h-4" /> Withdraw
+        <button onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))} className="shrink-0 inline-flex items-center justify-center gap-1 px-4 py-2.5 rounded-full border border-[var(--theme-primary)]/50 bg-transparent text-[var(--theme-primary)] text-[12px] font-sans font-black transition-colors hover:bg-[var(--theme-primary)]/10 cursor-pointer">
+          <ArrowUpRight className="w-3.5 h-3.5" /> Withdraw
         </button>
       </div>
 
@@ -365,29 +362,55 @@ export default function ProfileView({
         <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-2">
           <div className="flex items-center justify-between pl-3 pr-1 pt-2 pb-1">
             <h4 className="font-display font-black text-xs uppercase tracking-wider text-[var(--theme-text)] opacity-70">More Actions</h4>
-            {updateState === "ready" ? (
-              <button
-                onClick={applyAppUpdate}
-                className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-all"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Update
-              </button>
-            ) : !isInstalled ? (
-              <button
-                onClick={async () => {
-                  if (canInstall) { const accepted = await install(); if (!accepted) toast.info("Installation was cancelled."); }
-                  else { toast.info("Automatic install is unavailable. Use browser install menu."); }
-                }}
-                aria-label="Install app"
-                className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)]/12 border border-[var(--theme-primary)]/25 text-[var(--theme-primary)] text-[11px] font-sans font-black uppercase tracking-wide hover:bg-[var(--theme-primary)]/20 cursor-pointer active:scale-95 transition-all"
-              >
-                <Download className="w-3.5 h-3.5" /> Install
-              </button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {updateState === "ready" ? (
+                <button
+                  onClick={applyAppUpdate}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-all"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Update
+                </button>
+              ) : !isInstalled ? (
+                <button
+                  onClick={async () => {
+                    if (canInstall) { const accepted = await install(); if (!accepted) toast.info("Installation was cancelled."); }
+                    else { toast.info("Automatic install is unavailable. Use browser install menu."); }
+                  }}
+                  aria-label="Install app"
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full  text-[var(--theme-primary)] text-[11px] font-sans font-black uppercase tracking-wide hover:bg-[var(--theme-primary)]/20 cursor-pointer active:scale-95 transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" /> Install App
+                </button>
+              ) : null}
+              {siteConfig?.telegramLink && (
+                <a
+                  href={siteConfig.telegramLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open Telegram community"
+                  title="Telegram"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--theme-primary)]"
+                >
+                  <img src="/telegram.svg" alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
+                </a>
+              )}
+              {siteConfig?.whatsappLink && (
+                <a
+                  href={siteConfig.whatsappLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open WhatsApp community"
+                  title="WhatsApp"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--theme-primary)]"
+                >
+                  <img src="/whatsapp.svg" alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
+                </a>
+              )}
+            </div>
           </div>
           <div className="flex flex-col">
             <button onClick={() => onNavigate("history")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-sky-500/15 text-sky-500 shrink-0">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-sky-500 shrink-0">
                 <History className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
@@ -396,18 +419,18 @@ export default function ProfileView({
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
-            <button onClick={() => (onNavigateToTeamRevenue ? onNavigateToTeamRevenue() : onNavigate("referral"))} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-500 shrink-0">
-                <Users className="w-5 h-5" />
+            <button onClick={() => (onNavigate("referral"))} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-emerald-500 shrink-0">
+                <Share2Icon className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Team revenue</span>
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Invite Friends</span>
                 <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Level tables & earnings</span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
             <button onClick={() => onNavigate("vip")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/15 text-amber-500 shrink-0">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-amber-500 shrink-0">
                 <Trophy className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
@@ -417,7 +440,7 @@ export default function ProfileView({
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
             <button onClick={() => onNavigate("collection")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-fuchsia-500/15 text-fuchsia-500 shrink-0">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-fuchsia-500 shrink-0">
                 <Award className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
@@ -427,7 +450,7 @@ export default function ProfileView({
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
             <button onClick={() => onNavigate("streaks")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-orange-500/15 text-orange-500 shrink-0">
+              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-orange-500 shrink-0">
                 <CalendarCheck className="w-5 h-5" />
                 {!checkedInToday && (
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -445,7 +468,7 @@ export default function ProfileView({
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
             <button onClick={() => setShowGiftCodeSheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-pink-500/15 text-pink-500 shrink-0">
+              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-pink-500 shrink-0">
                 <Gift className="w-5 h-5" />
                 {giftAvailable && (
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -462,38 +485,19 @@ export default function ProfileView({
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
-            <button onClick={() => onNavigate("referral")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500/15 text-violet-500 shrink-0">
-                <UserPlus className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Team Invite</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Invite & earn commissions</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
+           
             <button onClick={() => onNavigate("account")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
               <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-slate-400 shrink-0">
                 <CreditCard className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Bank Account</span>
+                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Wallet Details</span>
                 <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Payout details</span>
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>
-            <button onClick={() => setShowCommunitySheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-500 shrink-0">
-                <MessageSquare className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Community</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Groups & announcements</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
             <button onClick={() => onNavigate("guide")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/15 text-blue-500 shrink-0">
+              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-blue-500 shrink-0">
                 <Info className="w-5 h-5" />
               </span>
               <span className="flex-1 min-w-0">
@@ -769,8 +773,6 @@ export default function ProfileView({
         )}
       </AnimatePresence>
 
-      {/* 3.5 Community Sheet — shared with DashboardView */}
-      <CommunitySheet open={showCommunitySheet} onClose={() => setShowCommunitySheet(false)} siteConfig={siteConfig} />
     </div>
   );
 }

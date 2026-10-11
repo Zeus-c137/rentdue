@@ -434,7 +434,7 @@ export default function CatalogView({
                   onClick={onNavigateToDeposit}
                   className="shrink-0 inline-flex items-center gap-1 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black cursor-pointer active:scale-[0.97] transition-all"
                 >
-                  <Plus className="w-3.5 h-3.5" strokeWidth={3} /> Recharge
+                  <Plus className="w-3.5 h-3.5" strokeWidth={3} /> Deposit
                 </button>
               </div>
             </div>

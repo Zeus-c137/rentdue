@@ -185,7 +185,7 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack, 
     return (
       <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 text-[var(--theme-text)] space-y-5 pb-16">
         <button onClick={handleTelegramConfirmBack} className="flex items-center gap-2 text-xs font-extrabold opacity-70 hover:opacity-100 py-1.5 px-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-sm cursor-pointer">
-          <ArrowLeft className="w-3.5 h-3.5 text-[var(--theme-primary)]" /> Bind Account
+          <ArrowLeft className="w-3.5 h-3.5 text-[var(--theme-primary)]" /> Update account info.
         </button>
 
         <div className="space-y-0.5 text-center">
@@ -241,8 +241,8 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack, 
       </button>
 
       <div className="space-y-0.5">
-        <h4 className="font-display font-black text-base text-[var(--theme-text)] uppercase tracking-tight">Bind Account</h4>
-        <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Configure your billing & security</p>
+        <h4 className="font-display font-black text-base text-[var(--theme-text)] uppercase tracking-tight">Update Account Info</h4>
+        <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Configure your billing details & security</p>
       </div>
 
       {telegramStatus && !telegramStatus.isAdmin && (
