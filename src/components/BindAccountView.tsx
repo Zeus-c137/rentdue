@@ -273,15 +273,19 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack, 
 
       <form onSubmit={handleSaveProfile} className="space-y-4">
         <div className="space-y-1">
-          <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Display Name</label>
+          <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Username / Invite Code</label>
           <input
             type="text"
             required
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-4 py-2.5 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans font-medium transition-colors select-text"
-            placeholder="Username display"
+            disabled
+            readOnly
+            className="w-full px-4 py-2.5 input-frosted bg-[var(--theme-bg)]/40 border border-[var(--theme-card-border)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans font-medium opacity-60 cursor-not-allowed select-text"
+            aria-describedby="username-invite-note"
           />
+          <p id="username-invite-note" className="text-[11px] text-[var(--theme-text)] opacity-50">
+            This is your permanent username and invite code.
+          </p>
         </div>
 
         <div className="space-y-1">

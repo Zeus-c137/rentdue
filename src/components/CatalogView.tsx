@@ -75,14 +75,13 @@ export default function CatalogView({
   const [activated, setActivated] = useState<{ item: SubscriptionItem; dayOne: number } | null>(null);
   const [confirmingItem, setConfirmingItem] = useState<SubscriptionItem | null>(null);
   const [modalPhase, setModalPhase] = useState<"confirm" | "loading" | "success">("confirm");
-  // Vertical/horizontal A/B: persisted, toggleable from the list header.
-  // Portrait (vertical) is the default; landscape (horizontal) is the other option.
+  // Keep the user's explicit layout choice, with carousel as the first-visit default.
   const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
     try {
       const stored = localStorage.getItem(LAYOUT_KEY);
-      return stored === "horizontal" || stored === "vertical" ? stored : "vertical";
+      return stored === "horizontal" || stored === "vertical" ? stored : "horizontal";
     } catch {
-      return "vertical";
+      return "horizontal";
     }
   });
   const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
@@ -241,7 +240,7 @@ export default function CatalogView({
     const tabRect = tab.getBoundingClientRect();
     const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
     scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
-  }, [categoryList, layout, prefersReducedMotion, visibleCategory]);
+  }, [activeCategory, categoryList, layout, prefersReducedMotion, visibleCategory]);
 
   // Grouped sections: one "X Collection" header per category when browsing All.
   const groups = React.useMemo(() => {
@@ -310,7 +309,7 @@ export default function CatalogView({
         transition={{ delay: prefersReducedMotion ? 0 : Math.min(idx, 5) * 0.03, duration: prefersReducedMotion ? 0.15 : 0.25, ease: [0.23, 1, 0.32, 1] }}
         className="relative flex flex-col bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] overflow-hidden transition-all duration-150 group select-none shadow-sm hover:border-[var(--theme-primary)]/30"
       >
-        <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="relative aspect-[16/10] overflow-hidden cursor-zoom-in">
+        <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="relative aspect-[16/9] overflow-hidden cursor-zoom-in">
           {item.imageUrl ? (
             <img
               src={item.imageUrl}
@@ -376,7 +375,7 @@ export default function CatalogView({
                 setPreviewImage(item.imageUrl);
               }
             }}
-            className="relative aspect-[16/10] overflow-hidden cursor-zoom-in bg-[var(--theme-bg)]"
+            className="relative aspect-[16/9] overflow-hidden cursor-zoom-in bg-[var(--theme-bg)]"
           >
             {item.imageUrl ? (
               <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover pointer-events-none" />
@@ -396,7 +395,7 @@ export default function CatalogView({
               </div>
             )}
           </div>
-          <div className="p-4">
+          <div className="p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="truncate font-display text-[18px] font-black tracking-tight text-[var(--theme-text)]">{item.name}</h3>
@@ -441,9 +440,9 @@ export default function CatalogView({
             </div>
 
             {/* Category selection Tabs — no container bg (transparent) */}
-            <div className="relative p-1.5 -mx-1 mb-2">
+            <div className="relative -mx-1 mb-1">
               <div ref={categoryTabsRef} className="overflow-x-auto scrollbar-none">
-                <div className="flex gap-2 min-w-max px-1">
+                <div className="flex gap-5 min-w-max px-2">
                   {categoryList.map((cat, i) => {
                     const isSelected = (layout === "horizontal" ? visibleCategory : activeCategory) === cat;
                     return (
@@ -455,10 +454,11 @@ export default function CatalogView({
                           setHorizontalActiveIndex(0);
                           setErrorMsg("");
                         }}
-                        className={`py-2.5 px-5 text-[11px] font-sans font-black tracking-wider uppercase transition-all cursor-pointer outline-none select-none rounded-full ${
+                        aria-pressed={isSelected}
+                        className={`relative py-2 text-[10px] font-sans font-black tracking-wider uppercase transition-colors cursor-pointer outline-none select-none border-b-2 ${
                           isSelected
-                            ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-md"
-                            : "border border-white/10 text-[var(--theme-text)] opacity-70 hover:opacity-100"
+                            ? "border-[var(--theme-primary)] text-[var(--theme-primary)]"
+                            : "border-transparent text-[var(--theme-text)] opacity-65 hover:opacity-100"
                         }`}
                       >
                         <span>{getCategoryLabel(cat)}</span>
@@ -469,8 +469,13 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* List header: layout toggle and active position */}
-            <div className="flex items-center justify-end pt-1 px-1">
+            {/* List header: current collection and layout toggle */}
+            <div className="flex items-center justify-between gap-3 pt-1 px-1">
+              {layout === "horizontal" ? (
+                <h2 className="min-w-0 truncate font-display text-[17px] font-black tracking-tight">
+                  {getCategoryLabel(horizontalActiveItem?.category || activeCategory)} Collection
+                </h2>
+              ) : <span />}
               <div className="flex items-center gap-1 rounded-full border border-white/10 p-1">
                 <button
                   type="button"
@@ -495,17 +500,6 @@ export default function CatalogView({
                 collection title and category tab aligned to the centered card. */}
             {layout === "horizontal" && carouselItems.length > 0 ? (
               <div className="space-y-3 pt-1">
-                <div className="flex items-end justify-between gap-3 px-1">
-                  <div className="min-w-0">
-                    <h2 className="mt-1 truncate font-display text-[17px] font-black tracking-tight">
-                      {getCategoryLabel(horizontalActiveItem?.category || activeCategory)} Collection
-                    </h2>
-                    {horizontalActiveItem && <p className="mt-0.5 truncate text-[11px] font-sans opacity-55">{horizontalActiveItem.name}</p>}
-                  </div>
-                  <span className="shrink-0 pb-0.5 text-[10px] font-sans font-bold tabular-nums opacity-50">
-                    {horizontalActiveItem ? `${horizontalActiveItem.duration} days` : ""}
-                  </span>
-                </div>
                 <div
                   ref={horizontalScrollRef}
                   onScroll={updateHorizontalActive}

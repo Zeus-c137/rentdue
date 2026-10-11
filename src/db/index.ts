@@ -74,8 +74,8 @@ export async function ensureDatabaseSchema(): Promise<void> {
       telegram_id VARCHAR(32) NULL,
       username VARCHAR(64) NOT NULL,
       password VARCHAR(255) NOT NULL,
-      invite_code VARCHAR(32) NOT NULL UNIQUE,
-      referred_by_code VARCHAR(32) DEFAULT '',
+      invite_code VARCHAR(64) NOT NULL UNIQUE,
+      referred_by_code VARCHAR(64) DEFAULT '',
       operator VARCHAR(16) DEFAULT 'MTN',
       points DOUBLE NOT NULL DEFAULT 0,
       recharge_balance DOUBLE NOT NULL DEFAULT 0,
@@ -94,6 +94,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       created_at VARCHAR(64) NOT NULL,
       INDEX idx_users_invite_code (invite_code),
       INDEX idx_users_referred_by (referred_by_code),
+      UNIQUE INDEX uq_users_username (username),
       UNIQUE INDEX uq_users_telegram_id (telegram_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS subscribed_nodes (
@@ -234,6 +235,9 @@ export async function ensureDatabaseSchema(): Promise<void> {
   for (const statement of statements) {
     await connection.query(statement);
   }
+
+  await connection.query("ALTER TABLE users MODIFY COLUMN invite_code VARCHAR(64) NOT NULL");
+  await connection.query("ALTER TABLE users MODIFY COLUMN referred_by_code VARCHAR(64) DEFAULT ''");
 
   try {
     await connection.query("ALTER TABLE notifications ADD COLUMN metadata JSON NULL");
@@ -386,6 +390,15 @@ export async function ensureDatabaseSchema(): Promise<void> {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) {
       throw error;
     }
+  }
+}
+
+export async function ensureUsernameUniqueIndex(): Promise<void> {
+  if (!poolInstance) throw new Error("DATABASE_URL or MYSQL_URL is not configured");
+  try {
+    await poolInstance.promise().query("CREATE UNIQUE INDEX uq_users_username ON users (username)");
+  } catch (error: any) {
+    if (error?.errno !== 1061 && !String(error?.code || "").includes("DUPLICATE")) throw error;
   }
 }
 

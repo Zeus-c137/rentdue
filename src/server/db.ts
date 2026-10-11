@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import path from "path";
-import { ensureDatabaseSchema, getDb, schema } from "../db/index";
+import { ensureDatabaseSchema, ensureUsernameUniqueIndex, getDb, schema } from "../db/index";
 import { and, eq, desc, asc, isNull, inArray, ne, or, sql } from "drizzle-orm";
 import { UserProfile, SubscriptionItem, SubscribedNode, Collectible, CollectibleRarity, ChatMessage, ReferralStat, NotificationItem, SiteConfig } from "../types";
 import { normalizeRarity, rarityForItem } from "../utils/rarity";
@@ -135,7 +135,6 @@ export function publicProfile<T extends { password?: unknown; telegramId?: unkno
   return rest;
 }
 
-const NUMERIC_INVITE_CODE_PATTERN = /^\d{5}$/;
 const PLATFORM_TIME_ZONE = "Africa/Nairobi";
 
 export function getPlatformDateKey(date = new Date()): string {
@@ -191,69 +190,103 @@ export async function ensureUserDailyYields(phone: string): Promise<number> {
   return run;
 }
 
-async function generateUniqueInviteCode(drizzleDb: any): Promise<string> {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const candidate = String(crypto.randomInt(10000, 100000));
-    const existing = await drizzleDb.select({ phone: schema.users.phone })
-      .from(schema.users)
-      .where(eq(schema.users.inviteCode, candidate))
-      .limit(1);
-    if (existing.length === 0) return candidate;
-  }
-  throw new Error("Could not generate a unique five-digit invite code. The code space may be full.");
-}
+async function migrateUsernameInviteCodes(drizzleDb: any): Promise<void> {
+  const migration = await drizzleDb.transaction(async (tx: any) => {
+    const users = await tx.select({
+      phone: schema.users.phone,
+      username: schema.users.username,
+      inviteCode: schema.users.inviteCode,
+      referredByCode: schema.users.referredByCode
+    }).from(schema.users);
 
-async function migrateLegacyInviteCodes(drizzleDb: any): Promise<void> {
-  const users = await drizzleDb.select({
-    phone: schema.users.phone,
-    inviteCode: schema.users.inviteCode,
-    referredByCode: schema.users.referredByCode
-  }).from(schema.users);
+    const normalizedUsernames = new Map<string, { username: string; phones: string[] }>();
+    for (const user of users) {
+      const username = String(user.username || "").trim();
+      if (!username) {
+        throw new Error(`Cannot use username invite codes: account ${user.phone} has an empty username. Set a unique username before restarting.`);
+      }
 
-  const occupiedCodes = new Set(
-    users
-      .map((user: any) => String(user.inviteCode || "").trim())
-      .filter((code: string) => NUMERIC_INVITE_CODE_PATTERN.test(code))
-  );
-  const migrations = new Map<string, string>();
-  const usersToUpdate: Array<{ phone: string; oldCode: string; newCode: string }> = [];
-
-  for (const user of users) {
-    const oldCode = String(user.inviteCode || "").trim();
-    if (NUMERIC_INVITE_CODE_PATTERN.test(oldCode)) continue;
-
-    let newCode = "";
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const candidate = String(crypto.randomInt(10000, 100000));
-      if (!occupiedCodes.has(candidate)) {
-        newCode = candidate;
-        break;
+      const key = username.toLocaleLowerCase("en-US");
+      const existing = normalizedUsernames.get(key);
+      if (existing) {
+        existing.phones.push(user.phone);
+      } else {
+        normalizedUsernames.set(key, { username, phones: [user.phone] });
       }
     }
-    if (!newCode) throw new Error("Could not migrate invite codes because the five-digit code space is full.");
-    occupiedCodes.add(newCode);
-    if (oldCode) migrations.set(oldCode.toUpperCase(), newCode);
-    usersToUpdate.push({ phone: user.phone, oldCode, newCode });
+
+    const duplicates = Array.from(normalizedUsernames.values()).filter((entry) => entry.phones.length > 1);
+    if (duplicates.length > 0) {
+      const details = duplicates.map(({ username, phones }) => `"${username}" (${phones.join(", ")})`).join("; ");
+      throw new Error(`Cannot migrate invite codes because usernames must be unique (case-insensitive). Resolve these duplicates and restart: ${details}`);
+    }
+
+    const usernameByOldCode = new Map<string, string>();
+    for (const user of users) {
+      const oldCode = String(user.inviteCode || "").trim();
+      if (oldCode) usernameByOldCode.set(oldCode.toLocaleUpperCase("en-US"), String(user.username).trim());
+    }
+    for (const user of users) {
+      const username = String(user.username).trim();
+      const key = username.toLocaleUpperCase("en-US");
+      if (!usernameByOldCode.has(key)) usernameByOldCode.set(key, username);
+    }
+
+    const referralUpdates = users.flatMap((user: any) => {
+      const referredByCode = String(user.referredByCode || "").trim();
+      const replacement = usernameByOldCode.get(referredByCode.toLocaleUpperCase("en-US"));
+      return replacement && replacement !== referredByCode
+        ? [{ phone: user.phone, referredByCode: replacement }]
+        : [];
+    });
+    const codeUpdates = users.map((user: any) => ({
+      phone: user.phone,
+      originalUsername: String(user.username || ""),
+      username: String(user.username).trim(),
+      inviteCode: String(user.inviteCode || "")
+    })).filter((user: any) => user.originalUsername !== user.username || user.username !== user.inviteCode);
+
+    if (codeUpdates.length === 0 && referralUpdates.length === 0) {
+      return { codeCount: 0, referralCount: 0 };
+    }
+
+    for (const update of referralUpdates) {
+      await tx.update(schema.users)
+        .set({ referredByCode: update.referredByCode })
+        .where(eq(schema.users.phone, update.phone));
+    }
+
+    if (codeUpdates.length > 0) {
+      const reservedCodes = new Set(users.map((user: any) => String(user.inviteCode || "").trim().toLocaleUpperCase("en-US")));
+      const temporaryCodes = new Map<string, string>();
+      for (const user of users) {
+        let code = "";
+        do {
+          code = `MIG${crypto.randomBytes(12).toString("hex").toUpperCase()}`;
+        } while (reservedCodes.has(code));
+        reservedCodes.add(code);
+        temporaryCodes.set(user.phone, code);
+      }
+
+      for (const user of users) {
+        await tx.update(schema.users)
+          .set({ username: String(user.username).trim(), inviteCode: temporaryCodes.get(user.phone) })
+          .where(eq(schema.users.phone, user.phone));
+      }
+      for (const user of users) {
+        const username = String(user.username).trim();
+        await tx.update(schema.users)
+          .set({ inviteCode: username })
+          .where(eq(schema.users.phone, user.phone));
+      }
+    }
+
+    return { codeCount: codeUpdates.length, referralCount: referralUpdates.length };
+  });
+
+  if (migration.codeCount > 0 || migration.referralCount > 0) {
+    console.info(`[Database] Migrated ${migration.codeCount} invite code(s) and ${migration.referralCount} referral reference(s) to usernames.`);
   }
-
-  if (usersToUpdate.length === 0) return;
-
-  for (const user of users) {
-    const referredByCode = String(user.referredByCode || "").trim();
-    const replacement = migrations.get(referredByCode.toUpperCase());
-    if (!replacement) continue;
-    await drizzleDb.update(schema.users)
-      .set({ referredByCode: replacement })
-      .where(eq(schema.users.phone, user.phone));
-  }
-
-  for (const user of usersToUpdate) {
-    await drizzleDb.update(schema.users)
-      .set({ inviteCode: user.newCode })
-      .where(eq(schema.users.phone, user.phone));
-  }
-
-  console.info(`[Database] Migrated ${usersToUpdate.length} legacy invite code(s) to five-digit numeric codes.`);
 }
 
 // --- DATABASE FUNCTIONS ---
@@ -262,7 +295,8 @@ export async function seedDatabaseIfEmpty() {
   await ensureDatabaseSchema();
 
   const drizzleDb = requireDatabase("initialize the account database");
-  await migrateLegacyInviteCodes(drizzleDb);
+  await migrateUsernameInviteCodes(drizzleDb);
+  await ensureUsernameUniqueIndex();
   await drizzleDb.insert(schema.siteConfig).values({
     id: "main",
     configJson: {}
@@ -334,7 +368,7 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
           telegramId: (u as any).telegramId || null,
           username: u.username,
           password: u.password,
-          inviteCode: u.inviteCode,
+          inviteCode: u.username,
           referredByCode: u.referredByCode || "",
           operator: u.operator || "MTN",
           points: u.points,
@@ -387,11 +421,10 @@ export async function linkTelegramAccount(phone: string, id: string): Promise<"l
 export async function registerUserProfile(data: any): Promise<any> {
   const phone = data.phone || "";
   const drizzleDb = requireDatabase("create your account");
-  // Personal invite codes are deliberately short, numeric, and easy to share.
-  const personalInviteCode = await generateUniqueInviteCode(drizzleDb);
   const rawPassword = data.password || data.passwordHash || "";
   const password = rawPassword ? hashPassword(rawPassword) : "";
-  const referredByCode = (data.referredByCode || (data.inviteCode && data.inviteCode !== personalInviteCode ? data.inviteCode : "")).trim();
+  const username = String(data.username || "").trim().slice(0, 64) || "User_" + phone.slice(-4);
+  const referredByCode = String(data.referredByCode || data.inviteCode || "").trim();
 
   const config = await getSiteConfig();
   const grantRegistrationBonus = data.grantRegistrationBonus !== false;
@@ -406,9 +439,9 @@ export async function registerUserProfile(data: any): Promise<any> {
     // before this call). NULL for phone-only registrations; the unique index
     // on telegram_id keeps one Telegram account to one user profile.
     telegramId: typeof data.telegramId === "string" && /^\d+$/.test(data.telegramId) ? data.telegramId : null,
-    username: String(data.username || "").trim().slice(0, 64) || "User_" + phone.slice(-4),
+    username,
     password,
-    inviteCode: personalInviteCode,
+    inviteCode: username,
     referredByCode,
     operator: data.operator || "MTN",
     points: typeof data.points === "number" ? data.points : (regBonus > 0 ? regBonus : 0), // Registration bonus credited directly to withdrawable balance!
@@ -496,7 +529,7 @@ export async function registerUserProfile(data: any): Promise<any> {
       const drizzleDb = getDb();
       if (drizzleDb) {
         const rows = await drizzleDb.select().from(schema.users)
-          .where(eq(schema.users.inviteCode, targetRefCode)).limit(1);
+          .where(sql`upper(trim(${schema.users.inviteCode})) = ${targetRefCode}`).limit(1);
         if (rows[0]) referrer = await getUserProfile(rows[0].phone);
       }
     }
@@ -613,6 +646,9 @@ export async function updateUserProfile(
   };
 
   const updated: UserProfile = { ...existing, ...updates };
+  if (updates.username !== undefined && updates.username !== existing.username) {
+    throw new Error("Your username is permanent because it is also your invite code.");
+  }
 
   const drizzleDb = requireDatabase("save your account changes");
   try {

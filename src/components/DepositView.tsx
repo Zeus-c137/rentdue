@@ -441,7 +441,7 @@ export default function DepositView({
                       <input
                         type="text"
                         required
-                        placeholder="7XX XXX XXX"
+                        placeholder=""
                         value={mobileNumber}
                         onChange={(e) => setMobileNumber(e.target.value)}
                         className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-[72px] pr-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40 transition-colors"
@@ -469,13 +469,13 @@ export default function DepositView({
 
                 <Button
                   variant="primary"
-                  size="lg"
+                  size="md"
                   type="submit"
                   loading={isSubmitting}
                   disabled={payType === "gpu" && !selectedGpu}
                   className="w-full"
                 >
-                  <span>Pay {formatCurrency(finalAmount)}</span>
+                  <span>Deposit</span>
                 </Button>
               </form>
             )}
@@ -707,7 +707,7 @@ export default function DepositView({
         </div>
       ) : paymentStatus === "PENDING" ? (
         <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-4 shadow-sm">
-          <div className="w-14 h-14 mx-auto rounded-full border-2 border-[var(--theme-primary)]/20 border-t-[var(--theme-primary)] animate-spin" />
+          <div className="w-14 h-14 mx-auto rounded-full border-2 border-[var(--theme-primary)]/20  animate-spin" />
           <div className="space-y-1">
             <h3 className="font-black text-sm">
               {depositMode === "manual" || depositMode === "usdt" ? "Verification pending" : "Awaiting PIN confirmation"}

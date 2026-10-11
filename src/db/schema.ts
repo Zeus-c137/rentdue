@@ -25,8 +25,8 @@ export const users = mysqlTable(
     telegramId: varchar("telegram_id", { length: 32 }),
     username: varchar("username", { length: 64 }).notNull(),
     password: varchar("password", { length: 255 }).notNull(),
-    inviteCode: varchar("invite_code", { length: 32 }).notNull().unique(),
-    referredByCode: varchar("referred_by_code", { length: 32 }).default(""),
+    inviteCode: varchar("invite_code", { length: 64 }).notNull().unique(),
+    referredByCode: varchar("referred_by_code", { length: 64 }).default(""),
     operator: varchar("operator", { length: 16 }).default("MTN"),
     points: double("points").default(0).notNull(), // Withdrawable balance (UGX)
     rechargeBalance: double("recharge_balance").default(0).notNull(), // Account deposit balance (UGX)
@@ -47,6 +47,7 @@ export const users = mysqlTable(
   (table) => ({
     inviteCodeIdx: index("idx_users_invite_code").on(table.inviteCode),
     referredByIdx: index("idx_users_referred_by").on(table.referredByCode),
+    usernameUnique: uniqueIndex("uq_users_username").on(table.username),
     telegramIdUnique: uniqueIndex("uq_users_telegram_id").on(table.telegramId)
   })
 );

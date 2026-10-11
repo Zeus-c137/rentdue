@@ -26,7 +26,6 @@ import RarityBadge from "./RarityBadge";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
-import { useReducedMotion } from "../hooks/useReducedMotion";
 
 const RUNS_LAYOUT_KEY = "rentdue_runs_layout";
 
@@ -54,13 +53,11 @@ export default function IncomeView({
   onCollectibleClaimed
 }: IncomeViewProps) {
   const { formatCurrency } = useCurrency();
-  const prefersReducedMotion = useReducedMotion();
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimingCollectibleId, setClaimingCollectibleId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [collectibles, setCollectibles] = useState<Record<string, Collectible>>({});
-  const [activeCategory, setActiveCategory] = useState("All");
   const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
     try {
       const stored = localStorage.getItem(RUNS_LAYOUT_KEY);
@@ -72,8 +69,6 @@ export default function IncomeView({
   const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
   const horizontalScrollRef = useRef<HTMLDivElement>(null);
   const horizontalRafRef = useRef<number>(0);
-  const categoryTabsRef = useRef<HTMLDivElement>(null);
-  const categoryTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const shownNodes = React.useMemo(
     () => showCompleted
@@ -86,24 +81,10 @@ export default function IncomeView({
   const runEntries = React.useMemo(
     () => shownNodes.map((node) => {
       const mappedItem = items.find((item) => item.id === node.itemId || item.name === node.itemName);
-      return { node, mappedItem, category: mappedItem?.category || "Runs" };
+      return { node, mappedItem };
     }),
     [items, shownNodes]
   );
-  const categoryList = React.useMemo(
-    () => ["All", ...Array.from(new Set(runEntries.map((entry) => entry.category)))],
-    [runEntries]
-  );
-  const filteredRuns = React.useMemo(
-    () => runEntries.filter((entry) => activeCategory === "All" || entry.category === activeCategory),
-    [activeCategory, runEntries]
-  );
-  const safeHorizontalActiveIndex = Math.max(0, Math.min(horizontalActiveIndex, Math.max(filteredRuns.length - 1, 0)));
-  const horizontalActiveRun = filteredRuns[safeHorizontalActiveIndex] || filteredRuns[0] || null;
-  const visibleCategory = layout === "horizontal" && activeCategory === "All"
-    ? (horizontalActiveRun?.category || "All")
-    : activeCategory;
-
   const setLayoutAndPersist = (next: "horizontal" | "vertical") => {
     setLayout(next);
     setHorizontalActiveIndex(0);
@@ -136,22 +117,11 @@ export default function IncomeView({
 
   useEffect(() => () => cancelAnimationFrame(horizontalRafRef.current), []);
 
-  const filteredRunsKey = filteredRuns.map(({ node }) => node.id).join("|");
+  const runEntriesKey = runEntries.map(({ node }) => node.id).join("|");
   useEffect(() => {
     setHorizontalActiveIndex(0);
     if (layout === "horizontal") horizontalScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [activeCategory, filteredRunsKey, layout, showCompleted]);
-
-  useEffect(() => {
-    if (layout !== "horizontal") return;
-    const scroller = categoryTabsRef.current;
-    const tab = categoryTabRefs.current[categoryList.indexOf(visibleCategory)];
-    if (!scroller || !tab) return;
-    const containerRect = scroller.getBoundingClientRect();
-    const tabRect = tab.getBoundingClientRect();
-    const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
-    scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
-  }, [categoryList, layout, prefersReducedMotion, visibleCategory]);
+  }, [runEntriesKey, layout, showCompleted]);
 
   const loadCollectibles = useCallback(async () => {
     try {
@@ -275,7 +245,6 @@ export default function IncomeView({
               type="button"
               onClick={() => {
                 setShowCompleted((value) => !value);
-                setActiveCategory("All");
                 setHorizontalActiveIndex(0);
               }}
               aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
@@ -306,37 +275,6 @@ export default function IncomeView({
           </div>
         </div>
 
-        {shownNodes.length > 0 && (
-          <div className="relative p-1.5 -mx-1 mb-2">
-            <div ref={categoryTabsRef} className="overflow-x-auto scrollbar-none">
-              <div className="flex gap-2 min-w-max px-1">
-                {categoryList.map((category, index) => {
-                  const isSelected = visibleCategory === category;
-                  return (
-                    <button
-                      key={category}
-                      ref={(element) => { categoryTabRefs.current[index] = element; }}
-                      type="button"
-                      onClick={() => {
-                        setActiveCategory(category);
-                        setHorizontalActiveIndex(0);
-                      }}
-                      aria-pressed={isSelected}
-                      className={`py-2.5 px-5 text-[11px] font-sans font-black tracking-wider uppercase transition-all cursor-pointer outline-none select-none rounded-full ${
-                        isSelected
-                          ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)] shadow-md"
-                          : "border border-white/10 text-[var(--theme-text)] opacity-70 hover:opacity-100"
-                      }`}
-                    >
-                      {category === "All" ? category : category.toLowerCase().endsWith("series") ? category : category.length <= 3 ? `${category} series` : category}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
         {shownNodes.length === 0 ? (
           <div className="text-center py-12 px-4 max-w-xl mx-auto space-y-4">
             <Clock className="w-10 h-10 text-[var(--theme-text)] opacity-40 mx-auto animate-pulse" />
@@ -354,17 +292,6 @@ export default function IncomeView({
               </button>
             )}
           </div>
-        ) : filteredRuns.length === 0 ? (
-          <div className="py-10 text-center text-xs font-sans opacity-60">
-            <p>No runs in this category.</p>
-            <button
-              type="button"
-              onClick={() => setActiveCategory("All")}
-              className="mt-3 font-bold text-[var(--theme-primary)] underline underline-offset-4"
-            >
-              Show all runs
-            </button>
-          </div>
         ) : (
           <div
             ref={layout === "horizontal" ? horizontalScrollRef : undefined}
@@ -374,7 +301,7 @@ export default function IncomeView({
               : "grid grid-cols-1 sm:grid-cols-2 gap-3.5"}
             style={layout === "horizontal" ? { WebkitOverflowScrolling: "touch" } : undefined}
           >
-            {filteredRuns.map(({ node, mappedItem }) => {
+            {runEntries.map(({ node, mappedItem }) => {
               const imageUrl = mappedItem?.imageUrl || node.image;
               const itemName = mappedItem?.name || node.itemName;
               const totalDays = getRunTotalDays(node, items);

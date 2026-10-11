@@ -52,9 +52,10 @@ export function buildInviteLink(
   if (!inviteCode) return "";
   const base =
     origin ?? (typeof window !== "undefined" ? window.location.origin : "");
-  if (!base) return `?ref=${inviteCode}`;
+  const query = new URLSearchParams({ ref: inviteCode }).toString();
+  if (!base) return `?${query}`;
   const clean = base.replace(/\/$/, "");
-  return `${clean}?ref=${inviteCode}`;
+  return `${clean}?${query}`;
 }
 
 export function shouldApplyConfig(cfg: unknown): cfg is SiteConfig {

@@ -62,7 +62,7 @@ function InviteCard({ inviteCode, inviteLink, copiedLink, onCopyLink, copiedCode
       <div className="h-px bg-white/10" />
       <div className="flex items-center gap-3 py-3.5">
         <Link2 className="h-4 w-4 shrink-0 text-[var(--theme-primary)] opacity-75" />
-        <p className="min-w-0 flex-1 select-all truncate font-mono text-[11px] opacity-70">{inviteLink || "No link"}</p>
+        <p className="min-w-0 flex-1 select-all truncate font-mono text-[16px] opacity-70">{inviteLink || "No link"}</p>
         <button type="button" onClick={onCopyLink} aria-label="Copy invite link" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--theme-primary)] transition-colors hover:bg-[var(--theme-primary)]/10">
           {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
         </button>

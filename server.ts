@@ -806,6 +806,9 @@ app.post("/api/auth/register", async (req, res) => {
     // the unique-index key name never leaks.
     const detail = String(error?.message || "");
     if (error?.name === "DuplicateEntryError" || Number(error?.statusCode) === 409) {
+      if (detail.includes("uq_users_username")) {
+        return res.status(409).json({ error: "This username is already taken. Please choose another." });
+      }
       if (detail.includes("uq_users_telegram_id")) {
         return res.status(409).json({ error: "This Telegram account is already connected. Please log in." });
       }
