@@ -8,7 +8,7 @@ import CellsProgress from "./CellsProgress";
 import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
 import { useAbortSignal } from "@/src/hooks/useGatedInterval";
 import { optimizedImageUrl } from "@/src/utils/imageUtils";
-import { playCheckinSound, unlockCheckinSound } from "@/src/utils/checkinSound";
+import { playCheckinSound } from "@/src/utils/checkinSound";
 import type { VipTask, VipTaskboard } from "@/src/types";
 import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -262,7 +262,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     setBulkStage(stage.name);
     setBoard((current) => ({ ...current, claimedTierRewards: optimisticTiers }));
     applyPointsDelta(optimisticReward, { claimedTierRewards: optimisticTiers });
-    unlockCheckinSound();
     const flightIds = animateRewardClaim(sourceRect);
 
     try {
@@ -315,7 +314,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
         tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
       }));
       applyPointsDelta(optimisticReward);
-      unlockCheckinSound();
       flightIds = animateRewardClaim(sourceRect);
     }
 
@@ -336,7 +334,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
           }));
           applyPointsDelta(reward);
-          unlockCheckinSound();
           flightIds = animateRewardClaim(sourceRect);
         } else if (reward !== optimisticReward) {
           applyPointsDelta(reward - optimisticReward);

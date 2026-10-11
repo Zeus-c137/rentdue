@@ -5,7 +5,7 @@ import flameSvg from "@/src/assets/svg/flame.svg";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
-import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
+import { playCheckinSound } from "../utils/checkinSound";
 import { formatClock, getTodayKey, getPlatformDayKey, getPlatformDayParts, getPlatformYesterdayKey, msUntilPlatformMidnight } from "../utils/runs";
 import type { TransactionRow, UserProfile } from "../types";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -162,7 +162,6 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
     setClaimedLedger((prev) => ({ ...prev, [key]: (Number(prev[key]) || 0) + optimisticBonus }));
     profileRef.current = optimisticProfile;
     onClaimSuccess?.(optimisticProfile);
-    unlockCheckinSound();
     playCheckinSound();
 
     // Coin travel begins with the local claim and never holds the balance update.

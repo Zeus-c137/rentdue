@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
-import { unlockCheckinSound, playCheckinSound } from "../utils/checkinSound";
+import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import {
   getRunProgress,
@@ -406,7 +406,6 @@ export default function DashboardView({
       next[6] = (next[6] || 0) + optimisticBonus;
       return next;
     });
-    unlockCheckinSound();
     playCheckinSound();
 
     // Coin travel is immediate feedback; it never delays the balance.
@@ -491,7 +490,6 @@ export default function DashboardView({
     } : current);
     profileRef.current = optimisticProfile;
     onProfileUpdate(optimisticProfile);
-    unlockCheckinSound();
     playCheckinSound();
 
     const flightIds = launchCoinFlight(sourceRect, balanceRef.current);

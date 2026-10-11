@@ -75,7 +75,7 @@ function OverviewView({ metrics, isLoading, brandName, onViewTeam, onInvite, onH
         </div>
       </section>
 
-      <section aria-label="Referral summary" className="grid grid-cols-2 divide-x divide-white/10 border-y border-white/10 py-4">
+      <section aria-label="Referral summary" className="grid grid-cols-2 divide-x divide-white/10 rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-4 backdrop-blur-[20px] backdrop-saturate-[180%]">
         <div className="flex flex-col items-center gap-1.5 px-2 text-center">
           <Coins className="h-10 w-10 p-2 text-[var(--theme-text-muted)]" strokeWidth={1.8} />
           {isLoading ? (
@@ -132,13 +132,11 @@ function CodeView({ inviteLink, copiedLink, onCopyLink, onShare, onHowItWorks }:
         <h1 className="max-w-[18rem] font-display text-[23px] font-black leading-tight tracking-tight">
           Here’s your referral link. Share it.
         </h1>
-        <p className="mt-2 max-w-[20rem] text-[13px] leading-relaxed opacity-65">
-          Share it with your friends to get paid.
-        </p>
+        
       </section>
 
-      <section aria-label="Your referral link" className="flex items-center gap-3 rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/55 px-4 py-4">
-        <p className="min-w-0 flex-1 select-all break-all font-mono text-[14px]  leading-relaxed">{inviteLink || "N/A"}</p>
+      <section aria-label="Your referral link" className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/40 px-4 py-4 backdrop-blur-[20px] backdrop-saturate-[180%]">
+        <p className="min-w-0 flex-1 select-all break-all text-[16px]  leading-relaxed">{inviteLink || "N/A"}</p>
         <button
           type="button"
           onClick={onCopyLink}
