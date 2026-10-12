@@ -11,7 +11,7 @@ import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
 import { Plus, Lock, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
 import flameSvg from "@/src/assets/svg/flame.svg";
-import { AchievementGlyph, bustMilestoneCache, getMilestoneBoard } from "./VipTasksPage";
+import { AchievementGlyph, beginMilestoneTaskClaim, clearMilestoneTaskClaim, confirmMilestoneTaskClaim, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
 import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
 import { optimizedImageUrl } from "../utils/imageUtils";
@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
+import { metricMeta } from "../utils/vip";
 import {
   getRunProgress,
   getRunEndMs,
@@ -146,8 +147,8 @@ export default function DashboardView({
     const task = (pool.find((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0)) || pool[0]) as VipTask;
     return { done: false as const, task };
   }, [msBoard]);
-  const msIsMoney = (m?: string) => !m || m === "operator_points" || m === "lifetime_yield";
-  const msUnit = (m?: string) => (m === "streak_days" ? "days" : m === "invites_count" ? "invites" : m === "milestones_claimed" ? "claimed" : m === "collectibles_claimed" ? "collectibles" : m === "account_created" ? "" : "runs");
+  const msIsMoney = (m?: string) => metricMeta(m).isMoney;
+  const msUnit = (m?: string) => metricMeta(m).unit;
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
   const profileRef = useRef(profile);
@@ -482,6 +483,7 @@ export default function DashboardView({
     const previousBoard = msBoard;
     const previousProfile = profileRef.current;
     const optimisticProfile = { ...previousProfile, points: (Number(previousProfile.points) || 0) + optimisticReward };
+    if (!beginMilestoneTaskClaim(profile.phone, task)) return;
     msClaimBusyRef.current = true;
     setMsClaimBusy(task.id);
     setMsBoard((current) => current ? {
@@ -508,15 +510,22 @@ export default function DashboardView({
         onProfileUpdate(confirmedProfile);
       }
       toast.success(`${formatCurrency(reward)} added to your balance.`);
-      bustMilestoneCache();
+      confirmMilestoneTaskClaim(profile.phone, task.id);
       const controller = new AbortController();
-      void getMilestoneBoard(profile.phone, controller.signal).then(setMsBoard).catch(() => {});
+      void getMilestoneBoard(profile.phone, controller.signal, true).then(setMsBoard).catch(() => {});
     } catch (err: any) {
+      clearMilestoneTaskClaim(profile.phone, task.id);
       const latest = profileRef.current;
       const rollbackProfile = { ...latest, points: Math.max(0, (Number(latest.points) || 0) - optimisticReward) };
       profileRef.current = rollbackProfile;
       onProfileUpdate(rollbackProfile);
-      setMsBoard(previousBoard);
+      const previousTask = previousBoard?.tasks.find((item) => item.id === task.id);
+      if (previousTask) {
+        setMsBoard((current) => current ? {
+          ...current,
+          tasks: current.tasks.map((item) => item.id === task.id ? previousTask : item),
+        } : current);
+      }
       removeCoinFlight(flightIds);
       toast.error(err.message || "Could not claim this milestone reward.");
     } finally {

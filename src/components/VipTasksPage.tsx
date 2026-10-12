@@ -12,6 +12,7 @@ import { playCheckinSound } from "@/src/utils/checkinSound";
 import type { VipTask, VipTaskboard } from "@/src/types";
 import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
+import wallet3d from "@/src/assets/3d/3dicons-wallet-iso-premium.png";
 import calendar3d from "@/src/assets/3d/3dicons-calendar-iso-premium.png";
 import play3d from "@/src/assets/3d/3dicons-play-iso-premium.png";
 import flash3d from "@/src/assets/3d/3dicons-flash-iso-premium.png";
@@ -23,6 +24,66 @@ import collectible3d from "@/src/assets/3d/3dicons-gift-box-iso-premium.png";
 let vipCache: { phone: string; board: VipTaskboard; at: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 const boardListeners = new Set<(board: VipTaskboard) => void>();
+const boardVersions = new Map<string, number>();
+const boardRequestIds = new Map<string, number>();
+const appliedBoardRequestIds = new Map<string, number>();
+const taskClaimOverlays = new Map<string, Map<string, { task: VipTask; status: "pending" | "confirmed" }>>();
+const tierClaimOverlays = new Map<string, Map<string, "pending" | "confirmed">>();
+
+function bumpBoardVersion(phone: string): number {
+  const version = (boardVersions.get(phone) || 0) + 1;
+  boardVersions.set(phone, version);
+  return version;
+}
+
+function applyTaskClaimOverlays(phone: string, board: VipTaskboard): VipTaskboard {
+  const overlays = taskClaimOverlays.get(phone);
+  const tierOverlays = tierClaimOverlays.get(phone);
+  if (!overlays?.size && !tierOverlays?.size) return board;
+  let changed = false;
+  const tasks = board.tasks.map((task) => {
+    if (!overlays?.has(task.id) || (task.claimed && task.claimStatus === "approved")) return task;
+    changed = true;
+    return { ...task, claimed: true, claimStatus: "approved" as const };
+  });
+  let claimedTierRewards = board.claimedTierRewards || [];
+  if (tierOverlays?.size) {
+    for (const category of tierOverlays.keys()) {
+      if (!claimedTierRewards.some((name) => name.toLowerCase() === category.toLowerCase())) {
+        claimedTierRewards = [...claimedTierRewards, category];
+        changed = true;
+      }
+    }
+  }
+  return changed ? { ...board, tasks, claimedTierRewards } : board;
+}
+
+function clearServerConfirmedClaims(phone: string, board: VipTaskboard) {
+  const overlays = taskClaimOverlays.get(phone);
+  if (overlays) {
+    for (const task of board.tasks) {
+      if (task.claimed && task.claimStatus === "approved" && overlays.get(task.id)?.status === "confirmed") {
+        overlays.delete(task.id);
+      }
+    }
+    if (overlays.size === 0) taskClaimOverlays.delete(phone);
+  }
+
+  const tierOverlays = tierClaimOverlays.get(phone);
+  if (!tierOverlays) return;
+  const claimedTiers = new Set((board.claimedTierRewards || []).map((name) => name.toLowerCase()));
+  for (const [category, status] of tierOverlays) {
+    if (status === "confirmed" && claimedTiers.has(category.toLowerCase())) tierOverlays.delete(category);
+  }
+  if (tierOverlays.size === 0) tierClaimOverlays.delete(phone);
+}
+
+function cacheAndPublishBoard(phone: string, board: VipTaskboard) {
+  vipCache = { phone, board, at: Date.now() };
+  for (const listener of boardListeners) {
+    try { listener(board); } catch { /* one bad listener must not break the loader */ }
+  }
+}
 
 // Anyone holding a board re-reads it the moment anyone else loads a newer one.
 // The header chip is mounted on every tab, so it would otherwise sit on a
@@ -32,23 +93,94 @@ export function subscribeMilestoneBoard(listener: (board: VipTaskboard) => void)
   return () => { boardListeners.delete(listener); };
 }
 
-function publishBoard(board: VipTaskboard) {
-  for (const listener of boardListeners) {
-    try { listener(board); } catch { /* one bad listener must not break the loader */ }
-  }
-}
-
 // Shared loader so Home can show the next milestone without a second fetch.
-export async function getMilestoneBoard(phone: string, signal: AbortSignal): Promise<VipTaskboard> {
-  if (vipCache && vipCache.phone === phone && Date.now() - vipCache.at < CACHE_TTL) return vipCache.board;
+export async function getMilestoneBoard(phone: string, signal: AbortSignal, force = false): Promise<VipTaskboard> {
+  if (!force && vipCache && vipCache.phone === phone && Date.now() - vipCache.at < CACHE_TTL) return vipCache.board;
+  const versionAtStart = boardVersions.get(phone) || 0;
+  const requestId = (boardRequestIds.get(phone) || 0) + 1;
+  boardRequestIds.set(phone, requestId);
   const data = await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, signal);
-  const board = normalizeVipTaskboard(data);
-  vipCache = { phone, board, at: Date.now() };
-  publishBoard(board);
+  if (
+    (boardVersions.get(phone) || 0) !== versionAtStart ||
+    requestId < (appliedBoardRequestIds.get(phone) || 0)
+  ) {
+    if (vipCache?.phone === phone) return vipCache.board;
+  }
+  const normalizedBoard = normalizeVipTaskboard(data);
+  clearServerConfirmedClaims(phone, normalizedBoard);
+  const board = applyTaskClaimOverlays(phone, normalizedBoard);
+  appliedBoardRequestIds.set(phone, requestId);
+  cacheAndPublishBoard(phone, board);
   return board;
 }
 
-export function bustMilestoneCache() { vipCache = null; }
+export function beginMilestoneTaskClaim(phone: string, task: VipTask): boolean {
+  const overlays = taskClaimOverlays.get(phone) || new Map();
+  if (overlays.has(task.id)) return false;
+  overlays.set(task.id, { task, status: "pending" });
+  taskClaimOverlays.set(phone, overlays);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, vipCache.board));
+  return true;
+}
+
+export function confirmMilestoneTaskClaim(phone: string, taskId: string) {
+  const overlays = taskClaimOverlays.get(phone) || new Map();
+  const cachedTask = vipCache?.phone === phone ? vipCache.board.tasks.find((task) => task.id === taskId) : undefined;
+  const previous = overlays.get(taskId);
+  if (!previous && !cachedTask) return;
+  overlays.set(taskId, { task: previous?.task || cachedTask!, status: "confirmed" });
+  taskClaimOverlays.set(phone, overlays);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, vipCache.board));
+}
+
+export function clearMilestoneTaskClaim(phone: string, taskId: string) {
+  const overlays = taskClaimOverlays.get(phone);
+  const previous = overlays?.get(taskId);
+  if (!overlays || !previous || previous.status === "confirmed") return;
+  overlays.delete(taskId);
+  if (overlays.size === 0) taskClaimOverlays.delete(phone);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) {
+    const restored = {
+      ...vipCache.board,
+      tasks: vipCache.board.tasks.map((task) => task.id === taskId ? previous.task : task),
+    };
+    cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, restored));
+  }
+}
+
+export function beginMilestoneTierClaim(phone: string, category: string): boolean {
+  const claims = tierClaimOverlays.get(phone) || new Map();
+  if (Array.from(claims.keys()).some((name) => name.toLowerCase() === category.toLowerCase())) return false;
+  claims.set(category, "pending");
+  tierClaimOverlays.set(phone, claims);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, vipCache.board));
+  return true;
+}
+
+export function confirmMilestoneTierClaim(phone: string, category: string) {
+  const claims = tierClaimOverlays.get(phone) || new Map();
+  claims.set(category, "confirmed");
+  tierClaimOverlays.set(phone, claims);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, vipCache.board));
+}
+
+export function clearMilestoneTierClaim(phone: string, category: string) {
+  const claims = tierClaimOverlays.get(phone);
+  const foundCategory = claims && Array.from(claims.keys()).find((name) => name.toLowerCase() === category.toLowerCase());
+  if (!claims || !foundCategory || claims.get(foundCategory) === "confirmed") return;
+  claims.delete(foundCategory);
+  if (claims.size === 0) tierClaimOverlays.delete(phone);
+  bumpBoardVersion(phone);
+  if (vipCache?.phone === phone) {
+    const claimedTierRewards = (vipCache.board.claimedTierRewards || []).filter((name) => name.toLowerCase() !== foundCategory.toLowerCase());
+    cacheAndPublishBoard(phone, applyTaskClaimOverlays(phone, { ...vipCache.board, claimedTierRewards }));
+  }
+}
 
 interface Props { phone: string; siteConfig?: any; userProfile?: any; onClaimSuccess?: (p: any) => void; onBack?: () => void; focusStage?: string | null; }
 
@@ -71,6 +203,8 @@ export function AchievementGlyph({ metric, socialType, className }: { metric?: s
     : m === "invites_count" ? link3d
     : m === "account_created" ? account3d
     : m === "lifetime_yield" ? dollar3d
+    : m === "successful_deposits" ? dollar3d
+    : m === "successful_withdrawals" ? wallet3d
     : m === "milestones_claimed" ? medal3d
     : m === "collectibles_claimed" ? collectible3d
     : dollar3d;
@@ -146,7 +280,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     if (typeof document !== "undefined" && document.hidden) return;
     setLoading(true);
     const s=renew();
-    try { const data=await fetchJsonWithSignal<VipTaskboard>(`/api/profile/vip-tasks/${encodeURIComponent(phone)}`, s); const n=normalizeVipTaskboard(data); setBoard(n); setHasLoadedBoard(true); vipCache={phone, board:n, at:Date.now()}; publishBoard(n); }
+    try { const n=await getMilestoneBoard(phone, s, true); setBoard(n); setHasLoadedBoard(true); }
     catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"Journey unavailable"); }
     finally{ if (!s.aborted) { setLoading(false); setHasLoadedBoard(true); } }
   }, [phone]);
@@ -250,7 +384,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
 
   // CLAIM LEVEL REWARD: the single one-time payout for the whole stage.
   const handleClaimStage = async (stage: StageGroup, event?: React.MouseEvent<HTMLElement>) => {
-    if (!stage.claimable || stageClaimsInFlight.current.has(stage.name)) return;
+    if (!stage.claimable || stageClaimsInFlight.current.has(stage.name) || !beginMilestoneTierClaim(phone, stage.name)) return;
     const sourceRect = event?.currentTarget.getBoundingClientRect() ?? null;
     const optimisticReward = Math.max(0, Number(stage.tierReward) || 0);
     const previousBoard = board;
@@ -276,10 +410,11 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       if (reward !== optimisticReward) applyPointsDelta(reward - optimisticReward, { claimedTierRewards });
       else if (data.claimedTierRewards) applyPointsDelta(0, { claimedTierRewards });
       setBoard((current) => ({ ...current, claimedTierRewards }));
+      confirmMilestoneTierClaim(phone, stage.name);
       toast.success(`Stage reward claimed: ${formatCurrency(reward)} added to withdrawable balance`);
-      vipCache = null;
       void load(true);
     } catch (error: any) {
+      clearMilestoneTierClaim(phone, stage.name);
       applyPointsDelta(-optimisticReward, { claimedTierRewards: previousProfileTiers });
       setBoard((current) => ({ ...current, claimedTierRewards: previousBoard.claimedTierRewards }));
       if (flightIds.length) setCoins((current) => {
@@ -304,6 +439,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
 
     const sourceRect = isRewardClaim ? (event?.currentTarget.getBoundingClientRect() ?? null) : null;
     const optimisticReward = isRewardClaim ? Math.max(0, Number(task.reward) || 0) : 0;
+    if (isRewardClaim && !beginMilestoneTaskClaim(phone, task)) return;
     taskClaimsInFlight.current.add(task.id);
     setSubmittingTasks((current) => new Set(current).add(task.id));
     let flightIds: number[] = [];
@@ -339,9 +475,10 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
           applyPointsDelta(reward - optimisticReward);
         }
         toast.success(`${formatCurrency(reward)} added to your balance.`);
-        vipCache = null;
+        confirmMilestoneTaskClaim(phone, task.id);
         void load(true);
       } else {
+        if (isRewardClaim) clearMilestoneTaskClaim(phone, task.id);
         if (isRewardClaim) {
           applyPointsDelta(-optimisticReward);
           if (flightIds.length) setCoins((current) => {
@@ -358,6 +495,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       }
     } catch (error: any) {
       if (isRewardClaim) {
+        clearMilestoneTaskClaim(phone, task.id);
         applyPointsDelta(-optimisticReward);
         setBoard((current) => ({
           ...current,
@@ -577,7 +715,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             <div className="flex flex-col gap-3">
               {stages.map((stage, i) => {
                 const isCurrent = i === currentIdx;
-                const claiming = bulkStage === stage.name;
                 const barPct = calcVipProgress(stage.done, Math.max(1, stage.total));
                 const muted = stage.locked && !isCurrent;
                 // Rail segment to the next node: teal along the travelled path and
@@ -621,17 +758,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                         </span>
                         <span className="mt-1.5 flex items-center justify-between gap-2">
                           <span className="text-[10px] font-sans font-bold tracking-[0.12em] text-[var(--theme-text)] opacity-60">{stage.done}/{stage.total} COMPLETE</span>
-                          {stage.claimable && (
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(e) => { e.stopPropagation(); void handleClaimStage(stage, e); }}
-                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); void handleClaimStage(stage); } }}
-                              className="inline-flex items-center gap-1 px-3.5 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black cursor-pointer active:scale-95"
-                            >
-                              {claiming ? "CLAIMING…" : <>CLAIM REWARD <ChevronRight className="w-3.5 h-3.5" strokeWidth={3} /></>}
-                            </span>
-                          )}
                         </span>
                       </span>
                     </button>

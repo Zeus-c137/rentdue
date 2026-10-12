@@ -112,6 +112,8 @@ export function metricMeta(metric?: string): { unit: string; isMoney: boolean; s
     case "milestones_claimed": return { unit: "claimed", isMoney: false, source: "Milestones claimed" };
     case "account_created": return { unit: "", isMoney: false, source: "Account" };
     case "lifetime_yield": return { unit: "", isMoney: true, source: "Run earnings" };
+    case "successful_deposits": return { unit: "", isMoney: true, source: "Successful deposits" };
+    case "successful_withdrawals": return { unit: "", isMoney: true, source: "Successful withdrawals" };
     default: return { unit: "", isMoney: true, source: "Lifetime points" };
   }
 }

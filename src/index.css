@@ -437,6 +437,17 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   box-shadow: 0 0 0 3px rgba(var(--theme-primary), 0.15);
 }
 
+.vip-metric-select {
+  color-scheme: light;
+}
+.dark .vip-metric-select {
+  color-scheme: dark;
+}
+.vip-metric-select option {
+  background-color: var(--theme-bg);
+  color: var(--theme-text);
+}
+
 /* Sonner Toast Theme Preset Integration — frosted (raw --theme-card-bg is
    ~6% white in dark mode, i.e. invisible without blur + weight) */
 [data-sonner-toaster] [data-sonner-toast] {

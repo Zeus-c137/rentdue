@@ -2514,6 +2514,18 @@ export async function getVipTaskboard(phone: string) {
   const opResult: any = await drizzleDb.execute(sql`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = ${phone} AND type IN ('daily_yield', 'referral_signup_bonus', 'referral_level_income', 'daily_checkin_bonus', 'gift_code', 'vip_task', 'registration_bonus') AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')`);
   const opRows = Array.isArray(opResult?.[0]) ? opResult[0] : [];
   const operatorPoints = Math.max(0, Number(opRows?.[0]?.total ?? 0));
+  const transactionMetricResult: any = await drizzleDb.execute(sql`
+    SELECT
+      COALESCE(SUM(CASE WHEN type IN ('deposit', 'balance', 'manual') THEN amount ELSE 0 END), 0) AS successful_deposits,
+      COALESCE(SUM(CASE WHEN type IN ('withdrawal', 'withdraw') THEN amount ELSE 0 END), 0) AS successful_withdrawals
+    FROM transactions
+    WHERE user_id = ${phone}
+      AND type IN ('deposit', 'balance', 'manual', 'withdrawal', 'withdraw')
+      AND UPPER(status) IN ('SUCCESSFUL', 'COMPLETED')
+  `);
+  const transactionMetricRows = Array.isArray(transactionMetricResult?.[0]) ? transactionMetricResult[0] : [];
+  const successfulDeposits = Math.max(0, Number(transactionMetricRows?.[0]?.successful_deposits ?? 0));
+  const successfulWithdrawals = Math.max(0, Number(transactionMetricRows?.[0]?.successful_withdrawals ?? 0));
   const claimedTiers: string[] = Array.isArray((user as any).claimedTierRewards) ? (user as any).claimedTierRewards : [];
   const rawTierRewards: Record<string, any> = readJsonRecord((config as any).vipTierRewards);
   const rawTierTaskRewards: Record<string, any> = readJsonRecord((config as any).vipTierTaskRewards);
@@ -2575,6 +2587,8 @@ export async function getVipTaskboard(phone: string) {
       case "invites_count": return invitesCount;
       case "milestones_claimed": return milestonesClaimed;
       case "account_created": return 1;
+      case "successful_deposits": return successfulDeposits;
+      case "successful_withdrawals": return successfulWithdrawals;
       default: return operatorPoints;
     }
   };
