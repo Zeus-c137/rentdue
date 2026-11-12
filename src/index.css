@@ -63,6 +63,14 @@ body {
   --theme-on-primary: #1A2E05;
 }
 
+/* Motion easing tokens — stronger than the built-in CSS easings, which lack
+   the punch that makes an animation feel intentional. Source: easings.co */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* 3D Extruded & Dynamic Button Controls */
 .btn-3d-primary {
   background-color: var(--theme-primary);
@@ -668,4 +676,29 @@ input:-webkit-autofill::first-line { font-size: 14px; }
 .streak-tile-pulse {
   animation: streak-tile-pulse 1.4s ease-in-out infinite;
   will-change: transform;
+}
+
+/* Pressable surfaces — instant press feedback so the UI feels like it is
+   listening. The transition names the exact property (never `all`, which also
+   animates paint-heavy properties like box-shadow and background). 160ms sits
+   in the button-press band from the design-engineering rules; the curve is the
+   strong ease-out token. */
+.pressable {
+  transition: transform 160ms var(--ease-out);
+}
+.pressable:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Card lift — a restrained hover raise for the landing grids. Transform and
+   border only, so a pointer move never triggers a paint. Gated behind
+   (hover: hover) and (pointer: fine) so a tap on touch never latches a
+   sticky hover state. */
+.lift-card {
+  transition: transform 200ms var(--ease-out), border-color 200ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .lift-card:hover {
+    transform: translateY(-2px);
+  }
 }
