@@ -40,6 +40,7 @@ import { fixGitHubImageUrl } from "../utils/imageUtils";
 import TelegramLoginButton from "./TelegramLoginButton";
 import { useTelegramLogin } from "../hooks/useTelegramLogin";
 import { useReducedMotion } from "../hooks/useReducedMotion";
+import { TradingViewWidget } from "./TradingViewWidget";
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
@@ -122,8 +123,13 @@ const NAV_ITEMS = [
   { label: "Markets", id: "markets" },
   { label: "Strategies", id: "bots" },
   { label: "Cycles", id: "cycles" },
+  { label: "Live", id: "markets-live" },
   { label: "FAQ", id: "faq" },
 ];
+
+// Live market tape. Kept narrow on purpose — it is a pulse, not a data table.
+const TICKER_SYMBOLS =
+  "FOREXCOM:SPXUSD,FOREXCOM:NSXUSD,FOREXCOM:DJI,FX:EURUSD,BITSTAMP:BTCUSD,BITSTAMP:ETHUSD,CMCMARKETS:GOLD";
 
 const FAQS = [
   {
@@ -295,33 +301,44 @@ function PnlBarChart({ reduce, days }: { reduce: boolean; days: number }) {
       {/* Plot */}
       <div className="mt-4">
         <div
-          className="relative flex items-end gap-[3px] sm:gap-1.5 h-32 sm:h-40"
-          role="img"
+          className="pnl-plot relative flex items-end gap-[3px] sm:gap-1.5 h-32 sm:h-40"
+          role="group"
           aria-label={`Illustrative profit curve rising to 23 percent over ${days} days`}
         >
           {/* baseline */}
           <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--theme-card-border)]" />
 
-          {bars.map((b, idx) => (
-            <div key={b.i} className="relative flex-1 h-full flex items-end">
-              <motion.div
-                className="w-full rounded-t-[4px] bg-[var(--theme-primary)]/35"
-                style={{ height: `${Math.max(3, b.value * 100)}%`, transformOrigin: "bottom" }}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, scaleY: 0.02 }}
-                whileInView={{ opacity: 1, scaleY: 1 }}
-                viewport={{ once: true, amount: 0.4 }}
-                transition={
-                  reduce
-                    ? { duration: 0.3, delay: idx * 0.02 }
-                    : {
-                        duration: 0.5,
-                        delay: idx * 0.04,
-                        ease: [0.23, 1, 0.32, 1] as const,
-                      }
-                }
-              />
-            </div>
-          ))}
+          {bars.map((b, idx) => {
+            const dayNumber = Math.round(((idx + 1) / bars.length) * days);
+            return (
+              <div key={b.i} className="relative flex-1 h-full flex items-end">
+                <motion.div
+                  className="pnl-bar w-full rounded-t-[4px] bg-[var(--theme-primary)]/35"
+                  style={{ height: `${Math.max(3, b.value * 100)}%`, transformOrigin: "bottom" }}
+                  initial={reduce ? { opacity: 0 } : { opacity: 0, scaleY: 0.02 }}
+                  whileInView={{ opacity: 1, scaleY: 1 }}
+                  viewport={{ once: true, amount: 0.4 }}
+                  transition={
+                    reduce
+                      ? { duration: 0.3, delay: idx * 0.02 }
+                      : {
+                          duration: 0.5,
+                          delay: idx * 0.04,
+                          ease: [0.23, 1, 0.32, 1] as const,
+                        }
+                  }
+                  tabIndex={0}
+                  role="img"
+                  aria-label={`Day ${dayNumber}`}
+                >
+                  {/* Value tag: only the hovered/focused bar shows it. */}
+                  <span className="pnl-bar-tag pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded-md bg-[var(--theme-text)] px-1.5 py-0.5 text-[10px] font-sans font-bold text-[var(--theme-bg)]">
+                    +{(b.value * 23).toFixed(1)}%
+                  </span>
+                </motion.div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1190,7 +1207,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       <header className="sticky top-0 z-50 border-b border-[var(--theme-card-border)]/60 bg-[var(--theme-bg)]/80 backdrop-blur-xl">
         <div className="relative max-w-7xl mx-auto px-5 sm:px-8 h-16 md:h-[72px] flex items-center gap-3">
           <BrandLogo siteConfig={activeConfig} className="w-9 h-9 flex items-center justify-center shrink-0" />
-          <span className="font-display font-black text-base md:text-lg tracking-tight uppercase">
+          <span className="hidden sm:inline font-display font-black text-base md:text-lg tracking-tight uppercase">
             {brandName}
           </span>
 
@@ -1253,33 +1270,18 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
       <main>
         {/* ---------------- hero ---------------- */}
-        <section className="relative min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4.5rem)] flex items-center overflow-hidden">
-          {heroImage ? (
-            <div className="absolute inset-0 pointer-events-none">
-              <img
-                src={heroImage}
-                alt=""
-                aria-hidden="true"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover opacity-[0.28]"
-              />
-              <div className="absolute inset-0 bg-[var(--theme-bg)]/72" />
-              <div className="absolute inset-0 bg-gradient-to-b from-[var(--theme-bg)]/55 via-[var(--theme-bg)]/72 to-[var(--theme-bg)]" />
-            </div>
-          ) : null}
-
+        <section className="relative min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4.5rem)] flex flex-col overflow-hidden">
           <motion.div
             {...heroStagger}
-            className="relative w-full max-w-7xl mx-auto px-5 sm:px-8 py-16 sm:py-24"
+            className="relative flex-1 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] gap-4 sm:gap-10 lg:gap-14 items-center w-full max-w-7xl mx-auto px-3 sm:px-8 pt-3 pb-8 sm:py-16"
           >
-
-
+            <div className="min-w-0 order-2 lg:order-1">
             <motion.h1
               {...rise(0.06)}
-              className="mt-6 max-w-3xl font-display font-black text-[40px] leading-[1.02] tracking-tight sm:text-[60px] lg:text-[72px]"
+              className="max-w-3xl font-display font-black text-[40px] leading-[1.02] tracking-tight sm:text-[60px] lg:text-[64px] xl:text-[72px]"
             >
               Discover bots,
-             
+
               <br />
               <span className="text-[var(--theme-primary)]">Put them to work.</span>
             </motion.h1>
@@ -1288,8 +1290,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               {...rise(0.12)}
               className="mt-6 max-w-xl text-[15px] font-sans leading-relaxed text-[var(--theme-text-muted)] sm:text-lg"
             >
-              Every strategy card lists its allocation, duration and daily yield before you
-              commit. Pick one, start a cycle, and watch it run.
+              Our system employs real-time algrorithmic trading bots to find you fixed trading opportunities in the volatile markets.
             </motion.p>
 
             <motion.div {...rise(0.18)} className="mt-9 flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -1303,8 +1304,67 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                Get started.
               </button>
             </motion.div>
+            </div>
 
+            {/* Hero art: the live catalog's own product image, shown bare. No
+                card, no border, no background — the asset is the visual. Falls
+                back to the admin-configured authBgImage only when the catalog
+                has no image to show. */}
+            <motion.div
+              {...(reduce
+                ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.3, delay: 0.2 } }
+                : {
+                    initial: { opacity: 0, y: 18 },
+                    animate: { opacity: 1, y: 0 },
+                    transition: { duration: 0.55, ease: [0.23, 1, 0.32, 1] as const, delay: 0.2 },
+                  })}
+              className="relative min-w-0 order-1 lg:order-2 -mx-3 -mt-2 sm:mx-0 sm:mt-0"
+            >
+              {featuredImageOk ? (
+                <img
+                  src={featuredImage}
+                  alt={featuredProduct?.name ? `${featuredProduct.name} trading bot` : "Trading bot"}
+                  referrerPolicy="no-referrer"
+                  className="hero-art block w-full h-auto max-h-[240px] sm:max-h-[340px] lg:max-h-[440px] object-contain mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
+                />
+              ) : heroImage ? (
+                <img
+                  src={heroImage}
+                  alt=""
+                  aria-hidden="true"
+                  referrerPolicy="no-referrer"
+                  className="hero-art block w-full h-auto max-h-[240px] sm:max-h-[340px] lg:max-h-[440px] object-contain mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
+                />
+              ) : null}
+            </motion.div>
+          </motion.div>
 
+          {/* Live tape pinned to the foot of the hero — the last thing you see
+              before the fold. Sits outside the staggered block so it never
+              competes with the headline for entrance timing. */}
+          <motion.div
+            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={
+              reduce
+                ? { duration: 0.3, delay: 0.3 }
+                : { duration: 0.45, ease: [0.23, 1, 0.32, 1] as const, delay: 0.32 }
+            }
+            className="relative w-full border-t border-[var(--theme-card-border)]/60 bg-[var(--theme-card-bg)]"
+          >
+            <div className="max-w-7xl mx-auto px-5 sm:px-8">
+              <TradingViewWidget
+                kind="ticker-tape"
+                height={46}
+                attrs={{
+                  symbols: TICKER_SYMBOLS,
+                  isTransparent: true,
+                  displayMode: "adaptive",
+                  showSymbolLogo: true,
+                }}
+                fallback={<div className="h-[46px] animate-pulse rounded-lg bg-[var(--theme-card-bg)]" />}
+              />
+            </div>
           </motion.div>
         </section>
 
@@ -1314,7 +1374,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             <SectionHead
               eyebrow="Market coverage"
               title="The markets are full of opportunities."
-              lede="Describe how you trade: risk per trade, win rate, reward to risk. See thousands of possible futures at once, with the drawdowns to expect, the winning streaks, and your odds of doubling the account or losing half."
+              lede="Whether you follow forex,crpto,CFDs, See thousands of possible futures at once, with the drawdowns to expect, the winning streaks, and your odds of doubling the account or losing half."
             />
           </Reveal>
 
@@ -1396,7 +1456,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             <SectionHead
               eyebrow="Meet your trading bots"
               title="Find markets, activate bots."
-              lede="Every market has a set of trading bots you activate with fixed returns for a set period of time. Choose as many as you like to get started."
+              lede="Every market has a set of trading bots you activate with fixed returns for a set period of time. Choose as many as you like to get started"
             />
           </Reveal>
 
@@ -1439,7 +1499,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
                           Allocation
                         </dt>
-                        <dd className="mt-1.5 font-display font-black text-lg tracking-tight">
+                        <dd className="mt-1.5 font-display font-black text-md tracking-tight">
                           UGX {Number(featuredProduct.amount).toLocaleString()}
                         </dd>
                       </div>
@@ -1447,7 +1507,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
                           Daily yield
                         </dt>
-                        <dd className="mt-1.5 font-display font-black text-lg tracking-tight">
+                        <dd className="mt-1.5 font-display font-black text-md tracking-tight">
                           UGX {Number(featuredProduct.dailyYield).toLocaleString()}
                         </dd>
                       </div>
@@ -1455,7 +1515,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
                           Cycle
                         </dt>
-                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-lg tracking-tight">
+                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-md tracking-tight">
                           <CalendarDays className="w-4 h-4 text-[var(--theme-primary)]" />
                           {featuredProduct.duration} days
                         </dd>
@@ -1464,7 +1524,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
                           Status
                         </dt>
-                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-lg tracking-tight">
+                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-md tracking-tight">
                           <CheckCircle2 className="w-4 h-4 text-[var(--theme-primary)]" />
                           Open
                         </dd>
@@ -1521,6 +1581,86 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
             <Reveal delay={0.1} reduce={reduce}>
               <PnlBarChart reduce={reduce} days={maxDuration} />
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ---------------- live market data ---------------- */}
+        <section id="markets-live" className="scroll-mt-24 max-w-7xl mx-auto px-5 sm:px-8 py-20 sm:py-28">
+          <Reveal reduce={reduce}>
+            <SectionHead
+              eyebrow="Live market data"
+              title="The tape never stops."
+              lede="Stay updated with the markets and strategies you follow"
+            />
+          </Reveal>
+
+          <div className="mt-12 grid gap-4 lg:grid-cols-5">
+            <Reveal reduce={reduce} className="min-w-0 lg:col-span-3">
+              <div className="lift-card h-full overflow-hidden rounded-3xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                <div className="flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-6">
+                  <h3 className="font-display font-black text-sm sm:text-base tracking-tight">Market news</h3>
+                  <span className="shrink-0 rounded-full bg-[var(--theme-primary)]/12 px-2.5 py-1 text-[10px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-primary)]">
+                    Live
+                  </span>
+                </div>
+                <div className="px-1.5 sm:px-3 pb-2 sm:pb-3 pt-2">
+                  <TradingViewWidget
+                    kind="news-feed"
+                    height={440}
+                    heightMobile={340}
+                    attrs={{ isTransparent: true, displayMode: "regular", feedMode: "all_symbols" }}
+                    fallback={
+                      <div className="space-y-2 px-2 py-2" aria-hidden="true">
+                        {[0, 1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className="h-16 animate-pulse rounded-xl bg-[var(--theme-card-bg)]"
+                          />
+                        ))}
+                      </div>
+                    }
+                  />
+                </div>
+              </div>
+            </Reveal>
+
+            <Reveal delay={0.08} reduce={reduce} className="min-w-0 lg:col-span-2">
+              <div className="lift-card h-full overflow-hidden rounded-3xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
+                <div className="flex items-center justify-between gap-3 px-4 sm:px-6 pt-4 sm:pt-6">
+                  <h3 className="font-display font-black text-sm sm:text-base tracking-tight">
+                    Technicals · AAPL
+                  </h3>
+                  <span className="shrink-0 rounded-full bg-[var(--theme-primary)]/12 px-2.5 py-1 text-[10px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-primary)]">
+                    Live
+                  </span>
+                </div>
+                <div className="px-1.5 sm:px-3 pb-2 sm:pb-3 pt-2">
+                  <TradingViewWidget
+                    kind="technical-analysis"
+                    height={440}
+                    heightMobile={340}
+                    attrs={{
+                      symbol: "NASDAQ:AAPL",
+                      interval: "1D",
+                      width: "100%",
+                      isTransparent: true,
+                      showIntervalTabs: false,
+                      displayMode: "multiple",
+                    }}
+                    fallback={
+                      <div className="space-y-2 px-2 py-2" aria-hidden="true">
+                        {[0, 1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className="h-16 animate-pulse rounded-xl bg-[var(--theme-card-bg)]"
+                          />
+                        ))}
+                      </div>
+                    }
+                  />
+                </div>
+              </div>
             </Reveal>
           </div>
         </section>
@@ -1651,26 +1791,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
           </div>
         </section>
 
-        {/* ---------------- risk disclosure ---------------- */}
-        <section className="max-w-3xl mx-auto px-5 sm:px-8 pb-20 sm:pb-24">
-          <Reveal reduce={reduce}>
-            <div className="rounded-3xl border border-amber-500/30 bg-amber-500/10 p-6 sm:p-7">
-              <div className="flex gap-3">
-                <AlertTriangle className="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
-                <div>
-                  <h2 className="font-display font-black text-base tracking-tight text-amber-500">
-                    Important risk disclosure
-                  </h2>
-                  <p className="mt-2 text-[13.5px] font-sans leading-relaxed text-[var(--theme-text-muted)]">
-                    Strategies are shown for information only. Nothing on this page is financial
-                    advice, a guarantee of returns, or a promise that any cycle will end in profit.
-                    Only commit what you can afford to leave in place for the full cycle.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Reveal>
-        </section>
+      
       </main>
 
       {/* ---------------- footer ---------------- */}

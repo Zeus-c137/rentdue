@@ -702,3 +702,104 @@ input:-webkit-autofill::first-line { font-size: 14px; }
     transform: translateY(-2px);
   }
 }
+
+/* Hero art — on phones the product image bleeds to the screen edges and its
+   bottom edge dissolves into the page instead of ending on a hard line. The
+   mask is opacity-only, so it composites and never triggers a paint of the
+   image itself. Desktop keeps the plain drop-shadow. */
+@media (max-width: 639px) {
+  .hero-art {
+    -webkit-mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      rgba(0, 0, 0, 0.35) 14%,
+      rgba(0, 0, 0, 0.8) 34%,
+      #000 58%,
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      rgba(0, 0, 0, 0.35) 14%,
+      rgba(0, 0, 0, 0.8) 34%,
+      #000 58%,
+      #000 100%
+    );
+    /* The drop-shadow was tuned for the framed look; the fade replaces it. */
+    filter: none;
+  }
+}
+
+/* TradingView widgets inject an iframe sized from their own attributes, which
+   can exceed a phone's viewport. Clamp the iframe to the host and let the host
+   clip, so a widget never introduces horizontal page scroll. */
+.tv-widget-host,
+.tv-widget-host iframe {
+  max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  /* The widgets set a min-width on their internal wrapper; on a phone that
+     forces sideways scroll inside the card. */
+  .tv-widget-host,
+  .tv-widget-host > div,
+  .tv-widget-host iframe {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* P&L bar — hovering one bar spotlights it and mutes its siblings. The
+   hovered/focused bar takes a full-strength fill and lifts 2px; everything
+   else drops back. Only transform and opacity animate, and the whole
+   interaction is gated behind a fine pointer so a tap on touch never
+   latches a sticky highlight. */
+.pnl-bar {
+  transition: transform 180ms var(--ease-out), background-color 180ms var(--ease-out),
+    opacity 180ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pnl-plot:hover .pnl-bar {
+    opacity: 0.4;
+  }
+  .pnl-plot:hover .pnl-bar:hover {
+    opacity: 1;
+    background-color: var(--theme-primary);
+    transform: translateY(-2px);
+  }
+}
+/* Keyboard parity: the bar is focusable, so tab focus reads the same as hover. */
+.pnl-bar:focus-visible {
+  outline: none;
+  opacity: 1;
+  background-color: var(--theme-primary);
+  transform: translateY(-2px);
+}
+.pnl-plot:focus-within .pnl-bar {
+  opacity: 0.4;
+}
+.pnl-bar:focus-visible,
+.pnl-plot:focus-within .pnl-bar:focus-visible {
+  opacity: 1;
+}
+
+/* Value tag rides above the bar, hidden until that bar is the active one.
+   Opacity only, 140ms — it must never delay the bar highlight. */
+.pnl-bar-tag {
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pnl-plot:hover .pnl-bar:hover .pnl-bar-tag {
+    opacity: 1;
+  }
+}
+.pnl-bar:focus-visible .pnl-bar-tag {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pnl-bar,
+  .pnl-bar-tag {
+    transition-duration: 1ms;
+  }
+}
