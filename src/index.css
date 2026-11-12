@@ -730,6 +730,32 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   }
 }
 
+/* Auth forms on very small phones. Inputs are 16px at the base breakpoint so
+   iOS Safari does not zoom the viewport on focus, then settle to the design
+   size from sm up. */
+.auth-eye {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: -1px;
+}
+
+@media (min-width: 640px) {
+  .auth-eye {
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-eye {
+    transition-duration: 1ms;
+  }
+}
+
 /* TradingView widgets inject an iframe sized from their own attributes, which
    can exceed a phone's viewport. Clamp the iframe to the host and let the host
    clip, so a widget never introduces horizontal page scroll. */

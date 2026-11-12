@@ -157,8 +157,8 @@ const FAQS = [
     a: "Withdrawals are requested from your balance and reviewed by the team. Support can walk you through the first one.",
   },
   {
-    q: "Do I need to keep the app open?",
-    a: "No. Cycles run on our side. Check in whenever you like, and collect your returns when you do.",
+    q: "Is this for beginners?",
+    a: "Yes, you do not need any trading knowledge to use the platform.",
   },
 ];
 
@@ -173,12 +173,12 @@ function AuthField({
 }: React.InputHTMLAttributes<HTMLInputElement> & { icon: React.ReactNode }) {
   return (
     <div className="relative">
-      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 pointer-events-none">
+      <span className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 pointer-events-none [&>svg]:w-4 [&>svg]:h-4 sm:[&>svg]:w-5 sm:[&>svg]:h-5">
         {icon}
       </span>
       <input
         {...props}
-        className={`w-full pl-12 pr-12 py-4 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
+        className={`w-full pl-10 pr-10 py-3 sm:pl-12 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-md text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
       />
     </div>
   );
@@ -191,7 +191,7 @@ function PrimaryButton({
   return (
     <button
       {...props}
-      className="w-full py-4 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_4px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[3px]"
+      className="w-full py-3 sm:py-3.5 px-5 sm:px-6 rounded-xl sm:rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_4px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[3px]"
     >
       {children}
     </button>
@@ -205,7 +205,7 @@ function GhostButton({
   return (
     <button
       {...props}
-      className="w-full py-4 px-6 rounded-2xl border border-[var(--theme-card-border)] text-[var(--theme-text)] font-sans font-semibold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] bg-transparent"
+      className="w-full py-3 sm:py-3.5 px-5 sm:px-6 rounded-xl sm:rounded-2xl border border-[var(--theme-card-border)] text-[var(--theme-text)] font-sans font-semibold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] bg-transparent"
     >
       {children}
     </button>
@@ -722,7 +722,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const authScreen = screen !== "welcome" && (
     <div className="min-h-[100dvh] bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] transition-colors">
-      <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col px-6 pt-6 pb-8">
+      <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col px-4 min-[380px]:px-5 sm:px-6 pt-5 sm:pt-6 pb-6 sm:pb-8">
         {/* Brand header */}
         <div className="flex items-center gap-3">
           <button
@@ -747,16 +747,16 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col pt-10"
+              className="flex-1 flex flex-col pt-7 sm:pt-10"
             >
-              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight whitespace-nowrap">
+              <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
                 Welcome back.
               </h1>
-              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+              <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
                 Sign in to continue.
               </p>
 
-              <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
+              <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-6 sm:mt-8 space-y-3 sm:space-y-3.5 flex-1 flex flex-col">
                 <AuthField
                   icon={<Phone className="w-5 h-5" />}
                   type="tel"
@@ -782,9 +782,9 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     type="button"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                    className="auth-eye absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
                   >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    {showPassword ? <EyeOff className="w-[18px] h-[18px] sm:w-5 sm:h-5" /> : <Eye className="w-[18px] h-[18px] sm:w-5 sm:h-5" />}
                   </button>
                 </div>
 
@@ -814,22 +814,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     )}
                   </PrimaryButton>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-sans text-[var(--theme-text)] opacity-50">Or use</span>
-                  <span className="flex-1" />
-                  <TelegramLoginButton onAuth={handleTelegramLogin} disabled={isLoading} />
-                  <button
-                    type="button"
-                    aria-label="About Telegram login"
-                    onClick={() => toast.info("Connect Telegram to login without a password")}
-                    className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                  >
-                    <Info className="w-4 h-4" />
-                  </button>
-                </div>
+               
               </form>
 
-              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="border-t border-[var(--theme-card-border)] mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
                 New here?{" "}
                 <button
                   type="button"
@@ -850,16 +838,25 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col pt-10"
+              className="flex-1 flex flex-col pt-7 sm:pt-10"
             >
-              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight whitespace-nowrap">
+              <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
                 Let's get started
               </h1>
-              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+              <p className="mt-3 mb-1 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
                 Fill in your details...
               </p>
 
-              <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-8 space-y-3.5 flex-1 flex flex-col">
+              {regBonus > 0 && (
+                <div className="relative overflow-hidden rounded-xl sm:rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
+                  <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
+                    <Gift className="w-9 h-9 shrink-0 text-[var(--theme-primary)]" />
+                    Plus UGX {regBonus.toLocaleString()} Registration bonus upon first login.
+                  </p>
+                </div>
+              )}
+
+              <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-6 sm:mt-8 space-y-3 sm:space-y-3.5 flex-1 flex flex-col">
                 <AuthField
                   icon={<User className="w-5 h-5" />}
                   type="text"
@@ -895,9 +892,9 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     type="button"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                    className="auth-eye absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
                   >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    {showPassword ? <EyeOff className="w-[18px] h-[18px] sm:w-5 sm:h-5" /> : <Eye className="w-[18px] h-[18px] sm:w-5 sm:h-5" />}
                   </button>
                 </div>
                 <div>
@@ -922,66 +919,11 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     verified id_token attaches to the register submit; the
                     pill flips to Connected once this Telegram is confirmed
                     unlinked. */}
-                <div>
-                  <div className="flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={handleTelegramPillClick}
-                      disabled={isLoading || telegramPillBusy || !!telegramIdToken}
-                      className="inline-flex items-center gap-2 rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-2.5 text-[13px] font-sans font-semibold text-[var(--theme-text)] transition-all active:scale-[0.97] disabled:opacity-60 disabled:cursor-default cursor-pointer"
-                    >
-                      {telegramPillBusy ? (
-                        <>
-                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
-                          <span className="opacity-70">Connecting…</span>
-                        </>
-                      ) : telegramIdToken ? (
-                        <>
-                          <img src="/telegram.svg" alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain" />
-                          <span>Connected</span>
-                          <CheckCircle2 className="w-4 h-4 text-[var(--theme-primary)]" />
-                        </>
-                      ) : (
-                        <>
-                          <img src="/telegram.svg" alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain" />
-                          <span>{telegramRegister.status === "failed" ? "Retry Telegram" : "Connect Telegram"}</span>
-                        </>
-                      )}
-                    </button>
-                    {telegramIdToken && (
-                      <button
-                        type="button"
-                        aria-label="Unlink Telegram"
-                        onClick={() => setTelegramUnlinkOpen(true)}
-                        className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label="About Telegram login"
-                      onClick={() => toast.info("Connect Telegram to login without a password")}
-                      className="w-8 h-8 flex items-center justify-center text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                    >
-                      <Info className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="mt-1 text-right text-[11px] font-sans text-[var(--theme-text)] opacity-50">
-                    Optional
-                  </p>
-                </div>
+              
 
                 <div className="flex-1" />
 
-                {regBonus > 0 && (
-                  <div className="relative overflow-hidden rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
-                    <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
-                      <Gift className="w-12 h-12 text-[var(--theme-primary)]" />
-                      Plus UGX {regBonus.toLocaleString()} Registration bonus upon first login.
-                    </p>
-                  </div>
-                )}
+              
 
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
@@ -999,7 +941,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </div>
               </form>
 
-              <div className="border-t border-[var(--theme-card-border)] mt-6 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="border-t border-[var(--theme-card-border)] mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
                 Already have an account?{" "}
                 <button
                   type="button"
@@ -1020,13 +962,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col pt-10"
+              className="flex-1 flex flex-col pt-7 sm:pt-10"
             >
-              <h1 className="font-display font-black text-[38px] leading-[1.08] tracking-tight">
+              <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
                 Need a<br />
                 hand?
               </h1>
-              <p className="mt-3 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+              <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
                 Send a note to the support desk to recover your account.
               </p>
 
@@ -1076,7 +1018,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     onChange={(e) => setRecoveryMsg(e.target.value)}
                     rows={4}
                     maxLength={1000}
-                    className="w-full px-4 py-4 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text resize-none"
+                    className="w-full px-4 py-3 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-xl sm:rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text resize-none"
                   />
                   <PrimaryButton type="submit" disabled={recoverySending}>
                     {recoverySending ? (
@@ -1280,7 +1222,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               {...rise(0.06)}
               className="max-w-3xl font-display font-black text-[40px] leading-[1.02] tracking-tight sm:text-[60px] lg:text-[64px] xl:text-[72px]"
             >
-              Discover bots,
+              Discover trading bots,
 
               <br />
               <span className="text-[var(--theme-primary)]">Put them to work.</span>
@@ -1306,10 +1248,10 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             </motion.div>
             </div>
 
-            {/* Hero art: the live catalog's own product image, shown bare. No
-                card, no border, no background — the asset is the visual. Falls
-                back to the admin-configured authBgImage only when the catalog
-                has no image to show. */}
+            {/* Hero art: the admin-configured auth background, shown bare. No
+                card, no border, no background - the asset is the visual. The
+                catalog's own product image is deliberately not used here; that
+                one belongs to the product cards further down. */}
             <motion.div
               {...(reduce
                 ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.3, delay: 0.2 } }
@@ -1320,20 +1262,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   })}
               className="relative min-w-0 order-1 lg:order-2 -mx-3 -mt-2 sm:mx-0 sm:mt-0"
             >
-              {featuredImageOk ? (
-                <img
-                  src={featuredImage}
-                  alt={featuredProduct?.name ? `${featuredProduct.name} trading bot` : "Trading bot"}
-                  referrerPolicy="no-referrer"
-                  className="hero-art block w-full h-auto max-h-[240px] sm:max-h-[340px] lg:max-h-[440px] object-contain mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
-                />
-              ) : heroImage ? (
+              {heroImage ? (
                 <img
                   src={heroImage}
                   alt=""
                   aria-hidden="true"
                   referrerPolicy="no-referrer"
-                  className="hero-art block w-full h-auto max-h-[240px] sm:max-h-[340px] lg:max-h-[440px] object-contain mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
+                  className="hero-art block w-full h-auto max-h-[280px] sm:max-h-[380px] lg:max-h-[480px] object-cover mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
                 />
               ) : null}
             </motion.div>
@@ -1471,7 +1406,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         alt={featuredProduct.name}
                         loading="lazy"
                         referrerPolicy="no-referrer"
-                        className="absolute inset-0 w-full h-full object-cover"
+                        className="absolute inset-0 w-full h-full object-contain animate-pulse animate-bounce"
                       />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -1482,9 +1417,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
                   <div className="flex-1 p-6 sm:p-9">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-[var(--theme-primary)]/12 px-3 py-1 text-[11px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-primary)]">
-                        {featuredProduct.category}
-                      </span>
+                    
                       <span className="rounded-full border border-[var(--theme-card-border)] px-3 py-1 text-[11px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-text-muted)]">
                         Available now
                       </span>
@@ -1497,19 +1430,14 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     <dl className="mt-7 grid grid-cols-2 gap-x-6 gap-y-6 sm:max-w-md">
                       <div>
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                          Allocation
+                          Price
                         </dt>
                         <dd className="mt-1.5 font-display font-black text-md tracking-tight">
                           UGX {Number(featuredProduct.amount).toLocaleString()}
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                          Daily yield
-                        </dt>
-                        <dd className="mt-1.5 font-display font-black text-md tracking-tight">
-                          UGX {Number(featuredProduct.dailyYield).toLocaleString()}
-                        </dd>
+                       
                       </div>
                       <div>
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
@@ -1526,7 +1454,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         </dt>
                         <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-md tracking-tight">
                           <CheckCircle2 className="w-4 h-4 text-[var(--theme-primary)]" />
-                          Open
+                          Available
                         </dd>
                       </div>
                     </dl>

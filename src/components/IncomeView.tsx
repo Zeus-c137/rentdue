@@ -335,7 +335,7 @@ export default function IncomeView({
                           alt=""
                           loading="lazy"
                           referrerPolicy="no-referrer"
-                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
+                          className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.04] transition-transform duration-500"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">

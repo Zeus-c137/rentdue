@@ -13,7 +13,6 @@ import { Plus, Lock, ChevronRight, CalendarDays, SlidersHorizontal } from "lucid
 import flameSvg from "@/src/assets/svg/flame.svg";
 import { AchievementGlyph, beginMilestoneTaskClaim, clearMilestoneTaskClaim, confirmMilestoneTaskClaim, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
-import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
 import { optimizedImageUrl } from "../utils/imageUtils";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -264,33 +263,6 @@ export default function DashboardView({
   // Catalog + subs arrive in one batch after login — before that, hold a
   // dimension-matched skeleton instead of flashing the empty state.
   const listsReady = items.length > 0;
-
-  // Onboarding carousel takes the Runs slot until dismissed — dismissing
-  // reveals the Runs section underneath. Art comes from live catalog items.
-  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
-    try {
-      return localStorage.getItem("rentdue_onboarding_dismissed") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const dismissOnboarding = () => {
-    setOnboardingDismissed(true);
-    try {
-      localStorage.setItem("rentdue_onboarding_dismissed", "1");
-    } catch {
-      // persistence is best-effort
-    }
-  };
-  const homeSlides: OnboardingSlide[] = useMemo(() => {
-    const art = (i: number) => items[i]?.imageUrl || "";
-    return DEFAULT_ONBOARDING_SLIDES.map((s, i) => ({ ...s, image: art(i) || undefined }));
-  }, [items]);
-  const handleOnboardingCta = (index: number) => {
-    if (index === 1) onNavigateToMilestones();
-    else if (index === 2) onNavigateToStreaks();
-    else onNavigateToCatalog();
-  };
 
   // Next check-in opens at platform midnight (check-ins settle on platform days).
   const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
@@ -601,6 +573,126 @@ export default function DashboardView({
         </div>
       </section>
 
+      {listsReady && activeNodes.length === 0 && (
+        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
+          <p className="font-display font-black text-lg">No active runs.</p>
+          <button
+            type="button"
+            onClick={onNavigateToCatalog}
+            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
+          >
+            <Plus className="w-4 h-4" /> Start your first Run
+          </button>
+        </section>
+      )}
+
+      {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
+      {!listsReady ? (
+        <section aria-hidden="true" className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
+            <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
+          </div>
+          <div className="min-h-[196px]">
+            {[0, 1].map((i) => (
+              <div key={i} className="py-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
+                    <div className="mt-2 flex gap-[3px]" aria-hidden="true">
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
+                      <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
+        /* Runs — one card, two rows, overflow as a count */
+        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h2 className="font-display font-black text-[15px] truncate min-w-0">
+                {showCompletedRuns ? "Completed Runs" : "Active Runs"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowCompletedRuns((v) => !v)}
+                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
+                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToIncome}
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+            >
+              View all {shownRuns.length}
+            </button>
+          </div>
+          <div className="min-h-[196px]">
+            {shownRuns.length === 0 ? (
+              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
+                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
+              </p>
+            ) : null}
+            {shownRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node, items);
+            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
+            const thumb = mapped?.imageUrl || node.image || "";
+            return (
+              <button
+                key={node.id}
+                type="button"
+                onClick={onNavigateToIncome}
+                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  {thumb ? (
+                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-24 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
+                  ) : (
+                    <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
+                      {node.itemName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <CellsProgress pct={progress.percent} />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
+                          {Math.round(progress.percent)}%
+                        </span>
+                      </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-display text-[11px] font-bold tabular-nums text-[var(--theme-primary)]">
+                        <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                        {formatCurrency(node.totalEarned || 0)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          </div>
+        </section>
+      ) : null}
+
       {/* Daily streak — frosted to match Store/Runs */}
       <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
@@ -720,24 +812,6 @@ export default function DashboardView({
         </div>
       </section>
 
-      {listsReady && activeNodes.length === 0 && (
-        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
-          >
-            <Plus className="w-4 h-4" /> Start your first Run
-          </button>
-        </section>
-      )}
-
-      {/* Onboarding banner — sits above milestones */}
-      {!onboardingDismissed && listsReady ? (
-        <OnboardingCarousel slides={homeSlides} onCta={handleOnboardingCta} onDismiss={dismissOnboarding} />
-      ) : null}
-
       {/* Next milestone — title + body live inside one frosted card */}
       {!nextMilestone && msBoard === null && (
         <section aria-hidden="true" className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4 animate-pulse">
@@ -853,112 +927,6 @@ export default function DashboardView({
         </section>
       )}
 
-      {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
-      {!listsReady ? (
-        <section aria-hidden="true" className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
-          <div className="flex items-center justify-between py-2.5">
-            <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
-            <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
-          </div>
-          <div className="min-h-[196px]">
-            {[0, 1].map((i) => (
-              <div key={i} className="py-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
-                    <div className="mt-2 flex gap-[3px]" aria-hidden="true">
-                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-                        <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
-                      ))}
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between gap-2">
-                      <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
-                      <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
-        /* Runs — one card, two rows, overflow as a count */
-        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
-          <div className="flex items-center justify-between py-2.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h2 className="font-display font-black text-[15px] truncate min-w-0">
-                {showCompletedRuns ? "Completed Runs" : "Active Runs"}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowCompletedRuns((v) => !v)}
-                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
-                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={onNavigateToIncome}
-              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
-            >
-              View all {shownRuns.length}
-            </button>
-          </div>
-          <div className="min-h-[196px]">
-            {shownRuns.length === 0 ? (
-              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
-                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
-              </p>
-            ) : null}
-            {shownRuns.slice(0, 2).map((node) => {
-            const progress = getRunProgress(node, items);
-            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
-            const thumb = mapped?.imageUrl || node.image || "";
-            return (
-              <button
-                key={node.id}
-                type="button"
-                onClick={onNavigateToIncome}
-                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-24 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
-                  ) : (
-                    <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
-                      {node.itemName.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
-                      </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <CellsProgress pct={progress.percent} />
-                        </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
-                          {Math.round(progress.percent)}%
-                        </span>
-                      </div>
-                    <p className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-display text-[11px] font-bold tabular-nums text-[var(--theme-primary)]">
-                        <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
-                        {formatCurrency(node.totalEarned || 0)}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

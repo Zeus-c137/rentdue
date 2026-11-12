@@ -316,7 +316,7 @@ export default function CatalogView({
               alt={item.name}
               loading="lazy"
               referrerPolicy="no-referrer"
-              className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
+              className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500"
             />
           ) : (
             <div className="absolute inset-0 bg-[var(--theme-bg)] flex items-center justify-center text-[var(--theme-text)] opacity-40 text-xs font-mono">
