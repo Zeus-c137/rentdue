@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, VipTask, VipTaskboard } from "../types";
-import { Plus, Lock, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { Lock, ChevronRight, CalendarDays } from "lucide-react";
 import flameSvg from "@/src/assets/svg/flame.svg";
 import { AchievementGlyph, beginMilestoneTaskClaim, clearMilestoneTaskClaim, confirmMilestoneTaskClaim, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
@@ -22,6 +22,7 @@ import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { metricMeta } from "../utils/vip";
 import HomeBalanceCard from "./HomeBalanceCard";
+import FeaturedBotCard from "./FeaturedBotCard";
 import {
   getRunProgress,
   getRunEndMs,
@@ -185,7 +186,7 @@ export default function DashboardView({
   const shownRuns = showCompletedRuns ? completedRuns : activeRuns;
   // Catalog + subs arrive in one batch after login — before that, hold a
   // dimension-matched skeleton instead of flashing the empty state.
-  const listsReady = items.length > 0;
+const listsReady = items.length > 0;
 
   // Next check-in opens at platform midnight (check-ins settle on platform days).
   const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
@@ -437,23 +438,24 @@ export default function DashboardView({
         onOpenWithdraw={onNavigateToWithdraw}
       />
 
-      {listsReady && activeNodes.length === 0 && (
-        <section className="mt-[48px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
-          <p className="font-display font-black text-lg">No active bots yet.</p>
-          <p className="font-leading text-sm mt-2">Visit markets page to see which trading robots are available.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-6 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
-          >
-            <Plus className="w-4 h-4" /> Rent your first bot
-          </button>
-        </section>
+      {/* First run — a featured bot rather than an empty state, so the slot sells
+          instead of apologising for being empty. */}
+      {activeNodes.length === 0 && (
+        <FeaturedBotCard
+          items={items}
+          capital={Number(profile.rechargeBalance || 0)}
+          ready={listsReady}
+          active={isHomeActive}
+          still={reduceMotion}
+          onOpenItem={onNavigateToCatalog}
+          onOpenCatalog={onNavigateToCatalog}
+          onOpenDeposit={onNavigateToDeposit}
+        />
       )}
 
       {/* Bot area — skeleton while lists load (matches the bot card), then empty state or the card */}
       {!listsReady ? (
-        <section aria-hidden="true" className="mt-[48px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
+        <section aria-hidden="true" className="mt-[52px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
           <div className="flex items-center justify-between py-2.5">
             <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
             <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
@@ -482,13 +484,13 @@ export default function DashboardView({
         </section>
       ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
         /* Bots — one card, two rows, overflow as a count */
-        <section className="mt-[48px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
+        <section className="mt-[52px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="font-display font-black text-[15px] truncate min-w-0">
-              {shownRuns.length}  {showCompletedRuns ? "Finished Bots" : "Active Bots"} 
+              {shownRuns.length}  {showCompletedRuns ? "Finished Bots" : "Active Bots"}
               </h2>
-            
+
             </div>
             <button
               type="button"

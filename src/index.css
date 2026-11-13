@@ -782,3 +782,140 @@ input:-webkit-autofill::first-line { font-size: 14px; }
     transition-duration: 1ms;
   }
 }
+/* Floating product art — the bot flies rather than spins: it hangs at centre, drifts
+   out to the left, glides back through centre, drifts out to the right, and
+   comes home. The loop is endless, so the seam at 0% / 100% is invisible.
+
+   CSS rather than a Motion timeline because CSS composites off the main thread:
+   the art keeps moving through a dashboard fetch or a route paint, where a
+   JS-driven loop drops frames. Only transform and opacity animate, and the
+   ground shadow is a blurred pseudo-element, so the image is never repainted. */
+
+.float-stage {
+  /* How far the bot leans out on each leg. Hosts with less room to spare — a
+     narrow column, a clipped card — turn this down rather than clipping. */
+  --float-drift: 34px;
+}
+
+@media (max-width: 400px) {
+  .float-stage {
+    --float-drift: 22px;
+  }
+}
+
+/* Ground shadow. The blur is static — only scale and opacity move, so the
+   element is rasterised once and then just composited. It tracks the bot across
+   the stage and tightens as the bot rises. */
+.float-stage::after {
+  content: "";
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  width: 44%;
+  height: 9px;
+  margin-left: -22%;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.5), transparent 72%);
+  filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.float-stage.is-idle::after {
+  opacity: 0.5;
+  animation: float-shadow 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.float-stage.is-idle .float-art {
+  animation: float-path 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+
+/* Centre — left — centre — right — centre, and the two legs are an
+   exact mirror of each other: the bot hangs at the left extreme for as long as
+   it hangs at the right, so neither side reads as an afterthought. Each leg
+   eases at both ends, so the bot leans out, floats there, and swings back
+   rather than sliding on rails. The rotate is the lean into the direction of
+   travel; it crosses zero exactly as the bot passes through the middle. */
+@keyframes float-path {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  10% {
+    transform: translate3d(calc(var(--float-drift) * -0.34), -7px, 0) rotate(-2.5deg);
+  }
+  24% {
+    transform: translate3d(calc(var(--float-drift) * -1), 1px, 0) rotate(-6deg);
+  }
+  34% {
+    transform: translate3d(calc(var(--float-drift) * -0.87), 7px, 0) rotate(-5deg);
+  }
+  50% {
+    transform: translate3d(0, -3px, 0) rotate(0deg);
+  }
+  60% {
+    transform: translate3d(calc(var(--float-drift) * 0.34), -7px, 0) rotate(2.5deg);
+  }
+  74% {
+    transform: translate3d(var(--float-drift), 1px, 0) rotate(6deg);
+  }
+  84% {
+    transform: translate3d(calc(var(--float-drift) * 0.87), 7px, 0) rotate(5deg);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+}
+
+/* The shadow answers the flight, mirroring the path above: it follows the bot
+   across, tightens as the bot climbs and spreads as it settles. */
+@keyframes float-shadow {
+  0% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+  10% {
+    transform: translateX(-9px) scale(0.98);
+    opacity: 0.46;
+  }
+  24% {
+    transform: translateX(-27px) scale(0.94);
+    opacity: 0.4;
+  }
+  34% {
+    transform: translateX(-23px) scale(0.97);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+  60% {
+    transform: translateX(9px) scale(0.98);
+    opacity: 0.46;
+  }
+  74% {
+    transform: translateX(27px) scale(0.94);
+    opacity: 0.4;
+  }
+  84% {
+    transform: translateX(23px) scale(0.97);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+}
+
+/* A decorative loop carries no information, so reduced motion stops it
+   outright rather than softening it — the art just sits at rest. */
+@media (prefers-reduced-motion: reduce) {
+  .float-stage.is-idle::after,
+  .float-stage.is-idle .float-art {
+    animation: none;
+  }
+  .float-stage.is-idle::after {
+    opacity: 0.5;
+  }
+}

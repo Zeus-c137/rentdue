@@ -37,6 +37,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { BrandLogo } from "./BrandLogo";
 import { fixGitHubImageUrl } from "../utils/imageUtils";
+import FloatingProduct from "./FloatingProduct";
 import TelegramLoginButton from "./TelegramLoginButton";
 import { useTelegramLogin } from "../hooks/useTelegramLogin";
 import { useReducedMotion } from "../hooks/useReducedMotion";
@@ -1401,12 +1402,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="flex flex-col sm:flex-row">
                   <div className="relative sm:w-2/5 aspect-[16/10] sm:aspect-auto sm:min-h-[260px] bg-[var(--theme-card-bg)]">
                     {featuredImageOk ? (
-                      <img
+                      <FloatingProduct
                         src={featuredImage}
                         alt={featuredProduct.name}
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        className="absolute inset-0 w-full h-full object-contain animate-pulse animate-bounce"
+                        still={reduce}
+                        width={720}
+                        className="absolute inset-0 h-full w-full px-10 py-6 [--float-drift:32px]"
+                        imgClassName="drop-shadow-[0_18px_34px_rgba(0,0,0,0.28)]"
                       />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">

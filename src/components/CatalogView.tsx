@@ -19,7 +19,8 @@ import {
   ArrowRight,
   Plus,
   Check,
-  Calendar
+  Calendar,
+  Timer
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -28,6 +29,7 @@ import { toast } from "sonner";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import RarityBadge from "./RarityBadge";
 import { rarityMapForCatalog } from "../utils/rarity";
+import FloatingProduct from "./FloatingProduct";
 
 interface CatalogViewProps {
   items: SubscriptionItem[];
@@ -234,12 +236,12 @@ export default function CatalogView({
       >
         <div onClick={() => item.imageUrl && setPreviewImage(item.imageUrl)} className="relative aspect-[16/9] overflow-hidden cursor-zoom-in">
           {item.imageUrl ? (
-            <img
+            <FloatingProduct
               src={item.imageUrl}
               alt={item.name}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500"
+              still={prefersReducedMotion}
+              width={480}
+              className="absolute inset-0 h-full w-full px-5 py-3 [--float-drift:16px]"
             />
           ) : (
             <div className="absolute inset-0 bg-[var(--theme-bg)] flex items-center justify-center text-[var(--theme-text)] opacity-40 text-xs font-mono">
@@ -361,10 +363,10 @@ export default function CatalogView({
          The earnings are credited to your withdrawable balance daily. Finished bots become NFT art collectibles in your account.
         </p>
       </div>
-      {/* Single modal: confirm → loading → success */}
+      {/* Single modal: confirm — loading — success */}
       <AnimatePresence>
         {(confirmingItem || activated) && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
+          <div className="fixed inset-0 z-[60] flex items-end justify-center p-2.5 sm:items-center sm:p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -372,55 +374,63 @@ export default function CatalogView({
               className="absolute inset-0 bg-black/75 backdrop-blur-xs"
               onClick={handleCloseModal}
             />
+            {/* Bottom sheet on a phone (where a centred card would fight the
+                keyboard and the notch), centred dialog from sm up. */}
             <motion.div
               initial={{ scale: 0.94, y: 15, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.94, y: 15, opacity: 0 }}
               transition={{ type: "spring", damping: 26, stiffness: 360 }}
-              className="relative w-full max-w-[440px] max-h-[90vh] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-center flex flex-col overflow-hidden backdrop-blur-xl"
+              className="relative w-full max-w-[440px] max-h-[92vh] overflow-y-auto scrollbar-none bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-center flex flex-col backdrop-blur-xl"
             >
               {modalPhase === "success" && activated ? (
-                <div className="p-6 sm:p-8 flex flex-col items-center gap-4 overflow-y-auto scrollbar-none">
-                  <span className="w-14 h-14 rounded-full bg-[var(--theme-primary)] flex items-center justify-center shadow-[0_0_24px_var(--theme-primary)]">
-                    <Check className="w-7 h-7 text-black" strokeWidth={3} />
+                <div className="p-4 sm:p-8 flex flex-col items-center gap-3.5 sm:gap-4">
+                  <span className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[var(--theme-primary)] flex items-center justify-center shadow-[0_0_24px_var(--theme-primary)]">
+                    <Check className="w-6 h-6 sm:w-7 sm:h-7 text-black" strokeWidth={3} />
                   </span>
                   <div className="text-center">
-                    <h3 className="font-display font-black text-[22px] tracking-tight">Bot Activated</h3>
-                    <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{activated.item.name} is live and earning for you.</p>
+                    <h3 className="font-display font-black text-[19px] sm:text-[22px] tracking-tight">Bot Activated</h3>
+                    <p className="text-[12px] sm:text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{activated.item.name} is live and earning for you.</p>
                   </div>
                   {activated.item.imageUrl && (
-                    <img src={activated.item.imageUrl} alt={activated.item.name} loading="lazy" referrerPolicy="no-referrer" className="w-24 h-24 object-contain" />
+                    <FloatingProduct
+                      src={activated.item.imageUrl}
+                      alt={activated.item.name}
+                      still={prefersReducedMotion}
+                      width={480}
+                      className="h-24 w-full max-w-[220px] [--float-drift:14px]"
+                    />
                   )}
                   <div className="w-full divide-y divide-[var(--theme-card-border)]/60 border-y border-[var(--theme-card-border)]/60">
-                    <div className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center justify-between gap-3 py-2 sm:py-2.5">
                       <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Price paid</span>
                       <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{formatCurrency(activated.item.amount)}</span>
                     </div>
-                    <div className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center justify-between gap-3 py-2 sm:py-2.5">
                       <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Day 1 return credited</span>
                       <span className="font-display font-black text-[14px] text-[var(--theme-primary)] tabular-nums">+{formatCurrency(activated.dayOne)}</span>
                     </div>
                   </div>
-                  <div className="w-full rounded-2xl border border-dashed border-[var(--theme-primary)]/50 bg-[var(--theme-primary)]/10 px-4 py-3">
-                    <p className="text-[12px] font-sans text-[var(--theme-text)] leading-relaxed">
+                  <div className="w-full rounded-2xl border border-dashed border-[var(--theme-primary)]/50 bg-[var(--theme-primary)]/10 px-3.5 py-2.5 sm:px-4 sm:py-3">
+                    <p className="text-[11.5px] sm:text-[12px] font-sans text-[var(--theme-text)] leading-relaxed">
                       When the {activated.item.duration}-day cycle ends, this bot becomes a <span className="font-black">collectible</span>. Claim it to own it permanently.
                     </p>
                   </div>
-                  <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed text-center -mt-1">
+                  <p className="-mt-1 text-center text-[11.5px] sm:text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
                     Your first day&apos;s return is already in your withdrawable balance. New returns land daily while the bot stays active.
                   </p>
-                  <div className="w-full space-y-2 mt-1">
+                  <div className="mt-1 w-full space-y-2">
                     <button
                       type="button"
                       onClick={() => { handleCloseModal(); onActivationContinue(); }}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13.5px] sm:text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-transform"
                     >
                       My Active Bots <ArrowRight className="w-4 h-4" strokeWidth={3} />
                     </button>
                     <button
                       type="button"
                       onClick={handleCloseModal}
-                      className="w-full px-5 py-2.5 rounded-full text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-all"
+                      className="w-full px-4 py-2.5 rounded-full text-[12.5px] sm:text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-opacity"
                     >
                       Keep exploring
                     </button>
@@ -430,32 +440,36 @@ export default function CatalogView({
                 <div className="w-full overflow-y-auto">
                   {confirmingItem.imageUrl && (
                     <div className="w-full overflow-hidden rounded-t-[24px] bg-[var(--theme-bg)]">
-                      <img
+                      <FloatingProduct
                         src={confirmingItem.imageUrl}
                         alt={confirmingItem.name}
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        className="h-48 w-full object-contain sm:h-56"
+                        still={prefersReducedMotion}
+                        width={720}
+                        className="h-32 w-full sm:h-48 [--float-drift:16px]"
+                        imgClassName="drop-shadow-[0_16px_28px_rgba(0,0,0,0.35)]"
                       />
                     </div>
                   )}
-                  <div className="flex w-full flex-col items-center gap-4 p-6 pt-5">
-                    <div className="text-center">
-
-                      <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{confirmingItem.name}</p>
-                    </div>
+                  <div className="flex w-full flex-col items-center gap-2.5 p-4 pt-3 sm:gap-4 sm:p-6 sm:pt-5">
+                    <p className="text-center text-[12px] sm:text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug">{confirmingItem.name}</p>
+                    {/* Duration wears the same timer chip as the income cards, so
+                        the two screens read as one language. */}
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--theme-primary)]">
+                      <Timer className="h-3.5 w-3.5" strokeWidth={2.4} />
+                      <span className="tabular-nums">{confirmingItem.duration} days</span>
+                    </span>
                     <div className="w-full divide-y divide-[var(--theme-card-border)]/60 border-y border-[var(--theme-card-border)]/60">
-                      <div className="flex items-center justify-between py-2.5">
+                      <div className="flex items-center justify-between gap-3 py-2 sm:py-2.5">
                         <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Price</span>
                         <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{formatCurrency(confirmingItem.amount)}</span>
                       </div>
-                      <div className="flex items-center justify-between py-2.5">
-                        <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Duration</span>
-                        <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{confirmingItem.duration} Days</span>
-                      </div>
-                      <div className="flex items-center justify-between py-2.5">
+                      <div className="flex items-center justify-between gap-3 py-2 sm:py-2.5">
                         <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Daily return</span>
-                        <span className="font-display font-black text-[14px] text-[var(--theme-primary)] tabular-nums">{formatCurrency(confirmingItem.dailyYield)}</span>
+                        <span className="font-display font-black text-[14px] text-[var(--theme-text)] tabular-nums">{formatCurrency(confirmingItem.dailyYield)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 py-2 sm:py-2.5">
+                        <span className="text-[12px] font-sans text-[var(--theme-text)] opacity-60">Total return</span>
+                        <span className="font-display font-black text-[14px] text-[var(--theme-primary)] tabular-nums">{formatCurrency(confirmingItem.dailyYield * confirmingItem.duration)}</span>
                       </div>
                     </div>
                     {modalPhase === "loading" ? (
@@ -467,12 +481,12 @@ export default function CatalogView({
                         {formatCurrency(confirmingItem.amount)} will be deducted from your available capital.
                       </p>
                     )}
-                    <div className="w-full space-y-2 mt-1">
+                    <div className="mt-0.5 w-full space-y-2">
                       {modalPhase === "loading" ? (
                         <button
                           type="button"
                           disabled
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-wait opacity-80"
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13.5px] sm:text-[14px] font-sans font-black cursor-wait opacity-80"
                         >
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Starting...
@@ -482,7 +496,7 @@ export default function CatalogView({
                           <button
                             type="button"
                             onClick={handleConfirmSubscribe}
-                            className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
+                            className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13.5px] sm:text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-transform"
                           >
                             <Check className="w-4 h-4" strokeWidth={3} />
                             Confirm & Start
@@ -490,7 +504,7 @@ export default function CatalogView({
                           <button
                             type="button"
                             onClick={handleCloseModal}
-                            className="w-full px-5 py-2.5 rounded-full text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-all"
+                            className="w-full px-4 py-2.5 rounded-full text-[12.5px] sm:text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 hover:opacity-100 cursor-pointer transition-opacity"
                           >
                             Cancel
                           </button>

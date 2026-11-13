@@ -10,6 +10,7 @@ import {
   Zap,
   SlidersHorizontal,
   Calendar,
+  Timer,
   ChevronRight,
   Loader2,
   Award,
@@ -21,6 +22,8 @@ import { useCurrency } from "../currency";
 import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";
 import { rarityMapForCatalog } from "../utils/rarity";
 import RarityBadge from "./RarityBadge";
+import FloatingProduct from "./FloatingProduct";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -63,6 +66,8 @@ export default function IncomeView({
   );
 
   const rarityMap = React.useMemo(() => rarityMapForCatalog(items), [items]);
+  // A decorative loop is the first thing to go when the user asks for less motion.
+  const reduceMotion = useReducedMotion();
   const runEntries = React.useMemo(
     () => shownNodes.map((node) => {
       const mappedItem = items.find((item) => item.id === node.itemId || item.name === node.itemName);
@@ -156,7 +161,7 @@ export default function IncomeView({
   return (
     <div className="space-y-5 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-[var(--theme-radius)] relative">
 
-      {/* Aggregate Stats —  */}
+      {/* Aggregate Stats -  */}
       <div className=" top-0 z-20 -mx-1 px-1 pt-1 pb-2">
         {onNavigateToCollection && (
           <div className="mb-2 flex justify-end">
@@ -243,12 +248,12 @@ export default function IncomeView({
                       className="relative aspect-[16/10] overflow-hidden rounded-2xl cursor-zoom-in bg-[var(--theme-text)]/5"
                     >
                       {imageUrl ? (
-                        <img
+                        <FloatingProduct
                           src={imageUrl}
                           alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.04] transition-transform duration-500"
+                          still={reduceMotion}
+                          width={480}
+                          className="absolute inset-0 h-full w-full px-5 py-3 [--float-drift:16px]"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
@@ -262,14 +267,17 @@ export default function IncomeView({
 
                     {/* Details */}
                     <div className="flex-1 min-w-0 font-sans">
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
                         <h4 className="min-w-0 flex-1 font-sans font-bold text-[var(--theme-text)] text-[18px] sm:text-[20px] leading-tight line-clamp-2">
                           {itemName}
                         </h4>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--theme-primary)]">
-                            <Clock className="h-3.5 w-3.5" />
-                            <span className="tabular-nums">{totalDays} days</span>
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2 py-0.5 text-[10.5px] font-semibold text-[var(--theme-primary)]"
+                            aria-label={`${totalDays} day cycle`}
+                          >
+                            <Timer className="h-3 w-3" strokeWidth={2.4} />
+                            <span className="tabular-nums">{totalDays}d</span>
                           </span>
                           {isDone && (
                             <span className="rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] bg-[var(--theme-text)]/5 text-[var(--theme-text)] opacity-60">
@@ -278,14 +286,16 @@ export default function IncomeView({
                           )}
                         </div>
                       </div>
-                      <div className="mt-5 space-y-3">
+                      {/* Returns stack tight under the title — the pair is the
+                          reason the bot is worth renting, so it reads as one block. */}
+                      <div className="mt-2 space-y-1">
                         <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
                           <span className="text-[11px] font-medium opacity-65">Daily return</span>
                           <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield)}</span>
                         </div>
                         <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
                           <span className="text-[11px] font-medium opacity-65">Total return</span>
-                          <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield * totalDays)}</span>
+                          <span className="font-semibold tabular-nums text-right text-[var(--theme-primary)]">{formatCurrency(dailyYield * totalDays)}</span>
                         </div>
                       </div>
                     </div>
