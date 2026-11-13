@@ -9,7 +9,7 @@ coverage/
 dist.zip
 node_modules.zip
 .hermes/
-rentdue/scratch/
+.rentdue/scratch/
 .zeta/
 uploads/
 .agents

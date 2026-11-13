@@ -203,7 +203,7 @@ function HowItWorksSheet({ metrics, onClose }: HowItWorksSheetProps) {
     },
     {
       title: "Your friend must make a transaction",
-      description: "A referral is verified when your friend activates one run. Visit our store to get started."
+      description: "A referral is verified when your friend activates one bot."
     }
   ];
 
@@ -249,7 +249,7 @@ function HowItWorksSheet({ metrics, onClose }: HowItWorksSheetProps) {
           <section aria-label="Referral commission rates" className="mt-4 border-t border-white/10 pt-4">
             <div className="mb-2 flex items-end justify-between gap-3">
               <h3 className="font-display text-[16px] font-black">Commission rates</h3>
-              <span className="text-[10px] opacity-55">per verified run</span>
+<span className="text-[10px] opacity-55">per verified bot</span>
             </div>
             <div className="divide-y divide-white/10">
               {metrics.map((metric) => (

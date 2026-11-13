@@ -844,7 +844,7 @@ export default function AdminView() {
   const handleDeleteAllVipMilestones = () => {
     setConfirmDialog({
       title: "Delete all milestones?",
-      message: "This removes every milestone, tier reward, and pending verification, and returns all users to the first milestone. Previously credited rewards and transaction history remain. Historical activity such as runs, streaks, and earned points also remains and may already satisfy new tasks.",
+  message: "This removes every milestone, tier reward, and pending verification, and returns all users to the first milestone. Previously credited rewards and transaction history remain. Historical activity such as bots, streaks, and earned points also remains and may already satisfy new tasks.",
       onConfirm: async () => {
         setIsLoading(true);
         try {
@@ -3882,7 +3882,7 @@ export default function AdminView() {
                       <form onSubmit={(event) => { event.preventDefault(); void handleAddVipTask(); }} className="p-5 space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Task title
-                            <input type="text" required value={vipTaskTitle} onChange={(event) => setVipTaskTitle(event.target.value)} placeholder="e.g. Bronze bonus run" className="theme-input w-full px-3 py-2.5 text-sm mt-1.5" />
+placeholder="e.g. Bronze bonus bot"
                           </label>
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Milestone tier
                             <div className="flex gap-2 mt-1.5">
@@ -3935,12 +3935,12 @@ export default function AdminView() {
                           <label className="text-xs font-bold uppercase tracking-wider opacity-75">Unlocks from
                             <select value={vipTaskMetric} onChange={(event) => { const metric = event.target.value; setVipTaskMetric(metric); if (metric === "account_created") setVipTaskRequiredBonus(1); }} className="theme-input vip-metric-select w-full px-3 py-2.5 text-sm mt-1.5">
                               <option value="operator_points">Operator lifetime points</option>
-                              <option value="runs_started">Runs started</option>
-                              <option value="active_runs">Active runs</option>
-                              <option value="completed_runs">Completed runs</option>
+            <option value="runs_started">Bots started</option>
+            <option value="active_runs">Active bots</option>
+            <option value="completed_runs">Completed bots</option>
                               <option value="collectibles_claimed">Collectibles claimed</option>
                               <option value="streak_days">Check-in streak (days)</option>
-                              <option value="lifetime_yield">Lifetime run yield ({currency})</option>
+                              <option value="lifetime_yield">Lifetime bot yield ({currency})</option>
                               <option value="successful_deposits">Lifetime successful deposit amount ({currency})</option>
                               <option value="successful_withdrawals">Lifetime successful withdrawal amount ({currency})</option>
                               <option value="invites_count">Invites (count)</option>
@@ -3948,7 +3948,7 @@ export default function AdminView() {
                               <option value="account_created">Account created (automatic)</option>
                             </select>
                           </label>
-                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield" || vipTaskMetric === "successful_deposits" || vipTaskMetric === "successful_withdrawals") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "collectibles_claimed" ? "(collectibles)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(runs)"}
+                          <label className="text-xs font-bold uppercase tracking-wider opacity-75">Requirement {(vipTaskMetric === "operator_points" || vipTaskMetric === "lifetime_yield" || vipTaskMetric === "successful_deposits" || vipTaskMetric === "successful_withdrawals") ? `(${currency})` : vipTaskMetric === "streak_days" ? "(days)" : vipTaskMetric === "invites_count" ? "(invites)" : vipTaskMetric === "collectibles_claimed" ? "(collectibles)" : vipTaskMetric === "milestones_claimed" ? "(count)" : vipTaskMetric === "account_created" ? "(auto: 1)" : "(bots)"}
                             <input type="text" inputMode="numeric" required value={vipTaskMetric === "account_created" ? "1" : vipTaskRequiredBonus || ""} disabled={vipTaskMetric === "account_created"} onChange={(event) => setVipTaskRequiredBonus(Number(event.target.value) || 0)} placeholder={vipTaskMetric === "streak_days" ? "7" : vipTaskMetric === "invites_count" ? "3" : vipTaskMetric === "milestones_claimed" ? "2" : vipTaskMetric === "account_created" ? "1" : vipTaskMetric === "runs_started" ? "1" : vipTaskMetric === "successful_deposits" || vipTaskMetric === "successful_withdrawals" ? "5000" : "500000"} className="theme-input w-full px-3 py-2.5 text-sm mt-1.5 disabled:opacity-60" />
                           </label>
                         </div>}

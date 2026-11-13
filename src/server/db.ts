@@ -714,10 +714,10 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
   if (!item) throw new Error("Subscription package not found");
 
   if ((user.rechargeBalance || 0) < item.amount) {
-    throw new Error("Insufficient recharge balance. Please deposit funds first.");
+    throw new Error("Insufficient Trading capital. Please deposit funds first.");
   }
 
-  // Deduct rental cost from recharge balance
+  // Deduct rental cost from Trading capital
   user.rechargeBalance = (user.rechargeBalance || 0) - item.amount;
   
   // IMMEDIATELY auto-credit 1st day daily yield to withdrawable balance (points)!
@@ -791,7 +791,7 @@ export async function subscribeToItem(phone: string, itemId: string): Promise<Su
   // Create alert/notification for renting the product!
   await createNotification(
     phone,
-    "New run activated",
+  "New bot activated",
     `${item.name} is active. Day 1 returns of UGX ${immediateYield.toLocaleString()} were credited to your withdrawable balance.`,
     "rewards",
     undefined,
@@ -1935,7 +1935,7 @@ export async function completeSuccessfulDeposit(
     await createNotification(
       settledTransaction.userId,
       "Deposit Successful",
-      `Your deposit of ${depositLabel} has been confirmed and credited to your recharge balance. Reference: ${transactionId}.`,
+      `Your deposit of ${depositLabel} has been confirmed and credited to your Trading capital. Reference: ${transactionId}.`,
       "deposit",
       settledAmount
     );

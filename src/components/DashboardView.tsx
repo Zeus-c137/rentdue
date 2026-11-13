@@ -2,18 +2,17 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Home: balance + progress, Rent Clock, runs, streak. Every section answers
+ * Home: balance + progress, Rent Clock, bots, streak. Every section answers
  * "why come back tomorrow". No totals without action, no decoration.
  */
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
-import { UserProfile, SubscribedNode, SubscriptionItem, TransactionRow, VipTask, VipTaskboard } from "../types";
-import { Plus, Lock, ChevronRight, CalendarDays, SlidersHorizontal } from "lucide-react";
+import { UserProfile, SubscribedNode, SubscriptionItem, VipTask, VipTaskboard } from "../types";
+import { Lock, ChevronRight, CalendarDays } from "lucide-react";
 import flameSvg from "@/src/assets/svg/flame.svg";
 import { AchievementGlyph, beginMilestoneTaskClaim, clearMilestoneTaskClaim, confirmMilestoneTaskClaim, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
-import OnboardingCarousel, { DEFAULT_ONBOARDING_SLIDES, OnboardingSlide } from "./OnboardingCarousel";
 import { optimizedImageUrl } from "../utils/imageUtils";
 import { motion, AnimatePresence } from "motion/react";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
@@ -22,6 +21,9 @@ import { useCurrency } from "../currency";
 import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { metricMeta } from "../utils/vip";
+import HomeBalanceCard from "./HomeBalanceCard";
+import FloatingProduct from "./FloatingProduct";
+import FeaturedBotCard from "./FeaturedBotCard";
 import {
   getRunProgress,
   getRunEndMs,
@@ -42,6 +44,8 @@ interface DashboardViewProps {
   onNavigateToIncome: () => void;
   onNavigateToMilestones: (stage?: string) => void;
   onNavigateToStreaks: () => void;
+  onNavigateToDeposit: () => void;
+  onNavigateToWithdraw: () => void;
   onProfileUpdate: (p: UserProfile) => void;
 }
 
@@ -54,56 +58,6 @@ interface FlightCoin {
   delay: number;
 }
 
-/* Week climb — extra small sparkline riding the same line as the weekly
-   total. No day labels, no baseline: just the cumulative line and the
-   endpoint pulse. Always spans the full 7 days. */
-function WeekClimb({ data }: { data: number[] }) {
-  const W = 56;
-  const H = 32;
-  const P = 3;
-  const plotH = H - P * 2;
-  const days = 7;
-  const padded: number[] = [];
-  for (let i = 0; i < days; i++) padded.push(Number(data[i]) || 0);
-  const cum: number[] = [];
-  let acc = 0;
-  for (const v of padded) {
-    acc += v;
-    cum.push(acc);
-  }
-  const total = cum.length > 0 ? cum[cum.length - 1] : 0;
-  const max = Math.max(total, 1);
-  const span = days - 1;
-  const x = (i: number) => P + (i * (W - P * 2)) / span;
-  const y = (v: number) => P + plotH - (Math.max(0, v) / max) * plotH;
-  const last = days - 1;
-  let d = `M ${x(0).toFixed(1)},${y(cum[0] ?? 0).toFixed(1)}`;
-  for (let i = 1; i < days; i++) {
-    d += ` L ${x(i).toFixed(1)},${y(cum[i]).toFixed(1)}`;
-  }
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      className="w-14 h-8 overflow-visible shrink-0"
-      aria-hidden
-    >
-      <path
-        d={d}
-        fill="none"
-        stroke="var(--theme-primary)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        pathLength={1}
-        className="climb-draw"
-      />
-      <circle cx={x(last)} cy={y(cum[last])} r="5" fill="var(--theme-primary)" opacity="0.2" />
-      <circle cx={x(last)} cy={y(cum[last])} r="2.5" fill="none" stroke="var(--theme-primary)" strokeWidth="1.5" className="runway-ping" style={{ animationDelay: "1.3s" }} />
-    </svg>
-  );
-}
-
 export default function DashboardView({
   isHomeActive,
   profile,
@@ -113,14 +67,14 @@ export default function DashboardView({
   onNavigateToIncome,
   onNavigateToMilestones,
   onNavigateToStreaks,
+  onNavigateToDeposit,
+  onNavigateToWithdraw,
   onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [weekSeries, setWeekSeries] = useState<number[] | null>(null);
   const [checkinBusy, setCheckinBusy] = useState(false);
   const checkinBusyRef = useRef(false);
-  const checkinRevisionRef = useRef(0);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
   const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const [msBoard, setMsBoard] = useState<VipTaskboard | null>(null);
@@ -204,7 +158,6 @@ export default function DashboardView({
     { enabled: true, visibilityGate: true }
   );
 
-  const weekTotal = weekSeries === null ? null : weekSeries.reduce((sum, v) => sum + v, 0);
 
   // Check-in economics preview (server is authoritative at claim time).
   useEffect(() => {
@@ -220,35 +173,6 @@ export default function DashboardView({
     return () => ctrl.abort();
   }, []);
 
-  // Week sparkline: everything credited to withdrawable, per day.
-  // Re-fetches when the profile changes (e.g. after a claim) so the chart
-  // and weekly total stay atomic with the balance card.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    const revision = checkinRevisionRef.current;
-    fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${profile.phone}`, ctrl.signal)
-      .then((rows) => {
-        if (ctrl.signal.aborted || checkinBusyRef.current || revision !== checkinRevisionRef.current || !Array.isArray(rows)) return;
-        const days: number[] = [0, 0, 0, 0, 0, 0, 0];
-        const startOfToday = new Date();
-        startOfToday.setHours(0, 0, 0, 0);
-        const startMs = startOfToday.getTime();
-        for (const tx of rows) {
-          const type = String(tx.type || "").toLowerCase();
-          if (!CREDIT_TYPES.has(type)) continue;
-          if (!["SUCCESSFUL", "COMPLETED"].includes(String(tx.status || "").toUpperCase())) continue;
-          const ts = new Date(tx.timestamp).getTime();
-          if (!Number.isFinite(ts)) continue;
-          const dayIndex = Math.floor((ts - startMs) / (24 * 3600 * 1000)) + 6;
-          if (dayIndex < 0 || dayIndex > 6) continue;
-          days[dayIndex] += Number(tx.amount) || 0;
-        }
-        setWeekSeries(days);
-      })
-      .catch(() => {});
-    return () => ctrl.abort();
-  }, [profile.phone, profile.points]);
-
   const activeRuns = useMemo(() => {
     const list = activeNodes.filter((n) => getRunState(n, items) === "active");
     list.sort((a, b) => (getRunEndMs(a) ?? Infinity) - (getRunEndMs(b) ?? Infinity));
@@ -263,34 +187,7 @@ export default function DashboardView({
   const shownRuns = showCompletedRuns ? completedRuns : activeRuns;
   // Catalog + subs arrive in one batch after login — before that, hold a
   // dimension-matched skeleton instead of flashing the empty state.
-  const listsReady = items.length > 0;
-
-  // Onboarding carousel takes the Runs slot until dismissed — dismissing
-  // reveals the Runs section underneath. Art comes from live catalog items.
-  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
-    try {
-      return localStorage.getItem("rentdue_onboarding_dismissed") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const dismissOnboarding = () => {
-    setOnboardingDismissed(true);
-    try {
-      localStorage.setItem("rentdue_onboarding_dismissed", "1");
-    } catch {
-      // persistence is best-effort
-    }
-  };
-  const homeSlides: OnboardingSlide[] = useMemo(() => {
-    const art = (i: number) => items[i]?.imageUrl || "";
-    return DEFAULT_ONBOARDING_SLIDES.map((s, i) => ({ ...s, image: art(i) || undefined }));
-  }, [items]);
-  const handleOnboardingCta = (index: number) => {
-    if (index === 1) onNavigateToMilestones();
-    else if (index === 2) onNavigateToStreaks();
-    else onNavigateToCatalog();
-  };
+const listsReady = items.length > 0;
 
   // Next check-in opens at platform midnight (check-ins settle on platform days).
   const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
@@ -395,19 +292,11 @@ export default function DashboardView({
       checkinStreak: optimisticStreak,
     };
 
-    checkinRevisionRef.current += 1;
     checkinBusyRef.current = true;
     setCheckinBusy(true);
     setCheckedInLocal(true);
     profileRef.current = optimisticProfile;
     onProfileUpdate(optimisticProfile);
-    setWeekSeries((prev) => {
-      if (!prev) return prev;
-      const next = [...prev];
-      next[6] = (next[6] || 0) + optimisticBonus;
-      return next;
-    });
-    playCheckinSound();
 
     // Coin travel is immediate feedback; it never delays the balance.
     const flightIds = source === "tile" ? launchCoinFlight(tileRect, balanceRef.current) : [];
@@ -420,7 +309,6 @@ export default function DashboardView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Check-in failed.");
-      checkinRevisionRef.current += 1;
       const bonus = Math.max(0, Number(data.amount ?? data.bonus ?? optimisticBonus) || 0);
       const nextStreak = Number(data.streak ?? optimisticStreak);
       const latest = profileRef.current;
@@ -432,14 +320,6 @@ export default function DashboardView({
       };
       profileRef.current = confirmedProfile;
       onProfileUpdate(confirmedProfile);
-      if (bonus !== optimisticBonus) {
-        setWeekSeries((prev) => {
-          if (!prev) return prev;
-          const next = [...prev];
-          next[6] = Math.max(0, (next[6] || 0) + bonus - optimisticBonus);
-          return next;
-        });
-      }
       toast.success(`Daily ${nextStreak} check-in complete 🔥`, {
         description: bonus > 0
           ? `${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
@@ -447,7 +327,6 @@ export default function DashboardView({
         duration: 6000,
       });
     } catch (err: any) {
-      checkinRevisionRef.current += 1;
       const latest = profileRef.current;
       const rollbackProfile = {
         ...latest,
@@ -459,12 +338,6 @@ export default function DashboardView({
       onProfileUpdate(rollbackProfile);
       setCheckedInLocal(false);
       removeCoinFlight(flightIds);
-      setWeekSeries((prev) => {
-        if (!prev) return prev;
-        const next = [...prev];
-        next[6] = Math.max(0, (next[6] || 0) - optimisticBonus);
-        return next;
-      });
       toast.error(err.message || "Check-in failed.");
     } finally {
       checkinBusyRef.current = false;
@@ -534,20 +407,6 @@ export default function DashboardView({
     }
   };
 
-  // Every ledger type that credits the withdrawable (Cash Out) balance.
-  const CREDIT_TYPES = useMemo(
-    () =>
-      new Set([
-        "daily_yield",
-        "referral_signup_bonus",
-        "referral_level_income",
-        "daily_checkin_bonus",
-        "gift_code",
-        "vip_task",
-        "registration_bonus",
-      ]),
-    []
-  );
 
   return (
     <div ref={rootRef} className="relative space-y-5 text-[var(--theme-text)]">
@@ -571,37 +430,141 @@ export default function DashboardView({
           </div>
         )}
       </AnimatePresence>
-      {/* Balance hero — one balance, plus progress */}
-      <section className="px-1 mt-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-              Withdrawable balance
-            </p>
-            <p ref={balanceRef} className="mt-1.5 font-display font-black text-[40px] leading-none tracking-tight truncate">
-              {formatCurrency(Number(profile.points) || 0)}
-            </p>
-            <p className="mt-3 flex items-center gap-2 text-[13px] font-sans font-bold text-[var(--theme-primary)]">
-              {weekTotal === null ? (
-                <span className="opacity-60">Tallying the week…</span>
-              ) : (
-                <>+{formatCurrency(weekTotal)} this week</>
-              )}
-              {weekSeries ? (
-                <span className="relative ml-4 inline-flex w-14 h-8 shrink-0">
-                  <span className="absolute inset-0 -m-1">
-                    <WeekClimb data={weekSeries} />
-                  </span>
-                </span>
-              ) : (
-                <span aria-hidden="true" className="ml-auto inline-block h-8 w-14 rounded-full bg-[var(--theme-text)]/10 animate-pulse shrink-0" />
-              )}
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* Balance + money actions — AppHeader owns the card's top edge, this closes it */}
+      <HomeBalanceCard
+        profile={profile}
+        formatCurrency={formatCurrency}
+        balanceRef={balanceRef}
+        onOpenDeposit={onNavigateToDeposit}
+        onOpenWithdraw={onNavigateToWithdraw}
+        onProfileUpdate={onProfileUpdate}
+      />
 
-      {/* Daily streak — frosted to match Store/Runs */}
+      {/* First run — a featured bot rather than an empty state, so the slot sells
+          instead of apologising for being empty. */}
+      {activeNodes.length === 0 && (
+        <FeaturedBotCard
+          items={items}
+          capital={Number(profile.rechargeBalance || 0)}
+          ready={listsReady}
+          active={isHomeActive}
+          still={reduceMotion}
+          onOpenItem={onNavigateToCatalog}
+          onOpenCatalog={onNavigateToCatalog}
+          onOpenDeposit={onNavigateToDeposit}
+        />
+      )}
+
+      {/* Bot area — skeleton while lists load (matches the bot card), then empty state or the card */}
+      {!listsReady ? (
+        <section aria-hidden="true" className="mt-[52px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
+            <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
+          </div>
+          <div className="min-h-[196px]">
+            {[0, 1].map((i) => (
+              <div key={i} className="py-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
+                    <div className="mt-2 flex gap-[3px]" aria-hidden="true">
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
+                      <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
+        /* Bots — one card, two rows, overflow as a count */
+        <section className="mt-[52px] rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h2 className="font-display font-black text-[15px] truncate min-w-0">
+              {shownRuns.length}  {showCompletedRuns ? "Finished Bots" : "Active Bots"}
+              </h2>
+
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToIncome}
+              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+            >
+              View all
+            </button>
+          </div>
+          <div className="min-h-[196px]">
+            {shownRuns.length === 0 ? (
+              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
+                {showCompletedRuns ? "No finished bots yet." : "No active bots."}
+              </p>
+            ) : null}
+            {shownRuns.slice(0, 2).map((node) => {
+            const progress = getRunProgress(node, items);
+            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
+            const thumb = mapped?.imageUrl || node.image || "";
+            return (
+              <button
+                key={node.id}
+                type="button"
+                onClick={onNavigateToIncome}
+                className="w-full text-left py-3.5 transition-opacity active:opacity-70 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  {/* The bot's own art, floating on the same loop as every other
+                      product image, rather than a flat thumbnail. */}
+                  {thumb ? (
+                    <FloatingProduct
+                      src={thumb}
+                      alt={node.itemName}
+                      active={isHomeActive}
+                      still={reduceMotion}
+                      width={240}
+                      className="h-20 w-24 shrink-0 rounded-lg bg-[var(--theme-text)]/5 px-1 py-1 [--float-drift:10px]"
+                    />
+                  ) : (
+                    <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
+                      {node.itemName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <CellsProgress pct={progress.percent} />
+                        </div>
+                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
+                          {Math.round(progress.percent)}%
+                        </span>
+                      </div>
+                    <p className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-display text-[11px] font-bold tabular-nums text-[var(--theme-primary)]">
+                        <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
+                        {formatCurrency(node.totalEarned || 0)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Daily streak — frosted to match Store/Bots */}
       <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
           <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight min-w-0">
@@ -720,24 +683,6 @@ export default function DashboardView({
         </div>
       </section>
 
-      {listsReady && activeNodes.length === 0 && (
-        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
-          <button
-            type="button"
-            onClick={onNavigateToCatalog}
-            className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
-          >
-            <Plus className="w-4 h-4" /> Start your first Run
-          </button>
-        </section>
-      )}
-
-      {/* Onboarding banner — sits above milestones */}
-      {!onboardingDismissed && listsReady ? (
-        <OnboardingCarousel slides={homeSlides} onCta={handleOnboardingCta} onDismiss={dismissOnboarding} />
-      ) : null}
-
       {/* Next milestone — title + body live inside one frosted card */}
       {!nextMilestone && msBoard === null && (
         <section aria-hidden="true" className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4 animate-pulse">
@@ -853,112 +798,6 @@ export default function DashboardView({
         </section>
       )}
 
-      {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
-      {!listsReady ? (
-        <section aria-hidden="true" className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
-          <div className="flex items-center justify-between py-2.5">
-            <div className="h-[18px] w-36 rounded-md bg-[var(--theme-text)]/10" />
-            <div className="h-4 w-14 rounded-md bg-[var(--theme-text)]/10" />
-          </div>
-          <div className="min-h-[196px]">
-            {[0, 1].map((i) => (
-              <div key={i} className="py-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-[var(--theme-text)]/10 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="h-[18px] w-2/3 rounded bg-[var(--theme-text)]/10" />
-                    <div className="mt-2 flex gap-[3px]" aria-hidden="true">
-                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-                        <div key={i} className="h-4 flex-1 rounded-[5px] bg-[var(--theme-text)]/10" />
-                      ))}
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between gap-2">
-                      <div className="h-[14px] w-14 rounded bg-[var(--theme-text)]/10" />
-                      <div className="h-[14px] w-20 rounded bg-[var(--theme-text)]/10" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
-        /* Runs — one card, two rows, overflow as a count */
-        <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
-          <div className="flex items-center justify-between py-2.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h2 className="font-display font-black text-[15px] truncate min-w-0">
-                {showCompletedRuns ? "Completed Runs" : "Active Runs"}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowCompletedRuns((v) => !v)}
-                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
-                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={onNavigateToIncome}
-              className="text-[13px] font-sans font-bold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
-            >
-              View all {shownRuns.length}
-            </button>
-          </div>
-          <div className="min-h-[196px]">
-            {shownRuns.length === 0 ? (
-              <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
-                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
-              </p>
-            ) : null}
-            {shownRuns.slice(0, 2).map((node) => {
-            const progress = getRunProgress(node, items);
-            const mapped = items.find((i) => i.id === node.itemId || i.name === node.itemName);
-            const thumb = mapped?.imageUrl || node.image || "";
-            return (
-              <button
-                key={node.id}
-                type="button"
-                onClick={onNavigateToIncome}
-                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-24 h-20 rounded-lg object-cover shrink-0 bg-[var(--theme-text)]/5" />
-                  ) : (
-                    <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
-                      {node.itemName.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-display font-black text-[15px] truncate">{node.itemName}</p>
-                      </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <CellsProgress pct={progress.percent} />
-                        </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
-                          {Math.round(progress.percent)}%
-                        </span>
-                      </div>
-                    <p className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-sans text-[var(--theme-text-muted)]">Collected</span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-display text-[11px] font-bold tabular-nums text-[var(--theme-primary)]">
-                        <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
-                        {formatCurrency(node.totalEarned || 0)}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }

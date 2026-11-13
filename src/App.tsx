@@ -35,26 +35,20 @@ import {
   Store,
   Trophy,
   ArrowRight,
-  ChevronLeft,
   Bell,
-  Home
+  Home,
+  Compass
 } from "lucide-react";
 
-import activeRunsTutorialScreenshot from "@/src/assets/screenshots/activeruns.png";
-import aiTutorialScreenshot from "@/src/assets/screenshots/ai.png";
-import dailyTasksTutorialScreenshot from "@/src/assets/screenshots/dailytasks.png";
-import depositWithdrawTutorialScreenshot from "@/src/assets/screenshots/depositwithdraw.png";
-import referralsTutorialScreenshot from "@/src/assets/screenshots/invites.png";
-import storeTutorialScreenshot from "@/src/assets/screenshots/store.png";
-import streakTutorialScreenshot from "@/src/assets/screenshots/streak.png";
-import MilestoneChip from "./components/MilestoneChip";
+
+import AppHeader from "./components/AppHeader";
 import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useGatedInterval, useGatedTimeout, useAbortSignal } from "./hooks/useGatedInterval";
-import { fetchJsonWithSignal, abortableAll } from "./utils/abortableFetch";
+import { fetchJsonSafe } from "./utils/abortableFetch";
 
 // Last-known shell (theme preset + logo) cached on every successful site-config
 // load. The boot splash reads it synchronously so the first paint already
@@ -69,79 +63,6 @@ interface BootShell {
 }
 
 const BOOT_SHELL_KEY = "rentdue_boot_shell";
-
-const WELCOME_TUTORIAL_SLIDES = [
-  {
-    title: "Deposit & withdraw",
-    description: "Deposit instantly with mobile money or crypto to start a run and get its daily returns, or withdraw your available funds to your mobile money or crypto wallet.",
-    image: depositWithdrawTutorialScreenshot,
-    imageAlt: "Recharge and withdrawable balances with Deposit and Withdraw actions",
-  },
-  {
-    title: "Daily tasks",
-    description: "Complete the available tasks to earn rewards. Open a task, follow its instructions, then claim when it is ready.",
-    image: dailyTasksTutorialScreenshot,
-    imageAlt: "Daily tasks with instructions and reward claim buttons",
-  },
-  {
-    title: "Daily streaks",
-    description: "Check in each day to keep your streak going and collect the reward for that day.",
-    image: streakTutorialScreenshot,
-    imageAlt: "A calendar showing daily streak progress and rewards",
-  },
-  {
-    title: "The Store",
-    description: "Here we provide machines for rent. Activate them by tapping 'Start Run' button. You will earn daily returns for the duration of the run.",
-    image: storeTutorialScreenshot,
-    imageAlt: "The Store with available runs",
-  },
-  {
-    title: "My Runs",
-    description: "Track the progress and earnings of your active runs from one place.",
-    image: activeRunsTutorialScreenshot,
-    imageAlt: "Active runs with progress and earnings",
-  },
-  {
-    title: "Referrals",
-    description: "Share your referral link with friends. Verified referrals can earn you commission.",
-    image: referralsTutorialScreenshot,
-    imageAlt: "Referral earnings and friends referred",
-  },
-  {
-    title: "RentDue AI Assistant",
-    description: "Get help with any questions or issues you have using RentDue. Our AI assistant is available 24/7.",
-    image: aiTutorialScreenshot,
-    imageAlt: "AI assistant chat interface",
-  },
-] as const;
-
-function getLocalDateKey() {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
-function getTutorialPreferenceKey(phone: string, preference: "completed" | "opted-out" | "last-shown") {
-  return `rentdue_tutorial_${preference}_${phone}`;
-}
-
-function readTutorialPreference(key: string) {
-  try {
-    return localStorage.getItem(key);
-  } catch (error) {
-    console.warn("Unable to read tutorial preference:", error);
-    return null;
-  }
-}
-
-function writeTutorialPreference(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch (error) {
-    console.warn("Unable to save tutorial preference:", error);
-  }
-}
 
 function readBootShell(): BootShell | null {
   try {
@@ -268,42 +189,28 @@ export default function App() {
   }, [siteConfig]);
   const chatUnread = useChatUnread(userProfile?.phone);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
-  const [welcomeModalMode, setWelcomeModalMode] = useState<"bonus" | "tutorial" | null>(null);
+  // Unread alerts: anything newer than the last time the bell was opened. Kept
+  // out of render so the badge does not re-scan the list on every keystroke.
+  const alertsUnread = useMemo(() => {
+    const lastViewed = Number(localStorage.getItem("lastViewedAlertsTime") || 0);
+    return userNotifications.filter((n) => new Date(n.timestamp).getTime() > lastViewed).length;
+  }, [userNotifications]);
+  const [showWelcomeBonus, setShowWelcomeBonus] = useState(false);
   const [welcomeBonusAmount, setWelcomeBonusAmount] = useState(0);
-  const [welcomePendingMode, setWelcomePendingMode] = useState<"bonus" | "tutorial" | null>(null);
-  const [welcomeTutorialIndex, setWelcomeTutorialIndex] = useState(-1);
-  const showWelcomeModal = welcomeModalMode !== null;
+  const [welcomeBonusPending, setWelcomeBonusPending] = useState(false);
   useGatedTimeout(() => {
-    if (!welcomePendingMode || document.hidden) return;
-    setWelcomeModalMode(welcomePendingMode);
-    setWelcomePendingMode(null);
-    if (userProfile?.phone) {
-      writeTutorialPreference(
-        getTutorialPreferenceKey(userProfile.phone, "last-shown"),
-        getLocalDateKey()
-      );
-    }
-  }, 2000, [welcomePendingMode, userProfile?.phone]);
+    if (!welcomeBonusPending || document.hidden) return;
+    setShowWelcomeBonus(true);
+    setWelcomeBonusPending(false);
+  }, 2000, [welcomeBonusPending]);
 
-  // A first-login tutorial is shown once each day until completed or opted out.
+  // Registration bonus handoff: shown once, and only when the register flow
+  // left a fresh bonus in sessionStorage for this phone.
   useEffect(() => {
     if (!userProfile?.phone) {
-      setWelcomeModalMode(null);
+      setShowWelcomeBonus(false);
       setWelcomeBonusAmount(0);
-      setWelcomePendingMode(null);
-      setWelcomeTutorialIndex(-1);
-      return;
-    }
-
-    const phone = userProfile.phone;
-    const completed = readTutorialPreference(getTutorialPreferenceKey(phone, "completed")) === "1";
-    const optedOut = readTutorialPreference(getTutorialPreferenceKey(phone, "opted-out")) === "1";
-    const lastShownToday = readTutorialPreference(getTutorialPreferenceKey(phone, "last-shown")) === getLocalDateKey();
-    if (completed || optedOut || lastShownToday) {
-      setWelcomeModalMode(null);
-      setWelcomePendingMode(null);
-      setWelcomeBonusAmount(0);
-      setWelcomeTutorialIndex(-1);
+      setWelcomeBonusPending(false);
       return;
     }
 
@@ -322,42 +229,28 @@ export default function App() {
     if (amount <= 0 || !isFreshHandoff) {
       sessionStorage.removeItem(welcomeKey);
       setWelcomeBonusAmount(0);
-      setWelcomeTutorialIndex(0);
-      setWelcomePendingMode("tutorial");
-    } else {
-      setWelcomeBonusAmount(amount);
-      setWelcomeTutorialIndex(-1);
-      setWelcomePendingMode("bonus");
+      setWelcomeBonusPending(false);
+      return;
     }
-
+    setWelcomeBonusAmount(amount);
+    setWelcomeBonusPending(true);
   }, [userProfile?.phone]);
 
   useEffect(() => {
-    if (showWelcomeModal) {
+    if (showWelcomeBonus) {
       confetti({
         particleCount: 75,
         spread: 70,
         origin: { y: 0.6 }
       });
     }
-  }, [showWelcomeModal]);
+  }, [showWelcomeBonus]);
 
-  const handleCloseWelcomeModal = () => {
+  const handleCloseWelcomeBonus = () => {
     if (userProfile?.phone) {
       sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
     }
-    setWelcomeModalMode(null);
-    setWelcomeTutorialIndex(-1);
-  };
-
-  const handleCompleteWelcomeTutorial = () => {
-    if (userProfile?.phone) {
-      sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
-      writeTutorialPreference(getTutorialPreferenceKey(userProfile.phone, "completed"), "1");
-    }
-    setWelcomeModalMode(null);
-    setWelcomePendingMode(null);
-    setWelcomeTutorialIndex(-1);
+    setShowWelcomeBonus(false);
   };
 
   useEffect(() => {
@@ -421,6 +314,9 @@ export default function App() {
   }, [siteConfig]);
 
   const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  // Home closes the header card with its own balance block; every other tab
+  // keeps the header as a finished card.
+  const showHomeCard = activeTab === "dashboard" || (activeTab === "alerts" && previousTab === "dashboard");
 
   useEffect(() => {
     if (activeTab !== "history" && !(activeTab === "alerts" && previousTab === "history")) {
@@ -450,6 +346,17 @@ export default function App() {
   const [activeNodes, setActiveNodes] = useState<SubscribedNode[]>([]);
   const [systemStats, setSystemStats] = useState<SystemStats | undefined>(undefined);
   
+  // Every sign-out path funnels through here so nothing account-scoped
+  // survives into the next session on a shared device. The catalog and the
+  // platform stats are global, so they are deliberately left in place.
+  const resetUserScopedState = () => {
+    if (abortRef.current) abortRef.current.abort();
+    setUserProfile(null);
+    setActiveNodes([]);
+    setUserNotifications([]);
+    setActiveTab("dashboard");
+  };
+
   // 5-minute inactivity auto sign out for users
   const revokeUserSession = () => {
     void fetch("/api/auth/logout", {
@@ -470,8 +377,7 @@ export default function App() {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         revokeUserSession();
-        setUserProfile(null);
-        setActiveTab("dashboard");
+        resetUserScopedState();
         toast.info("You have been signed out due to inactivity.");
       }, 5 * 60 * 1000); // 5 minutes
     };
@@ -499,7 +405,9 @@ export default function App() {
         window.removeEventListener(event, throttledReset);
       });
     };
-  }, [userProfile, isAdminRoute]);
+    // Keyed on the phone rather than the profile object: the 60s poll swaps
+    // that object out every minute, which used to restart this countdown.
+  }, [userProfile?.phone, isAdminRoute]);
 
   // Fetch lists and stats once user is active
   const abortRef = useRef<AbortController | null>(null);
@@ -526,24 +434,38 @@ export default function App() {
     const signal = ctrl.signal;
     if (document.hidden) return;
     try {
-      const tasks: Array<(s: AbortSignal) => Promise<unknown>> = [
-        (s) => fetchJsonWithSignal<SubscriptionItem[]>("/api/items", s),
-        (s) => fetchJsonWithSignal<SubscribedNode[]>(`/api/subscriptions/${phone}`, s),
-        (s) => fetchJsonWithSignal<SystemStats>("/api/system/stats", s),
-        (s) => fetchJsonWithSignal<NotificationItem[]>(`/api/profile/notifications/${phone}`, s),
-        (s) => fetchJsonWithSignal<UserProfile>(`/api/profile/${phone}`, s),
-        (s) => fetchJsonWithSignal<unknown>("/api/config/site", s),
-      ];
-      const [itemsData, subsData, statsData, notifData, profileData, siteData] = await abortableAll(tasks, signal) as [unknown, unknown, unknown, unknown, unknown, unknown];
+      // The profile and alert reads are checked for 401 explicitly. The server
+      // session can expire, or be revoked from another tab, while this tab
+      // stays open; a thrown Error carries no status to branch on, so without
+      // this the app keeps polling a dead cookie every minute and the user is
+      // only signed out whenever they finally tap something.
+      const [itemsRes, subsRes, statsRes, notifsRes, profileRes, siteRes] = await Promise.all([
+        fetchJsonSafe<SubscriptionItem[]>("/api/items", signal),
+        fetchJsonSafe<SubscribedNode[]>(`/api/subscriptions/${phone}`, signal),
+        fetchJsonSafe<SystemStats>("/api/system/stats", signal),
+        fetchJsonSafe<NotificationItem[]>(`/api/profile/notifications/${phone}`, signal),
+        fetchJsonSafe<UserProfile>(`/api/profile/${phone}`, signal),
+        fetchJsonSafe<unknown>("/api/config/site", signal),
+      ]);
       if (signal.aborted) return;
-      applyUserDataResults({
-        items: itemsData,
-        subs: subsData,
-        stats: statsData,
-        notifs: notifData,
-      });
-      if (profileData) setUserProfile(profileData as UserProfile);
-      if (siteData && !(siteData as { error?: unknown }).error) setSiteConfig(siteData);
+
+      if (profileRes.status === 401 || notifsRes.status === 401) {
+        resetUserScopedState();
+        toast.info("Your session has expired. Please sign in again.");
+        return;
+      }
+
+      // A single failing endpoint must not blank the others: previously one
+      // rejection discarded every result from that cycle.
+      const results: Record<string, unknown> = {};
+      if (itemsRes.ok) results.items = itemsRes.data;
+      if (subsRes.ok) results.subs = subsRes.data;
+      if (statsRes.ok) results.stats = statsRes.data;
+      if (notifsRes.ok) results.notifs = notifsRes.data;
+      applyUserDataResults(results);
+
+      if (profileRes.ok && profileRes.data) setUserProfile(profileRes.data as UserProfile);
+      if (siteRes.ok && siteRes.data && !(siteRes.data as { error?: unknown }).error) setSiteConfig(siteRes.data);
     } catch (e: unknown) {
       if ((e as Error)?.name === "AbortError") return;
       console.error("Failed to sync backend endpoints:", e);
@@ -569,9 +491,8 @@ export default function App() {
     if (userProfile?.phone) {
       sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
     }
-    setUserProfile(null);
     revokeUserSession();
-    setActiveTab("dashboard");
+    resetUserScopedState();
   };
 
   const handleProfileChange = (newProfile: UserProfile) => {
@@ -687,9 +608,9 @@ export default function App() {
       <div className="relative h-[100dvh] w-full bg-[var(--theme-bg)] text-[var(--theme-text)] font-sans selection:bg-blue-600/35 selection:text-white overflow-hidden flex items-center justify-center p-0 md:p-4">
       
 
-      {/* Registration bonus handoff and first-use tutorial. */}
+      {/* Registration bonus handoff, shown once after a fresh register. */}
       <AnimatePresence>
-        {showWelcomeModal && (
+        {showWelcomeBonus && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0 }}
@@ -711,121 +632,32 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={handleCloseWelcomeModal}
-                aria-label="Close welcome and tutorial"
+                onClick={handleCloseWelcomeBonus}
+                aria-label="Close welcome"
                 className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/90 text-[var(--theme-text)] opacity-70 transition-all hover:opacity-100 active:scale-95 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
 
-              {welcomeTutorialIndex < 0 ? (
-                <div className="relative flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 pb-6 pt-12 text-center sm:px-8">
-                  <BrandLogo
-                    siteConfig={siteConfig}
-                    className="relative z-10 h-16 w-16 shrink-0"
-                  />
-                  <div className="relative z-10 space-y-2">
-                    <h3 id="welcome-modal-title" className="font-display text-2xl font-black tracking-tight">WELCOME</h3>
-                    <p className="mx-auto max-w-xs text-sm leading-relaxed opacity-75">
-                      A registration bonus of <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> has been added to your withdrawable balance.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setWelcomeTutorialIndex(0)}
-                    className="relative z-10 mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--theme-primary)] px-5 py-3 text-sm font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.97] cursor-pointer"
-                  >
-                    Start tutorial <ArrowRight className="h-4 w-4" strokeWidth={3} />
-                  </button>
+              <div className="relative flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 pb-6 pt-12 text-center sm:px-8">
+                <BrandLogo
+                  siteConfig={siteConfig}
+                  className="relative z-10 h-16 w-16 shrink-0"
+                />
+                <div className="relative z-10 space-y-2">
+                  <h3 id="welcome-modal-title" className="font-display text-2xl font-black tracking-tight">WELCOME</h3>
+                  <p className="mx-auto max-w-xs text-sm leading-relaxed opacity-75">
+                    A registration bonus of <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> has been added to your withdrawable balance.
+                  </p>
                 </div>
-              ) : (
-                (() => {
-                  const tutorialIndex = Math.min(
-                    Math.max(welcomeTutorialIndex, 0),
-                    WELCOME_TUTORIAL_SLIDES.length - 1
-                  );
-                  const slide = WELCOME_TUTORIAL_SLIDES[tutorialIndex];
-                  const isLastSlide = tutorialIndex === WELCOME_TUTORIAL_SLIDES.length - 1;
-                  return (
-                    <div className="relative flex min-h-0 flex-1 flex-col px-4 pb-4 pt-14 sm:px-6 sm:pb-5">
-                      <div className="mb-3 flex items-center justify-between pr-11">
-                        <p className="text-[20px] font-sans  text-[var(--theme-primary)]">
-                          RentDue Tutorial
-                        </p>
-                        <span className="text-[11px] font-sans font-bold tabular-nums opacity-55">
-                          {tutorialIndex + 1} / {WELCOME_TUTORIAL_SLIDES.length}
-                        </span>
-                      </div>
-                      <div className="relative min-h-0 flex-1">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={tutorialIndex}
-                            initial={{ opacity: 0, x: 18 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -18 }}
-                            transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-                            className="flex h-full min-h-0 flex-col"
-                          >
-                            <div className="flex h-[40dvh] min-h-[120px] max-h-[350px] shrink-0 items-center justify-center overflow-hidden rounded-2xl p-2">
-                              <img
-                                src={slide.image}
-                                alt={slide.imageAlt}
-                                className={tutorialIndex === 3
-                                  ? "h-full w-full object-contain"
-                                  : "h-full w-full object-contain"}
-                                loading="eager"
-                              />
-                            </div>
-                            <div className="min-h-0 flex-1 px-1 pt-4">
-                              <h3 id="welcome-modal-title" className="font-display text-xl font-black tracking-tight">
-                                {slide.title}
-                              </h3>
-                              <p className="mt-1.5 text-[13px] leading-relaxed opacity-70">
-                                {slide.description}
-                              </p>
-                            </div>
-                          </motion.div>
-                        </AnimatePresence>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-2">
-                        {welcomeTutorialIndex > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => setWelcomeTutorialIndex((index) => Math.max(0, index - 1))}
-                            className="inline-flex min-h-10 items-center gap-1 rounded-full px-3 text-xs font-sans font-bold opacity-70 transition-opacity hover:opacity-100 cursor-pointer"
-                          >
-                            <ChevronLeft className="h-4 w-4" /> Back
-                          </button>
-                        ) : (
-                          <span className="min-h-10 px-3" aria-hidden="true" />
-                        )}
-                        <div className="flex items-center gap-1.5" aria-label={`Tutorial step ${tutorialIndex + 1} of ${WELCOME_TUTORIAL_SLIDES.length}`}>
-                          {WELCOME_TUTORIAL_SLIDES.map((item, index) => (
-                            <span
-                              key={item.title}
-                              className={`h-1.5 rounded-full transition-all ${index === tutorialIndex ? "w-5 bg-[var(--theme-primary)]" : "w-1.5 bg-[var(--theme-text)]/25"}`}
-                            />
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isLastSlide) {
-                              handleCompleteWelcomeTutorial();
-                            } else {
-                              setWelcomeTutorialIndex((index) => Math.min(index + 1, WELCOME_TUTORIAL_SLIDES.length - 1));
-                            }
-                          }}
-                          className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full bg-[var(--theme-primary)] px-4 text-xs font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.97] cursor-pointer"
-                        >
-                          {isLastSlide ? "Done" : "Next"}
-                          {!isLastSlide && <ArrowRight className="h-3.5 w-3.5" strokeWidth={3} />}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()
-              )}
+                <button
+                  type="button"
+                  onClick={handleCloseWelcomeBonus}
+                  className="relative z-10 mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--theme-primary)] px-5 py-3 text-sm font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.97] cursor-pointer"
+                >
+                  Start earning <ArrowRight className="h-4 w-4" strokeWidth={3} />
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
@@ -844,52 +676,23 @@ export default function App() {
         }}
       >
         
-        {/* Header ribbon — milestone identity and progress on the left, actions on the right. */}
-        <header className="sticky top-0 z-40 bg-transparent h-[72px] flex items-center justify-between gap-2 px-3.5 sm:px-4.5 shrink-0">
-          <div className="flex items-center min-w-0 flex-1">
-            <MilestoneChip
-              phone={userProfile.phone}
-              username={userProfile.username}
-              onOpen={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
-            />
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Messages trigger button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab("chat")}
-              className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
-              title="Messages"
-            >
-              <MessagesSquare className="w-6 h-6 text-[var(--theme-text)]" />
-              {chatUnread > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
-                  {chatUnread > 9 ? "9+" : chatUnread}
-                </span>
-              )}
-            </button>
-            {/* Notification Bell trigger button */}
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
-                setPreviousTab(activeTab as any);
-                setActiveTab("alerts");
-              }}
-              className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
-              title="View Alerts & Notifications"
-            >
-              <Bell className="w-6 h-6 text-[var(--theme-text)]" />
-              {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
-                  {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 9
-                    ? "9+"
-                    : userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length}
-                </span>
-              )}
-            </button>
-          </div>
-        </header>
+        {/* Header ribbon — the top edge of the home card. AppHeader carries the card
+            material so every tab wears it; Home closes the seam with its balance card. */}
+        <AppHeader
+          profile={userProfile}
+          formatCurrency={formatCurrency}
+          chatUnread={chatUnread}
+          alertsUnread={alertsUnread}
+          showHistoryLink={activeTab !== "history"}
+          onOpenDeposit={() => setActiveTab("deposit")}
+          onOpenHistory={() => setActiveTab("history")}
+          onOpenChat={() => setActiveTab("chat")}
+          onOpenAlerts={() => {
+            localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
+            setPreviousTab(activeTab as any);
+            setActiveTab("alerts");
+          }}
+        />
 
         {/* Main interactive tabs content view block */}
         <main className="flex-1 relative min-h-0 flex flex-col isolate overflow-hidden"
@@ -913,6 +716,8 @@ export default function App() {
                   onNavigateToIncome={() => setActiveTab("income")}
                   onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
                   onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
+                  onNavigateToDeposit={() => setActiveTab("deposit")}
+                  onNavigateToWithdraw={() => setActiveTab("withdraw")}
                   onProfileUpdate={handleProfileChange}
                 />
               </motion.div>
@@ -1213,7 +1018,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Bottom Tab Bar — floating dock with a raised My Runs action */}
+      {/* Bottom Tab Bar — floating dock with a raised My Bots action */}
         <div className="w-full px-4 pt-0 pb-[calc(0.375rem+env(safe-area-inset-bottom))] bg-transparent shrink-0 z-40 select-none">
           <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-2 pt-2 pb-2 grid grid-cols-5 items-end">
             {/* Home */}
@@ -1231,26 +1036,26 @@ export default function App() {
               </span>
             </button>
 
-            {/* milestones */}
+            {/* store */}
              <button
-              onClick={() => setActiveTab("vip")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              onClick={() => setActiveTab("catalog")}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
-                <Trophy className="w-6 h-6 col-start-1 row-start-1" />
-                <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+                <Compass className="w-6 h-6 col-start-1 row-start-1" />
+                <Compass  className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Tasks</span>
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Markets</span>
               <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
               </span>
             </button>
 
-            {/* My Runs — raised floating action */}
+      {/* My Bots — raised floating action */}
             <div className="flex flex-col items-center">
               <button
                 onClick={() => setActiveTab("income")}
-                aria-label="My Runs"
+                aria-label="My Bots"
                 className={`-mt-10 mb-1 w-14 h-14 rounded-full bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] grid place-items-center border active:scale-90 transition-all duration-200 ${activeTab === "income" ? "border-[var(--theme-primary)] text-[var(--theme-primary)]" : "border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"}`}
               >
                 {siteConfig?.logoUrl?.trim() ? (
@@ -1259,26 +1064,27 @@ export default function App() {
                   <Zap fill="currentColor" className="w-7 h-7" />
                 )}
               </button>
-              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Runs</span>
+              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Bots</span>
               <span className="w-4 h-1 flex items-center justify-center mt-1">
                 {activeTab === "income" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
               </span>
-            </div>
+                </div>
 
-            {/* store */}
-             <button
-              onClick={() => setActiveTab("catalog")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              <span className="grid place-items-center w-6 h-6">
-                <Store className="w-6 h-6 col-start-1 row-start-1" />
-                <Store fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Store</span>
-              <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-            </button>
+                <button
+                 onClick={() => setActiveTab("vip")}
+                 className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+               >
+                 <span className="grid place-items-center w-6 h-6">
+                   <Trophy className="w-6 h-6 col-start-1 row-start-1" />
+                   <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+                 </span>
+                 <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Tasks</span>
+                 <span className="w-4 h-1 flex items-center justify-center">
+                   {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+                 </span>
+               </button>
+
+          
           
 
             {/* Profile */}

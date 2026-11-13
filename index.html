@@ -2,26 +2,34 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RentDue Store | Virtual machine rentals and daily returns</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>RentDue</title>
 
-    <meta name="description" content="Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT." />
-    <meta name="keywords" content="RentDue, virtual machine rentals, daily returns, referral rewards, mobile money withdrawals, USDT withdrawals" />
+    <meta name="description" content="Activate trading robots that return fixed returns for a set period of time." />
+    <meta name="keywords" content="RentDue" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#020617" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- iOS never fires beforeinstallprompt and ignores the manifest's display mode
+         unless these are present, so an installed iOS build would otherwise open
+         with Safari chrome and no standalone status bar. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RentDue" />
+    <meta name="format-detection" content="telephone=no" />
     <link rel="manifest" href="/api/manifest.json" />
     <link rel="canonical" href="/" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="/" />
-    <meta property="og:site_name" content="RentDue Store" />
-    <meta property="og:title" content="RentDue Store | Virtual machine rentals and daily returns" />
-    <meta property="og:description" content="Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT." />
+    <meta property="og:site_name" content="RentDue" />
+    <meta property="og:title" content="RentDue" />
+    <meta property="og:description" content="Activate trading robots that return fixed returns for a set period of time." />
     <meta property="og:image" content="/social-share.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="RentDue Store | Virtual machine rentals and daily returns" />
-    <meta name="twitter:description" content="Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT." />
+    <meta name="twitter:title" content="RentDue" />
+    <meta name="twitter:description" content="Activate trading robots that return fixed returns for a set period of time." />
     <meta name="twitter:image" content="/social-share.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,7 +38,7 @@
       "@context": "https://schema.org",
       "@type": "WebSite",
       "name": "RentDue Store",
-      "description": "Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT.",
+      "description": "Activate trading robots that return fixed returns for a set period of time..",
       "inLanguage": "en"
     }
     </script>
@@ -51,18 +59,10 @@
   <body>
     <div id="root"></div>
     <noscript>
-      <main style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px">
-        <h1>RentDue Store</h1>
-        <p>Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT.</p>
-        <nav>
-          <ul>
-            <li><a href="/welcome">About RentDue Store</a></li>
-            <li><a href="/faq">FAQ</a></li>
-          </ul>
-        </nav>
+      <main style="">
+
       </main>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

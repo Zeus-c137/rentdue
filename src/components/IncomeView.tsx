@@ -10,11 +10,10 @@ import {
   Zap,
   SlidersHorizontal,
   Calendar,
+  Timer,
   ChevronRight,
   Loader2,
   Award,
-  Rows3,
-  LayoutGrid,
 } from "lucide-react";
 import MetricCard from "./MetricCard";
 import CellsProgress from "./CellsProgress";
@@ -23,11 +22,11 @@ import { useCurrency } from "../currency";
 import { getRunElapsedDays, getRunTotalDays, getRunDailyRate, getRunState } from "../utils/runs";
 import { rarityMapForCatalog } from "../utils/rarity";
 import RarityBadge from "./RarityBadge";
+import FloatingProduct from "./FloatingProduct";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
-
-const RUNS_LAYOUT_KEY = "rentdue_runs_layout";
 
 interface IncomeViewProps {
   profile: UserProfile;
@@ -58,17 +57,6 @@ export default function IncomeView({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [collectibles, setCollectibles] = useState<Record<string, Collectible>>({});
-  const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
-    try {
-      const stored = localStorage.getItem(RUNS_LAYOUT_KEY);
-      return stored === "horizontal" || stored === "vertical" ? stored : "vertical";
-    } catch {
-      return "vertical";
-    }
-  });
-  const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
-  const horizontalScrollRef = useRef<HTMLDivElement>(null);
-  const horizontalRafRef = useRef<number>(0);
 
   const shownNodes = React.useMemo(
     () => showCompleted
@@ -78,6 +66,8 @@ export default function IncomeView({
   );
 
   const rarityMap = React.useMemo(() => rarityMapForCatalog(items), [items]);
+  // A decorative loop is the first thing to go when the user asks for less motion.
+  const reduceMotion = useReducedMotion();
   const runEntries = React.useMemo(
     () => shownNodes.map((node) => {
       const mappedItem = items.find((item) => item.id === node.itemId || item.name === node.itemName);
@@ -85,44 +75,6 @@ export default function IncomeView({
     }),
     [items, shownNodes]
   );
-  const setLayoutAndPersist = (next: "horizontal" | "vertical") => {
-    setLayout(next);
-    setHorizontalActiveIndex(0);
-    try {
-      localStorage.setItem(RUNS_LAYOUT_KEY, next);
-    } catch {
-      // persistence is best-effort
-    }
-  };
-
-  const updateHorizontalActive = useCallback(() => {
-    cancelAnimationFrame(horizontalRafRef.current);
-    horizontalRafRef.current = requestAnimationFrame(() => {
-      const scroller = horizontalScrollRef.current;
-      if (!scroller || scroller.children.length === 0) return;
-      const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
-      let nearestIndex = 0;
-      let nearestDistance = Number.POSITIVE_INFINITY;
-      Array.from(scroller.children).forEach((child, index) => {
-        const card = child as HTMLElement;
-        const distance = Math.abs(card.offsetLeft + card.offsetWidth / 2 - viewportCenter);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestIndex = index;
-        }
-      });
-      setHorizontalActiveIndex(nearestIndex);
-    });
-  }, []);
-
-  useEffect(() => () => cancelAnimationFrame(horizontalRafRef.current), []);
-
-  const runEntriesKey = runEntries.map(({ node }) => node.id).join("|");
-  useEffect(() => {
-    setHorizontalActiveIndex(0);
-    if (layout === "horizontal") horizontalScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [runEntriesKey, layout, showCompleted]);
-
   const loadCollectibles = useCallback(async () => {
     try {
       const res = await fetch(`/api/collectibles/${profile.phone}`, { cache: "no-store" });
@@ -209,8 +161,8 @@ export default function IncomeView({
   return (
     <div className="space-y-5 select-none bg-transparent text-[var(--theme-text)] p-1 rounded-[var(--theme-radius)] relative">
 
-      {/* Aggregate Stats — sticky so run list scrolls below */}
-      <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
+      {/* Aggregate Stats -  */}
+      <div className=" top-0 z-20 -mx-1 px-1 pt-1 pb-2">
         {onNavigateToCollection && (
           <div className="mb-2 flex justify-end">
             <button
@@ -224,7 +176,7 @@ export default function IncomeView({
         )}
         <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 grid grid-cols-2 gap-x-3 gap-y-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Completed Runs" : "Active Runs"}</p>
+            <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-55">{showCompleted ? "Finished Bots" : "Active Bots"}</p>
             <p className="font-display font-black text-[22px] text-[var(--theme-text)] tracking-tight truncate mt-0.5">{showCompleted ? completedCount : activeCount}</p>
           </div>
           <div className="min-w-0">
@@ -234,52 +186,27 @@ export default function IncomeView({
         </div>
       </div>
 
-      {/* Active runs list section */}
+      {/* Bot cards */}
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3 px-1">
           <h3 className="font-display font-black text-[15px] text-[var(--theme-text)]">
-            {showCompleted ? "Completed Runs" : "Active Runs"}
+            {showCompleted ? "Finished Bots" : "Active Bots"}
           </h3>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setShowCompleted((value) => !value);
-                setHorizontalActiveIndex(0);
-              }}
-              aria-label={showCompleted ? "Show active runs" : "Show completed runs"}
-              className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
-            <div className="flex items-center gap-1 rounded-full border border-white/10 p-1">
-              <button
-                type="button"
-                onClick={() => setLayoutAndPersist("horizontal")}
-                aria-label="Horizontal cards"
-                aria-pressed={layout === "horizontal"}
-                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "horizontal" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
-              >
-                <Rows3 className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setLayoutAndPersist("vertical")}
-                aria-label="Vertical cards"
-                aria-pressed={layout === "vertical"}
-                className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "vertical" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowCompleted((value) => !value)}
+            aria-label={showCompleted ? "Show active bots" : "Show finished bots"}
+            className={`p-2 rounded-full cursor-pointer active:scale-95 transition-all text-[var(--theme-primary)] ${showCompleted ? "bg-[var(--theme-primary)]/15" : ""}`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
         </div>
 
         {shownNodes.length === 0 ? (
           <div className="text-center py-12 px-4 max-w-xl mx-auto space-y-4">
             <Clock className="w-10 h-10 text-[var(--theme-text)] opacity-40 mx-auto animate-pulse" />
             <div className="space-y-1">
-              <h4 className="font-bold text-[var(--theme-text)] opacity-60 text-xs uppercase font-sans">{showCompleted ? "No Completed Runs" : "No Active Runs"}</h4>
+              <h4 className="font-bold text-[var(--theme-text)] opacity-60 text-xs uppercase font-sans">{showCompleted ? "No Finished Bots" : "No Active Bots"}</h4>
             </div>
             {!showCompleted && (
               <button
@@ -288,19 +215,12 @@ export default function IncomeView({
                 className="mx-auto inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.97] transition-all"
               >
                 <Plus className="w-4 h-4" />
-                Explore Runs
+                Explore Bots
               </button>
             )}
           </div>
         ) : (
-          <div
-            ref={layout === "horizontal" ? horizontalScrollRef : undefined}
-            onScroll={layout === "horizontal" ? updateHorizontalActive : undefined}
-            className={layout === "horizontal"
-              ? "relative flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto overscroll-x-contain scrollbar-none -mx-1 px-[7%] pb-3 pt-1 touch-pan-x"
-              : "grid grid-cols-1 sm:grid-cols-2 gap-3.5"}
-            style={layout === "horizontal" ? { WebkitOverflowScrolling: "touch" } : undefined}
-          >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {runEntries.map(({ node, mappedItem }) => {
               const imageUrl = mappedItem?.imageUrl || node.image;
               const itemName = mappedItem?.name || node.itemName;
@@ -319,9 +239,7 @@ export default function IncomeView({
               return (
                 <div
                   key={node.id}
-                  className={layout === "horizontal"
-                    ? "group relative shrink-0 w-[86%] max-w-[390px] snap-center bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden shadow-sm"
-                    : "group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30 transition-colors"}
+                  className="group bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-4 overflow-hidden relative shadow-sm hover:border-[var(--theme-primary)]/30 transition-colors"
                 >
                   <div className="flex flex-col gap-4">
                     {/* Art with rarity banner */}
@@ -330,12 +248,12 @@ export default function IncomeView({
                       className="relative aspect-[16/10] overflow-hidden rounded-2xl cursor-zoom-in bg-[var(--theme-text)]/5"
                     >
                       {imageUrl ? (
-                        <img
+                        <FloatingProduct
                           src={imageUrl}
                           alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
+                          still={reduceMotion}
+                          width={480}
+                          className="absolute inset-0 h-full w-full px-5 py-3 [--float-drift:16px]"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-transparent text-[var(--theme-text)] opacity-40">
@@ -349,14 +267,17 @@ export default function IncomeView({
 
                     {/* Details */}
                     <div className="flex-1 min-w-0 font-sans">
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
                         <h4 className="min-w-0 flex-1 font-sans font-bold text-[var(--theme-text)] text-[18px] sm:text-[20px] leading-tight line-clamp-2">
                           {itemName}
                         </h4>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[11px] font-semibold text-[var(--theme-primary)]">
-                            <Clock className="h-3.5 w-3.5" />
-                            <span className="tabular-nums">{totalDays} days</span>
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2 py-0.5 text-[10.5px] font-semibold text-[var(--theme-primary)]"
+                            aria-label={`${totalDays} day cycle`}
+                          >
+                            <Timer className="h-3 w-3" strokeWidth={2.4} />
+                            <span className="tabular-nums">{totalDays}d</span>
                           </span>
                           {isDone && (
                             <span className="rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] bg-[var(--theme-text)]/5 text-[var(--theme-text)] opacity-60">
@@ -365,14 +286,16 @@ export default function IncomeView({
                           )}
                         </div>
                       </div>
-                      <div className="mt-5 space-y-3">
+                      {/* Returns stack tight under the title — the pair is the
+                          reason the bot is worth renting, so it reads as one block. */}
+                      <div className="mt-2 space-y-1">
                         <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
                           <span className="text-[11px] font-medium opacity-65">Daily return</span>
                           <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield)}</span>
                         </div>
                         <div className="flex items-baseline justify-between gap-2 text-[13px] text-[var(--theme-text)]">
                           <span className="text-[11px] font-medium opacity-65">Total return</span>
-                          <span className="font-semibold tabular-nums text-right">{formatCurrency(dailyYield * totalDays)}</span>
+                          <span className="font-semibold tabular-nums text-right text-[var(--theme-primary)]">{formatCurrency(dailyYield * totalDays)}</span>
                         </div>
                       </div>
                     </div>
@@ -408,7 +331,7 @@ export default function IncomeView({
                     </button>
                   </div>
 
-                  {/* Finished-run ownership actions */}
+                  {/* Finished-bot ownership actions */}
                   {isDone && (
                     <div className="mt-2.5">
                       {!collectible || !collectible.claimedAt ? (
@@ -442,7 +365,7 @@ export default function IncomeView({
       <div className="rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 flex items-start gap-2.5">
         <Calendar className="w-4 h-4 text-[var(--theme-primary)] shrink-0 mt-0.5" />
         <p className="text-[12px] font-sans opacity-70 leading-relaxed">
-          Earnings are credited to your withdrawable balance daily, once your run is active. Finished runs become collectibles. Claim them to own them permanently.
+          Earnings are credited to your withdrawable balance daily, once your bot is active. Finished bots become collectibles. Claim them to own them permanently.
         </p>
       </div>
 

@@ -1,21 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Rank-within-category rarity (prototype v1, confirmed).
- * Items are ranked inside their own category by `amount` (descending, stable
- * by id). Only the top of a category earns rare banners, so a 30-item
- * category never reads "PREMIUM" thirty times:
- *
- *   rank 0      -> legendary (categories with >= 5 items, else rare)
- *   rank 1–2    -> epic
- *   rank 3–6    -> rare
- *   rank 7–11   -> popular
- *   rest        -> common
- *
- * Tiny categories (< 3 items): rank 0 -> popular, rest common.
- */
-
 import type { CollectibleRarity, SubscriptionItem } from "../types";
 
 export const RARITY_ORDER: CollectibleRarity[] = ["common", "popular", "rare", "epic", "legendary"];

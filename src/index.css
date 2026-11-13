@@ -63,6 +63,14 @@ body {
   --theme-on-primary: #1A2E05;
 }
 
+/* Motion easing tokens — stronger than the built-in CSS easings, which lack
+   the punch that makes an animation feel intentional. Source: easings.co */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* 3D Extruded & Dynamic Button Controls */
 .btn-3d-primary {
   background-color: var(--theme-primary);
@@ -497,50 +505,6 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   pointer-events: none;
 }
 
-/* Week sparkline draw-on — line traces itself on mount, dot pops in after. */
-.spark-draw {
-  stroke-dasharray: 400;
-  stroke-dashoffset: 400;
-  animation: spark-draw-x 1.2s ease-out forwards;
-}
-.spark-dot {
-  opacity: 0;
-  animation: spark-dot-in 0.3s ease-out 1s forwards;
-}
-@keyframes spark-draw-x {
-  to { stroke-dashoffset: 0; }
-}
-@keyframes spark-dot-in {
-  to { opacity: 1; }
-}
-
-/* Runway sonar ping — reused by the week-climb endpoint ("you stand here").
-   Solid theme colors, geometry only (no gradients). */
-@keyframes runway-ping {
-  0% { transform: scale(1); opacity: 0.55; }
-  100% { transform: scale(2.4); opacity: 0; }
-}
-.runway-ping {
-  animation: runway-ping 1.8s ease-out infinite;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-/* Week climb — cumulative step chart traces itself (pathLength-normalized),
-   day vertices pop in staggered. Reuses spark-dot-in. */
-.climb-draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: climb-draw-x 1.4s ease-out forwards;
-}
-@keyframes climb-draw-x {
-  to { stroke-dashoffset: 0; }
-}
-.climb-dot {
-  opacity: 0;
-  animation: spark-dot-in 0.3s ease-out forwards;
-}
-
 /* Battery cells — lit cells breathe in a left-to-right chase while charging.
    Per-cell animation-delay (inline) turns the pulse into a traveling wave. */
 @keyframes cell-charge {
@@ -642,9 +606,6 @@ input:-webkit-autofill::first-line { font-size: 14px; }
   .animate-shimmer { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
   .animate-shimmer-slow { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; }
   .splash-logo-pulse { animation: none; }
-  .runway-ping { animation: none; opacity: 0.35; }
-  .climb-draw { animation: none; stroke-dashoffset: 0; }
-  .climb-dot { animation: none; opacity: 1; }
   .cell-charge { animation: none; }
 }
 
@@ -668,4 +629,293 @@ input:-webkit-autofill::first-line { font-size: 14px; }
 .streak-tile-pulse {
   animation: streak-tile-pulse 1.4s ease-in-out infinite;
   will-change: transform;
+}
+
+/* Pressable surfaces — instant press feedback so the UI feels like it is
+   listening. The transition names the exact property (never `all`, which also
+   animates paint-heavy properties like box-shadow and background). 160ms sits
+   in the button-press band from the design-engineering rules; the curve is the
+   strong ease-out token. */
+.pressable {
+  transition: transform 160ms var(--ease-out);
+}
+.pressable:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Card lift — a restrained hover raise for the landing grids. Transform and
+   border only, so a pointer move never triggers a paint. Gated behind
+   (hover: hover) and (pointer: fine) so a tap on touch never latches a
+   sticky hover state. */
+.lift-card {
+  transition: transform 200ms var(--ease-out), border-color 200ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .lift-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Hero art — on phones the product image bleeds to the screen edges and its
+   bottom edge dissolves into the page instead of ending on a hard line. The
+   mask is opacity-only, so it composites and never triggers a paint of the
+   image itself. Desktop keeps the plain drop-shadow. */
+@media (max-width: 639px) {
+  .hero-art {
+    -webkit-mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      rgba(0, 0, 0, 0.35) 14%,
+      rgba(0, 0, 0, 0.8) 34%,
+      #000 58%,
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      rgba(0, 0, 0, 0.35) 14%,
+      rgba(0, 0, 0, 0.8) 34%,
+      #000 58%,
+      #000 100%
+    );
+    /* The drop-shadow was tuned for the framed look; the fade replaces it. */
+    filter: none;
+  }
+}
+
+/* Auth forms on very small phones. Inputs are 16px at the base breakpoint so
+   iOS Safari does not zoom the viewport on focus, then settle to the design
+   size from sm up. */
+.auth-eye {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: -1px;
+}
+
+@media (min-width: 640px) {
+  .auth-eye {
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-eye {
+    transition-duration: 1ms;
+  }
+}
+
+/* TradingView widgets inject an iframe sized from their own attributes, which
+   can exceed a phone's viewport. Clamp the iframe to the host and let the host
+   clip, so a widget never introduces horizontal page scroll. */
+.tv-widget-host,
+.tv-widget-host iframe {
+  max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  /* The widgets set a min-width on their internal wrapper; on a phone that
+     forces sideways scroll inside the card. */
+  .tv-widget-host,
+  .tv-widget-host > div,
+  .tv-widget-host iframe {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* P&L bar — hovering one bar spotlights it and mutes its siblings. The
+   hovered/focused bar takes a full-strength fill and lifts 2px; everything
+   else drops back. Only transform and opacity animate, and the whole
+   interaction is gated behind a fine pointer so a tap on touch never
+   latches a sticky highlight. */
+.pnl-bar {
+  transition: transform 180ms var(--ease-out), background-color 180ms var(--ease-out),
+    opacity 180ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pnl-plot:hover .pnl-bar {
+    opacity: 0.4;
+  }
+  .pnl-plot:hover .pnl-bar:hover {
+    opacity: 1;
+    background-color: var(--theme-primary);
+    transform: translateY(-2px);
+  }
+}
+/* Keyboard parity: the bar is focusable, so tab focus reads the same as hover. */
+.pnl-bar:focus-visible {
+  outline: none;
+  opacity: 1;
+  background-color: var(--theme-primary);
+  transform: translateY(-2px);
+}
+.pnl-plot:focus-within .pnl-bar {
+  opacity: 0.4;
+}
+.pnl-bar:focus-visible,
+.pnl-plot:focus-within .pnl-bar:focus-visible {
+  opacity: 1;
+}
+
+/* Value tag rides above the bar, hidden until that bar is the active one.
+   Opacity only, 140ms — it must never delay the bar highlight. */
+.pnl-bar-tag {
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pnl-plot:hover .pnl-bar:hover .pnl-bar-tag {
+    opacity: 1;
+  }
+}
+.pnl-bar:focus-visible .pnl-bar-tag {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pnl-bar,
+  .pnl-bar-tag {
+    transition-duration: 1ms;
+  }
+}
+/* Floating product art — the bot flies rather than spins: it hangs at centre, drifts
+   out to the left, glides back through centre, drifts out to the right, and
+   comes home. The loop is endless, so the seam at 0% / 100% is invisible.
+
+   CSS rather than a Motion timeline because CSS composites off the main thread:
+   the art keeps moving through a dashboard fetch or a route paint, where a
+   JS-driven loop drops frames. Only transform and opacity animate, and the
+   ground shadow is a blurred pseudo-element, so the image is never repainted. */
+
+.float-stage {
+  /* How far the bot leans out on each leg. Hosts with less room to spare — a
+     narrow column, a clipped card — turn this down rather than clipping. */
+  --float-drift: 34px;
+}
+
+@media (max-width: 400px) {
+  .float-stage {
+    --float-drift: 22px;
+  }
+}
+
+/* Ground shadow. The blur is static — only scale and opacity move, so the
+   element is rasterised once and then just composited. It tracks the bot across
+   the stage and tightens as the bot rises. */
+.float-stage::after {
+  content: "";
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  width: 44%;
+  height: 9px;
+  margin-left: -22%;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.5), transparent 72%);
+  filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.float-stage.is-idle::after {
+  opacity: 0.5;
+  animation: float-shadow 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.float-stage.is-idle .float-art {
+  animation: float-path 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+
+/* Centre — left — centre — right — centre, and the two legs are an
+   exact mirror of each other: the bot hangs at the left extreme for as long as
+   it hangs at the right, so neither side reads as an afterthought. Each leg
+   eases at both ends, so the bot leans out, floats there, and swings back
+   rather than sliding on rails. The rotate is the lean into the direction of
+   travel; it crosses zero exactly as the bot passes through the middle. */
+@keyframes float-path {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  10% {
+    transform: translate3d(calc(var(--float-drift) * -0.34), -7px, 0) rotate(-2.5deg);
+  }
+  24% {
+    transform: translate3d(calc(var(--float-drift) * -1), 1px, 0) rotate(-6deg);
+  }
+  34% {
+    transform: translate3d(calc(var(--float-drift) * -0.87), 7px, 0) rotate(-5deg);
+  }
+  50% {
+    transform: translate3d(0, -3px, 0) rotate(0deg);
+  }
+  60% {
+    transform: translate3d(calc(var(--float-drift) * 0.34), -7px, 0) rotate(2.5deg);
+  }
+  74% {
+    transform: translate3d(var(--float-drift), 1px, 0) rotate(6deg);
+  }
+  84% {
+    transform: translate3d(calc(var(--float-drift) * 0.87), 7px, 0) rotate(5deg);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+}
+
+/* The shadow answers the flight, mirroring the path above: it follows the bot
+   across, tightens as the bot climbs and spreads as it settles. */
+@keyframes float-shadow {
+  0% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+  10% {
+    transform: translateX(-9px) scale(0.98);
+    opacity: 0.46;
+  }
+  24% {
+    transform: translateX(-27px) scale(0.94);
+    opacity: 0.4;
+  }
+  34% {
+    transform: translateX(-23px) scale(0.97);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+  60% {
+    transform: translateX(9px) scale(0.98);
+    opacity: 0.46;
+  }
+  74% {
+    transform: translateX(27px) scale(0.94);
+    opacity: 0.4;
+  }
+  84% {
+    transform: translateX(23px) scale(0.97);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 0.5;
+  }
+}
+
+/* A decorative loop carries no information, so reduced motion stops it
+   outright rather than softening it — the art just sits at rest. */
+@media (prefers-reduced-motion: reduce) {
+  .float-stage.is-idle::after,
+  .float-stage.is-idle .float-art {
+    animation: none;
+  }
+  .float-stage.is-idle::after {
+    opacity: 0.5;
+  }
 }
