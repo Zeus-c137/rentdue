@@ -10,17 +10,18 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'prompt',
+        // autoUpdate: the generated worker calls skipWaiting + clientsClaim on
+        // install, so a new build activates by itself and workbox-window reports
+        // it through onNeedReload. Nothing for the user to tap.
+        registerType: 'autoUpdate',
         injectRegister: 'auto', // We let vite-plugin-pwa handle registration and manifest injection
         manifest: false,
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,woff,woff2}'],
           globIgnores: ['**/3dicons-*', '**/*.map'],
           cleanupOutdatedCaches: true,
-          // prompt mode: new SW must stay waiting so onNeedRefresh fires.
-          // skipWaiting:true would activate silently and the banner would never show.
-          skipWaiting: false,
-          clientsClaim: false,
+          // registerType 'autoUpdate' sets skipWaiting + clientsClaim above, so
+          // they are deliberately not overridden here.
           navigateFallbackDenylist: [/^\/api\/.*/],
           dontCacheBustURLsMatching: /\.\w{8}\./,
           runtimeCaching: [

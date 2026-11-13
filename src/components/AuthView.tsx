@@ -1147,7 +1147,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   return (
     <div className="min-h-[100dvh] bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] transition-colors">
       {/* ---------------- sticky nav ---------------- */}
-      <header className="sticky top-0 z-50 border-b border-[var(--theme-card-border)]/60 bg-[var(--theme-bg)]/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-[var(--theme-card-border)]/60 bg-[var(--theme-bg)]/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="relative max-w-7xl mx-auto px-5 sm:px-8 h-16 md:h-[72px] flex items-center gap-3">
           <BrandLogo siteConfig={activeConfig} className="w-9 h-9 flex items-center justify-center shrink-0" />
           <span className="hidden sm:inline font-display font-black text-base md:text-lg tracking-tight uppercase">
@@ -1293,7 +1293,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             <SectionHead
               eyebrow="Market coverage"
               title="The markets are full of opportunities."
-              lede="Whether you follow forex,crpto,CFDs, See thousands of possible futures at once, with the drawdowns to expect, the winning streaks, and your odds of doubling the account or losing half."
+              lede="Whether you follow forex,crpto,CFDs, Pick a market, see it's available trading robots and start whichever trading duration fits your needs."
             />
           </Reveal>
 

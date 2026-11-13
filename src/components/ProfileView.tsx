@@ -22,7 +22,6 @@ import {
   Calendar,
   Lock,
   Download,
-  RefreshCw,
   Settings,
   LogOut,
   X,
@@ -102,27 +101,6 @@ export default function ProfileView({
     platform,
     install,
   } = usePwaInstall();
-
-  // Manual app-update apply (pairs with the auto UpdateBanner + header pill).
-  const [updateState, setUpdateState] = useState<"idle" | "checking" | "ready" | "uptodate" | "unsupported">("idle");
-
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) { setUpdateState("unsupported"); return; }
-    navigator.serviceWorker.getRegistration().then((reg) => {
-      if (!reg) return; // dev / no worker yet — leave idle
-      if (reg.waiting) setUpdateState("ready");
-    }).catch(() => {});
-  }, []);
-
-  const applyAppUpdate = () => {
-    navigator.serviceWorker.getRegistration().then((reg) => {
-      const waiting = reg?.waiting;
-      if (!waiting) { window.location.reload(); return; }
-      navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload(), { once: true });
-      waiting.postMessage({ type: "SKIP_WAITING" });
-      setTimeout(() => window.location.reload(), 2500);
-    }).catch(() => window.location.reload());
-  };
 
   useEffect(() => {
     // Just handle simple initialization if needed
@@ -363,18 +341,22 @@ export default function ProfileView({
           <div className="flex items-center justify-between pl-3 pr-1 pt-2 pb-1">
             <h4 className="font-display font-black text-xs uppercase tracking-wider text-[var(--theme-text)] opacity-70">More Actions</h4>
             <div className="flex items-center gap-2">
-              {updateState === "ready" ? (
-                <button
-                  onClick={applyAppUpdate}
-                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black uppercase tracking-wide cursor-pointer active:scale-95 transition-all"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> Update
-                </button>
-              ) : !isInstalled ? (
+              {!isInstalled ? (
                 <button
                   onClick={async () => {
-                    if (canInstall) { const accepted = await install(); if (!accepted) toast.info("Installation was cancelled."); }
-                    else { toast.info("Automatic install is unavailable. Use browser install menu."); }
+                    if (canInstall) {
+                      const accepted = await install();
+                      if (!accepted) toast.info("Installation was cancelled.");
+                      return;
+                    }
+                    // No deferred prompt available. iOS has no install API at all, so
+                    // saying "use the browser menu" is the only honest answer there;
+                    // elsewhere the event usually just has not fired yet.
+                    if (platform === "Safari iOS") {
+                      toast.info("Tap Share, then Add to Home Screen.", { duration: 6000 });
+                    } else {
+                      toast.info("Use your browser's Install app / Add to Home screen option.");
+                    }
                   }}
                   aria-label="Install app"
                   className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full  text-[var(--theme-primary)] text-[11px] font-sans font-black uppercase tracking-wide hover:bg-[var(--theme-primary)]/20 cursor-pointer active:scale-95 transition-all"

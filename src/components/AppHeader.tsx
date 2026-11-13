@@ -75,7 +75,7 @@ export default function AppHeader({
 }: AppHeaderProps) {
   return (
     <header
-      className="sticky top-0 z-40 flex h-[72px] shrink-0 items-center justify-between gap-2 overflow-hidden bg-[var(--theme-card-bg)]/45 px-3.5 backdrop-blur-[20px] backdrop-saturate-[180%] sm:px-4.5"
+      className="sticky top-0 z-40 flex h-[calc(72px+env(safe-area-inset-top))] shrink-0 items-center justify-between gap-2 overflow-hidden bg-[var(--theme-card-bg)]/45 px-3.5 pt-[env(safe-area-inset-top)] backdrop-blur-[20px] backdrop-saturate-[180%] sm:px-4.5"
     >
       {/* Depth only: a soft top-edge highlight, no motion. */}
       <span
