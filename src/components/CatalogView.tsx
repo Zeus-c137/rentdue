@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { SubscriptionItem, UserProfile } from "../types";
 import {
   AlertTriangle,
@@ -19,9 +19,6 @@ import {
   ArrowRight,
   Plus,
   Check,
-  Percent,
-  LayoutGrid,
-  Rows3,
   Calendar
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -44,8 +41,6 @@ interface CatalogViewProps {
 }
 
 type CategoryType = "All" | "DS" | "D" | "G" | "E" | "F";
-
-const LAYOUT_KEY = "rentdue_catalog_layout";
 
 function dailyPct(item: SubscriptionItem): string {
   const amt = Number(item.amount || 0);
@@ -75,34 +70,12 @@ export default function CatalogView({
   const [activated, setActivated] = useState<{ item: SubscriptionItem; dayOne: number } | null>(null);
   const [confirmingItem, setConfirmingItem] = useState<SubscriptionItem | null>(null);
   const [modalPhase, setModalPhase] = useState<"confirm" | "loading" | "success">("confirm");
-  // Keep the user's explicit layout choice, with carousel as the first-visit default.
-  const [layout, setLayout] = useState<"horizontal" | "vertical">(() => {
-    try {
-      const stored = localStorage.getItem(LAYOUT_KEY);
-      return stored === "horizontal" || stored === "vertical" ? stored : "horizontal";
-    } catch {
-      return "horizontal";
-    }
-  });
-  const [horizontalActiveIndex, setHorizontalActiveIndex] = useState(0);
-  const horizontalScrollRef = useRef<HTMLDivElement>(null);
-  const horizontalRafRef = useRef<number>(0);
-  const categoryTabsRef = useRef<HTMLDivElement>(null);
-  const categoryTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // One layout, deliberately: the grid further down is the only way bots are shown.
+  // The horizontal showroom carousel and the layout switcher that used to live here
+  // offered two views of the same bots, so both are gone.
 
-  const setLayoutAndPersist = (next: "horizontal" | "vertical") => {
-    setLayout(next);
-    setHorizontalActiveIndex(0);
-    try {
-      localStorage.setItem(LAYOUT_KEY, next);
-    } catch {
-      // persistence is best-effort
-    }
-  };
-
-  // Resolves true only when the run was actually activated. Callers use the
-  // result to drop the modal back out of its loading state — otherwise a
-  // pre-flight refusal (sold out, low balance) leaves the button stuck on
+  // Resolves true only when the bot was actually activated.
+  // pre-flight refusal (sold out, low capital) leaves the button stuck on
   // "Starting..." with no way back.
   const handleSubscribe = async (item: SubscriptionItem): Promise<boolean> => {
     if (item.outOfStock || item.disabled) {
@@ -113,7 +86,7 @@ export default function CatalogView({
     const rechargeBal = userProfile.rechargeBalance || 0;
     if (rechargeBal < item.amount) {
       toast.error(
-        `Insufficient recharge balance. Buying ${item.name} requires ${formatCurrency(item.amount)}. Your account recharge balance is ${formatCurrency(rechargeBal)}. Please deposit funds first.`
+        `Insufficient capital. Buying ${item.name} requires ${formatCurrency(item.amount)}. Your available capital is ${formatCurrency(rechargeBal)}. Please deposit funds first.`
       );
       return false;
     }
@@ -129,7 +102,7 @@ export default function CatalogView({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to activate this product subscription.");
+        throw new Error(data.error || "Failed to activate this bot.");
       }
 
       onSubscribeSuccess(data.subscription, item.amount);
@@ -142,7 +115,7 @@ export default function CatalogView({
       return true;
 
     } catch (err: any) {
-      toast.error(err.message || "Failed to lock asset. Please try again.");
+      toast.error(err.message || "Failed to start this bot. Please try again.");
       return false;
     } finally {
       setSubmittingItemId(null);
@@ -180,7 +153,7 @@ export default function CatalogView({
     const customConfigCats = siteConfig?.categories || [];
     const itemCats = items.map(i => i.category).filter(Boolean);
     const combined = Array.from(new Set([...customConfigCats, ...itemCats]));
-    if (items.some((item) => !item.category) && !combined.includes("Runs")) combined.push("Runs");
+    if (items.some((item) => !item.category) && !combined.includes("Bots")) combined.push("Bots");
     return ["All", ...combined];
   }, [siteConfig?.categories, items]);
 
@@ -191,64 +164,13 @@ export default function CatalogView({
     return item.category === activeCategory;
   });
 
-  const carouselItems = activeCategory === "All"
-    ? categoryList
-      .filter((category) => category !== "All")
-      .flatMap((category) => filteredItems.filter((item) => (item.category || "Runs") === category))
-    : filteredItems;
-  const safeHorizontalActiveIndex = Math.max(0, Math.min(horizontalActiveIndex, Math.max(carouselItems.length - 1, 0)));
-  const horizontalActiveItem = carouselItems[safeHorizontalActiveIndex] || carouselItems[0] || null;
-  const visibleCategory = layout === "horizontal" && activeCategory === "All"
-    ? (horizontalActiveItem ? horizontalActiveItem.category || "Runs" : "All")
-    : activeCategory;
-
-  const updateHorizontalActive = React.useCallback(() => {
-    cancelAnimationFrame(horizontalRafRef.current);
-    horizontalRafRef.current = requestAnimationFrame(() => {
-      const scroller = horizontalScrollRef.current;
-      if (!scroller || scroller.children.length === 0) return;
-      const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
-      let nearestIndex = 0;
-      let nearestDistance = Number.POSITIVE_INFINITY;
-      Array.from(scroller.children).forEach((child, index) => {
-        const card = child as HTMLElement;
-        const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-        const distance = Math.abs(cardCenter - viewportCenter);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestIndex = index;
-        }
-      });
-      setHorizontalActiveIndex(nearestIndex);
-    });
-  }, []);
-
-  React.useEffect(() => () => cancelAnimationFrame(horizontalRafRef.current), []);
-
-  const filteredItemsKey = carouselItems.map((item) => `${item.id}:${item.category || ""}`).join("|");
-  React.useEffect(() => {
-    setHorizontalActiveIndex(0);
-    if (layout === "horizontal") horizontalScrollRef.current?.scrollTo({ left: 0, behavior: "auto" });
-  }, [activeCategory, filteredItemsKey, layout]);
-
-  React.useEffect(() => {
-    if (layout !== "horizontal") return;
-    const scroller = categoryTabsRef.current;
-    const tab = categoryTabRefs.current[categoryList.indexOf(visibleCategory)];
-    if (!scroller || !tab) return;
-    const containerRect = scroller.getBoundingClientRect();
-    const tabRect = tab.getBoundingClientRect();
-    const left = scroller.scrollLeft + tabRect.left - containerRect.left - (scroller.clientWidth - tabRect.width) / 2;
-    scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
-  }, [activeCategory, categoryList, layout, prefersReducedMotion, visibleCategory]);
-
   // Grouped sections: one "X Collection" header per category when browsing All.
   const groups = React.useMemo(() => {
     if (activeCategory !== "All") return [{ category: activeCategory, items: filteredItems }];
     const cats = categoryList.filter((c) => c !== "All");
-    const ordered = cats.length > 0 ? cats : Array.from(new Set(filteredItems.map((i) => i.category || "Runs")));
+    const ordered = cats.length > 0 ? cats : Array.from(new Set(filteredItems.map((i) => i.category || "Bots")));
     return ordered
-      .map((cat) => ({ category: cat, items: filteredItems.filter((i) => (i.category || "Runs") === cat) }))
+      .map((cat) => ({ category: cat, items: filteredItems.filter((i) => (i.category || "Bots") === cat) }))
       .filter((g) => g.items.length > 0);
   }, [activeCategory, filteredItems, categoryList]);
 
@@ -266,13 +188,13 @@ export default function CatalogView({
         type="button"
         onClick={() => handleStartRun(item)}
         disabled={submittingItemId === item.id || isOutOfStock}
-        aria-label={`Start ${item.name} run`}
+        aria-label={`Start ${item.name} bot`}
         className="shrink-0 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[11px] font-sans font-black transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
       >
         {submittingItemId === item.id ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
         ) : (
-          <><Plus className="w-3.5 h-3.5" strokeWidth={3} /> Start Run</>
+          <><Plus className="w-3.5 h-3.5" strokeWidth={3} /> Start Bot</>
         )}
       </button>
     );
@@ -287,10 +209,11 @@ export default function CatalogView({
     );
     return (
       <div className="mt-2 space-y-1.5">
+         {row("Price", formatCurrency(item.amount))}
         {row("Duration", `${item.duration} Days`)}
-        {row("Daily", formatCurrency(item.dailyYield))}
-        {row("Price", formatCurrency(item.amount))}
-        {row("Total return", formatCurrency(item.dailyYield * item.duration), true)}
+        {row("Daily returns", formatCurrency(item.dailyYield))}
+
+
       </div>
     );
   };
@@ -351,65 +274,6 @@ export default function CatalogView({
     );
   };
 
-  const renderCarouselCard = (item: SubscriptionItem, idx: number) => {
-    const isOutOfStock = item.outOfStock || item.disabled;
-    const ownedQuantity = activeSubscriptions.filter(
-      (sub) => (sub.itemId === item.id || sub.itemName === item.name) && sub.status === "active"
-    ).length;
-    return (
-      <motion.div
-        key={item.id}
-        className="relative shrink-0 w-[86%] max-w-[390px] snap-center cursor-pointer"
-      >
-        <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/50 shadow-sm backdrop-blur-[20px]">
-          <div
-            onClick={() => {
-              if (idx !== horizontalActiveIndex) {
-                const scroller = horizontalScrollRef.current;
-                const target = scroller?.children[idx] as HTMLElement | undefined;
-                if (scroller && target) {
-                  const left = target.offsetLeft - (scroller.clientWidth - target.offsetWidth) / 2;
-                  scroller.scrollTo({ left, behavior: prefersReducedMotion ? "auto" : "smooth" });
-                }
-              } else if (item.imageUrl) {
-                setPreviewImage(item.imageUrl);
-              }
-            }}
-            className="relative aspect-[16/9] overflow-hidden cursor-zoom-in bg-[var(--theme-bg)]"
-          >
-            {item.imageUrl ? (
-              <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover pointer-events-none" />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-xs font-mono opacity-40">No Image</div>
-            )}
-            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
-            <div className="absolute left-3 top-3"><RarityBadge rarity={rarityMap[item.id] || "common"} /></div>
-            {ownedQuantity > 0 && (
-              <span className="absolute right-3 top-3 rounded-full border border-[var(--theme-primary)] bg-[var(--theme-card-bg)]/85 px-2 py-1 text-[10px] font-black leading-none text-[var(--theme-text)] backdrop-blur-md">
-                ×{ownedQuantity} owned
-              </span>
-            )}
-            {isOutOfStock && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/45">
-                <span className="text-2xl font-black tracking-wide text-white drop-shadow-md">SOLD OUT</span>
-              </div>
-            )}
-          </div>
-          <div className="p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="truncate font-display text-[18px] font-black tracking-tight text-[var(--theme-text)]">{item.name}</h3>
-              </div>
-              <span className="shrink-0 rounded-full bg-[var(--theme-primary)]/15 px-2.5 py-1 text-[10px] font-black text-[var(--theme-primary)]">{dailyPct(item)}</span>
-            </div>
-            {renderVerticalSpecs(item)}
-            <div className="mt-3 flex justify-center">{renderStartButton(item)}</div>
-          </div>
-        </div>
-      </motion.div>
-    );
-  };
-
   return (
     <div className="w-full bg-transparent text-[var(--theme-text)] select-none pb-16 relative">
       <AnimatePresence mode="wait">
@@ -421,13 +285,13 @@ export default function CatalogView({
           transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
           className="space-y-4 px-1"
         >
-            {/* Account balance — what can be deployed into runs (above shifting title) */}
-            <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2">
+            {/* Account balance — capital that can be deployed into bots */}
+            <div className=" top-0 z-20 -mx-1 px-1 pt-1 pb-2">
               <div className="rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/60 backdrop-blur-[20px] p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-60">Account Balance</p>
+                  <p className="text-[11px] font-sans text-[var(--theme-text)] opacity-60">Trading capital</p>
                   <p className="font-display font-black text-[22px] text-[var(--theme-text)] tracking-tight leading-tight truncate">{formatCurrency(userProfile.rechargeBalance || 0)}</p>
-                  <p className="text-[10px] font-sans text-[var(--theme-text)] opacity-50">Available for runs</p>
+
                 </div>
                 <button
                   type="button"
@@ -439,19 +303,17 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* Category selection Tabs — no container bg (transparent) */}
+            {/* Category selection tabs — no container bg (transparent) */}
             <div className="relative -mx-1 mb-1">
-              <div ref={categoryTabsRef} className="overflow-x-auto scrollbar-none">
+              <div className="overflow-x-auto scrollbar-none">
                 <div className="flex gap-5 min-w-max px-2">
                   {categoryList.map((cat, i) => {
-                    const isSelected = (layout === "horizontal" ? visibleCategory : activeCategory) === cat;
+                    const isSelected = activeCategory === cat;
                     return (
                       <button
                         key={cat}
-                        ref={(el) => { categoryTabRefs.current[i] = el; }}
                         onClick={() => {
                           setActiveCategory(cat);
-                          setHorizontalActiveIndex(0);
                           setErrorMsg("");
                         }}
                         aria-pressed={isSelected}
@@ -469,60 +331,19 @@ export default function CatalogView({
               </div>
             </div>
 
-            {/* List header: current collection and layout toggle */}
-            <div className="flex items-center justify-between gap-3 pt-1 px-1">
-              {layout === "horizontal" ? (
-                <h2 className="min-w-0 truncate font-display text-[17px] font-black tracking-tight">
-                  {getCategoryLabel(horizontalActiveItem?.category || activeCategory)} Collection
-                </h2>
-              ) : <span />}
-              <div className="flex items-center gap-1 rounded-full border border-white/10 p-1">
-                <button
-                  type="button"
-                  onClick={() => setLayoutAndPersist("horizontal")}
-                  aria-label="Horizontal cards"
-                  className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "horizontal" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
-                >
-                  <Rows3 className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLayoutAndPersist("vertical")}
-                  aria-label="Vertical cards"
-                  className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all ${layout === "vertical" ? "bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : "opacity-60"}`}
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Horizontal showroom: swipe between runs, keeping the active
-                collection title and category tab aligned to the centered card. */}
-            {layout === "horizontal" && carouselItems.length > 0 ? (
-              <div className="space-y-3 pt-1">
-                <div
-                  ref={horizontalScrollRef}
-                  onScroll={updateHorizontalActive}
-                  className="relative flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto overscroll-x-contain scrollbar-none -mx-1 px-[7%] pb-3 pt-1 touch-pan-x"
-                  style={{ WebkitOverflowScrolling: "touch" }}
-                >
-                  {carouselItems.map((item, idx) => renderCarouselCard(item, idx))}
+            {/* Bot cards — one collection header per category when browsing All */}
+            {groups.map((group) => (
+              <div key={group.category} className="space-y-3 pt-1">
+                {activeCategory === "All" && groups.length > 1 && (
+                  <h2 className="font-display font-black text-[17px] tracking-tight px-1">
+                    {getCategoryLabel(group.category)} Collection
+                  </h2>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {group.items.map((item, idx) => renderVerticalCard(item, idx))}
                 </div>
               </div>
-            ) : (
-              groups.map((group) => (
-                <div key={group.category} className="space-y-3 pt-1">
-                  {activeCategory === "All" && groups.length > 1 && (
-                    <h2 className="font-display font-black text-[17px] tracking-tight px-1">
-                      {getCategoryLabel(group.category)} Collection
-                    </h2>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {group.items.map((item, idx) => renderVerticalCard(item, idx))}
-                  </div>
-                </div>
-              ))
-            )}
+            ))}
 
             {filteredItems.length === 0 && (
               <div className="text-center py-12 text-xs font-sans text-[var(--theme-text)] opacity-60 theme-card border border-dashed border-[var(--theme-card-border)] rounded-[var(--theme-radius)]">
@@ -534,10 +355,10 @@ export default function CatalogView({
       <div className="mt-4 rounded-[20px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3.5 gap-2.5">
         <Calendar className="w-4 h-4 text-[var(--theme-primary)] shrink-0 mt-0.5" />
         <p className="text-[12px] font-sans opacity-70 leading-relaxed">
-          Starting a run requires you to deposit funds into your wallet first.
+          Starting a bot requires you to deposit funds into your wallet first.
         </p>
          <p className="text-[12px] mt-2 font-sans opacity-70 leading-relaxed">
-         The earnings are credited to your withdrawable balance daily. Completed runs become NFT art collectibles in your account.
+         The earnings are credited to your withdrawable balance daily. Finished bots become NFT art collectibles in your account.
         </p>
       </div>
       {/* Single modal: confirm → loading → success */}
@@ -564,7 +385,7 @@ export default function CatalogView({
                     <Check className="w-7 h-7 text-black" strokeWidth={3} />
                   </span>
                   <div className="text-center">
-                    <h3 className="font-display font-black text-[22px] tracking-tight">Run Activated</h3>
+                    <h3 className="font-display font-black text-[22px] tracking-tight">Bot Activated</h3>
                     <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{activated.item.name} is live and earning for you.</p>
                   </div>
                   {activated.item.imageUrl && (
@@ -582,11 +403,11 @@ export default function CatalogView({
                   </div>
                   <div className="w-full rounded-2xl border border-dashed border-[var(--theme-primary)]/50 bg-[var(--theme-primary)]/10 px-4 py-3">
                     <p className="text-[12px] font-sans text-[var(--theme-text)] leading-relaxed">
-                      When the {activated.item.duration}-day cycle ends, this run becomes a <span className="font-black">collectible</span>. Claim it to own it permanently.
+                      When the {activated.item.duration}-day cycle ends, this bot becomes a <span className="font-black">collectible</span>. Claim it to own it permanently.
                     </p>
                   </div>
                   <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed text-center -mt-1">
-                    Your first day&apos;s return is already in your withdrawable balance. New returns land daily while the run stays active.
+                    Your first day&apos;s return is already in your withdrawable balance. New returns land daily while the bot stays active.
                   </p>
                   <div className="w-full space-y-2 mt-1">
                     <button
@@ -594,7 +415,7 @@ export default function CatalogView({
                       onClick={() => { handleCloseModal(); onActivationContinue(); }}
                       className="w-full inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[14px] font-sans font-black cursor-pointer active:scale-[0.98] transition-all"
                     >
-                      My Active Runs <ArrowRight className="w-4 h-4" strokeWidth={3} />
+                      My Active Bots <ArrowRight className="w-4 h-4" strokeWidth={3} />
                     </button>
                     <button
                       type="button"
@@ -614,15 +435,13 @@ export default function CatalogView({
                         alt={confirmingItem.name}
                         loading="lazy"
                         referrerPolicy="no-referrer"
-                        className="h-48 w-full object-cover sm:h-56"
+                        className="h-48 w-full object-contain sm:h-56"
                       />
                     </div>
                   )}
                   <div className="flex w-full flex-col items-center gap-4 p-6 pt-5">
                     <div className="text-center">
-                      <h3 className="font-display font-black text-[20px] tracking-tight">
-                        {modalPhase === "loading" ? "Starting your run..." : "Start this run?"}
-                      </h3>
+
                       <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 mt-1 leading-snug">{confirmingItem.name}</p>
                     </div>
                     <div className="w-full divide-y divide-[var(--theme-card-border)]/60 border-y border-[var(--theme-card-border)]/60">
@@ -641,11 +460,11 @@ export default function CatalogView({
                     </div>
                     {modalPhase === "loading" ? (
                       <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
-                        Processing payment and activating your run...
+                        Processing payment and activating your bot...
                       </p>
                     ) : (
                       <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-60 leading-relaxed">
-                        {formatCurrency(confirmingItem.amount)} will be deducted from your recharge balance.
+                        {formatCurrency(confirmingItem.amount)} will be deducted from your available capital.
                       </p>
                     )}
                     <div className="w-full space-y-2 mt-1">

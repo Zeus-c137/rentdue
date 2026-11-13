@@ -209,14 +209,14 @@ export default function CollectionView({
         <div className="text-center py-12 px-4 space-y-4">
           <Award className="w-10 h-10 opacity-40 mx-auto" />
           <p className="font-bold opacity-60 text-xs uppercase font-sans">No collectibles yet</p>
-          <p className="text-[13px] opacity-60 font-sans">Finish your first run cycle to mint a collectible.</p>
+Finish your first bot cycle to mint a collectible.
           {onNavigateToCatalog && (
             <button
               type="button"
               onClick={onNavigateToCatalog}
               className="mx-auto inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-black cursor-pointer active:scale-[0.97] transition-all"
             >
-              <Plus className="w-4 h-4" /> Explore Runs
+        <Plus className="w-4 h-4" /> Explore Bots
             </button>
           )}
         </div>

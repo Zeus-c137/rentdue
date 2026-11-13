@@ -36,11 +36,12 @@ import {
   Trophy,
   ArrowRight,
   Bell,
-  Home
+  Home,
+  Compass
 } from "lucide-react";
 
 
-import MilestoneChip from "./components/MilestoneChip";
+import CapitalChip from "./components/CapitalChip";
 import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -666,13 +667,13 @@ export default function App() {
         }}
       >
         
-        {/* Header ribbon — milestone identity and progress on the left, actions on the right. */}
+        {/* Header ribbon - M capital on the left, actions on the right. */}
         <header className="sticky top-0 z-40 bg-transparent h-[72px] flex items-center justify-between gap-2 px-3.5 sm:px-4.5 shrink-0">
           <div className="flex items-center min-w-0 flex-1">
-            <MilestoneChip
-              phone={userProfile.phone}
-              username={userProfile.username}
-              onOpen={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
+            <CapitalChip
+              amount={userProfile.rechargeBalance || 0}
+              formatCurrency={formatCurrency}
+              onOpen={() => setActiveTab("deposit")}
             />
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -1035,7 +1036,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Bottom Tab Bar — floating dock with a raised My Runs action */}
+      {/* Bottom Tab Bar — floating dock with a raised My Bots action */}
         <div className="w-full px-4 pt-0 pb-[calc(0.375rem+env(safe-area-inset-bottom))] bg-transparent shrink-0 z-40 select-none">
           <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-2 pt-2 pb-2 grid grid-cols-5 items-end">
             {/* Home */}
@@ -1053,26 +1054,26 @@ export default function App() {
               </span>
             </button>
 
-            {/* milestones */}
+            {/* store */}
              <button
-              onClick={() => setActiveTab("vip")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+              onClick={() => setActiveTab("catalog")}
+              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
             >
               <span className="grid place-items-center w-6 h-6">
-                <Trophy className="w-6 h-6 col-start-1 row-start-1" />
-                <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+                <Compass className="w-6 h-6 col-start-1 row-start-1" />
+                <Compass  className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Tasks</span>
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Market</span>
               <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
               </span>
             </button>
 
-            {/* My Runs — raised floating action */}
+      {/* My Bots — raised floating action */}
             <div className="flex flex-col items-center">
               <button
                 onClick={() => setActiveTab("income")}
-                aria-label="My Runs"
+                aria-label="My Bots"
                 className={`-mt-10 mb-1 w-14 h-14 rounded-full bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] grid place-items-center border active:scale-90 transition-all duration-200 ${activeTab === "income" ? "border-[var(--theme-primary)] text-[var(--theme-primary)]" : "border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"}`}
               >
                 {siteConfig?.logoUrl?.trim() ? (
@@ -1081,26 +1082,27 @@ export default function App() {
                   <Zap fill="currentColor" className="w-7 h-7" />
                 )}
               </button>
-              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Runs</span>
+              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Bots</span>
               <span className="w-4 h-1 flex items-center justify-center mt-1">
                 {activeTab === "income" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
               </span>
-            </div>
+                </div>
 
-            {/* store */}
-             <button
-              onClick={() => setActiveTab("catalog")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              <span className="grid place-items-center w-6 h-6">
-                <Store className="w-6 h-6 col-start-1 row-start-1" />
-                <Store fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Store</span>
-              <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-            </button>
+                <button
+                 onClick={() => setActiveTab("vip")}
+                 className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
+               >
+                 <span className="grid place-items-center w-6 h-6">
+                   <Trophy className="w-6 h-6 col-start-1 row-start-1" />
+                   <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
+                 </span>
+                 <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Tasks</span>
+                 <span className="w-4 h-1 flex items-center justify-center">
+                   {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
+                 </span>
+               </button>
+
+          
           
 
             {/* Profile */}

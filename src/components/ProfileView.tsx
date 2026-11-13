@@ -344,7 +344,7 @@ export default function ProfileView({
       {/* 1. Balance — Visa card (recharge + withdrawable) */}
       <VisaMetricCard
         inviteCode={userProfile.inviteCode}
-        leftLabel="Recharge balance"
+        leftLabel="Trading capital"
         leftValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.rechargeBalance || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.rechargeBalance || 0).toLocaleString()}`}
         rightLabel="Withdrawable balance"
         rightValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.points || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.points || 0).toLocaleString()}`}
@@ -445,7 +445,7 @@ export default function ProfileView({
               </span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">My Collection</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Finished runs you own</span>
+Finished bots you own
               </span>
               <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
             </button>

@@ -1220,7 +1220,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             <div className="min-w-0 order-2 lg:order-1">
             <motion.h1
               {...rise(0.06)}
-              className="max-w-3xl font-display font-black text-[40px] leading-[1.02] tracking-tight sm:text-[60px] lg:text-[64px] xl:text-[72px]"
+              className="max-w-3xl font-display font-black text-[30px] leading-[1.02] tracking-tight sm:text-[50px] lg:text-[54px] xl:text-[62px]"
             >
               Discover trading bots,
 
@@ -1232,7 +1232,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               {...rise(0.12)}
               className="mt-6 max-w-xl text-[15px] font-sans leading-relaxed text-[var(--theme-text-muted)] sm:text-lg"
             >
-              Our system employs real-time algrorithmic trading bots to find you fixed trading opportunities in the volatile markets.
+              Explore automated trading bots that find you fixed trading opportunities in volatile markets. Rent them in one tap to start earning immediately.
             </motion.p>
 
             <motion.div {...rise(0.18)} className="mt-9 flex flex-col sm:flex-row gap-3 sm:items-center">

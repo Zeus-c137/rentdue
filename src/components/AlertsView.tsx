@@ -194,7 +194,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
       categoryLabel = "returns";
     } else if (metadata.eventType === "product_activation") {
       Icon = ShoppingBag;
-    } else if (lowerTitle.includes("new run activated")) {
+  } else if (lowerTitle.includes("new bot activated")) {
       Icon = Zap;
     }
 

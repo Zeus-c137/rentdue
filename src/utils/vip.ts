@@ -104,14 +104,14 @@ export function dedupeCategories(categories: string[]): string[] {
 export function metricMeta(metric?: string): { unit: string; isMoney: boolean; source: string } {
   switch (String(metric || "operator_points")) {
     case "streak_days": return { unit: "days", isMoney: false, source: "Check-in streak" };
-    case "runs_started": return { unit: "runs", isMoney: false, source: "Runs started" };
-    case "active_runs": return { unit: "runs", isMoney: false, source: "Active runs" };
-    case "completed_runs": return { unit: "runs", isMoney: false, source: "Runs finished" };
+  case "runs_started": return { unit: "bots", isMoney: false, source: "Bots started" };
+  case "active_runs": return { unit: "bots", isMoney: false, source: "Active bots" };
+  case "completed_runs": return { unit: "bots", isMoney: false, source: "Bots finished" };
     case "collectibles_claimed": return { unit: "collectibles", isMoney: false, source: "Collectibles claimed" };
     case "invites_count": return { unit: "invites", isMoney: false, source: "Invites" };
     case "milestones_claimed": return { unit: "claimed", isMoney: false, source: "Milestones claimed" };
     case "account_created": return { unit: "", isMoney: false, source: "Account" };
-    case "lifetime_yield": return { unit: "", isMoney: true, source: "Run earnings" };
+  case "lifetime_yield": return { unit: "", isMoney: true, source: "Bot earnings" };
     case "successful_deposits": return { unit: "", isMoney: true, source: "Successful deposits" };
     case "successful_withdrawals": return { unit: "", isMoney: true, source: "Successful withdrawals" };
     default: return { unit: "", isMoney: true, source: "Lifetime points" };

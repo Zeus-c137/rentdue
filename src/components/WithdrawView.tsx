@@ -460,7 +460,7 @@ export default function WithdrawView({
                 <>
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-black block mb-0.5">Requirement</span>Activate withdrawals by starting at least 1 run.
+Activate withdrawals by starting at least 1 bot.
                   </div>
                 </>
               )}
@@ -483,7 +483,7 @@ export default function WithdrawView({
             className="w-full"
           >
             {!activeNodes || activeNodes.length === 0 ? (
-              <span>Start a run first</span>
+<span>Start a bot first</span>
             ) : (
               <>
                  Withdraw

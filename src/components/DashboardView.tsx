@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Home: balance + progress, Rent Clock, runs, streak. Every section answers
+ * Home: balance + progress, Rent Clock, bots, streak. Every section answers
  * "why come back tomorrow". No totals without action, no decoration.
  */
 import React, { useState, useEffect, useMemo, useRef } from "react";
@@ -575,18 +575,18 @@ export default function DashboardView({
 
       {listsReady && activeNodes.length === 0 && (
         <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-5 text-center">
-          <p className="font-display font-black text-lg">No active runs.</p>
+          <p className="font-display font-black text-lg">No active bots yet.</p>
           <button
             type="button"
             onClick={onNavigateToCatalog}
             className="mt-4 w-full py-3.5 px-6 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[15px] flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer tile-shimmer overflow-hidden"
           >
-            <Plus className="w-4 h-4" /> Start your first Run
+            <Plus className="w-4 h-4" /> Start your first bot
           </button>
         </section>
       )}
 
-      {/* Runs area — skeleton while lists load (matches the runs card), then empty state or the card */}
+      {/* Bot area — skeleton while lists load (matches the bot card), then empty state or the card */}
       {!listsReady ? (
         <section aria-hidden="true" className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4 animate-pulse">
           <div className="flex items-center justify-between py-2.5">
@@ -616,17 +616,17 @@ export default function DashboardView({
           </div>
         </section>
       ) : (activeRuns.length > 0 || completedRuns.length > 0) ? (
-        /* Runs — one card, two rows, overflow as a count */
+        /* Bots — one card, two rows, overflow as a count */
         <section className="rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 px-4 pb-2 pt-4">
           <div className="flex items-center justify-between py-2.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="font-display font-black text-[15px] truncate min-w-0">
-                {showCompletedRuns ? "Completed Runs" : "Active Runs"}
+                {showCompletedRuns ? "Finished Bots" : "Active Bots"}
               </h2>
               <button
                 type="button"
                 onClick={() => setShowCompletedRuns((v) => !v)}
-                aria-label={showCompletedRuns ? "Show active runs" : "Show completed runs"}
+                aria-label={showCompletedRuns ? "Show active bots" : "Show finished bots"}
                 className={`p-1.5 rounded-full cursor-pointer active:scale-95 transition-all shrink-0 text-[var(--theme-primary)] ${showCompletedRuns ? "bg-[var(--theme-primary)]/15" : ""}`}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -643,7 +643,7 @@ export default function DashboardView({
           <div className="min-h-[196px]">
             {shownRuns.length === 0 ? (
               <p className="py-4 text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
-                {showCompletedRuns ? "No completed runs yet." : "No active runs."}
+                {showCompletedRuns ? "No finished bots yet." : "No active bots."}
               </p>
             ) : null}
             {shownRuns.slice(0, 2).map((node) => {
@@ -693,7 +693,7 @@ export default function DashboardView({
         </section>
       ) : null}
 
-      {/* Daily streak — frosted to match Store/Runs */}
+      {/* Daily streak — frosted to match Store/Bots */}
       <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
           <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight min-w-0">

@@ -18,31 +18,31 @@ export const GUIDE_SECTIONS: { title: string; body: string[] }[] = [
     title: "Getting started",
     body: [
       "Deposit funds into your rechargeable balance.",
-      "Pick a run from the store and activate it.",
-      "Each run has a cycle measured in days.",
+      "Pick a bot from the store and activate it.",
+      "Each bot has a cycle measured in days.",
     ],
   },
   {
     title: "Daily income",
     body: [
-      "Every active run earns daily income.",
+      "Every active bot earns daily income.",
       "Income is credited to your withdrawable balance automatically.",
-      "Track everything on the My Runs page.",
+      "Track everything on the My Bots page.",
     ],
   },
   {
     title: "Collectibles",
     body: [
-      "When a run cycle finishes, it becomes a collectible.",
+      "When a bot cycle finishes, it becomes a collectible.",
       "Claim it to own it permanently in your collection.",
-      "Collectibles are yours forever, even after the run ends.",
+      "Collectibles are yours forever, even after the bot finishes.",
     ],
   },
   {
     title: "Withdrawals",
     body: [
       "Withdraw from your withdrawable balance anytime.",
-      "You need at least one active run to withdraw.",
+      "You need at least one active bot to withdraw.",
       "We support instant Mobile Money (MTN / Airtel) and USDT.",
     ],
   },
@@ -50,8 +50,8 @@ export const GUIDE_SECTIONS: { title: string; body: string[] }[] = [
     title: "Referrals",
     body: [
       "Share your referral link from the Invite page.",
-      "Earn commissions when your invites activate runs.",
-      "Rewards keep flowing while their runs stay active.",
+      "Earn commissions when your invites activate bots.",
+      "Rewards keep flowing while their bots stay active.",
     ],
   },
   {
@@ -59,7 +59,7 @@ export const GUIDE_SECTIONS: { title: string; body: string[] }[] = [
     body: [
       "Top up via instant Mobile Money or USDT.",
       "Deposits land in your rechargeable balance.",
-      "Use that balance to activate new runs.",
+      "Use that balance to activate new bots.",
     ],
   },
   {

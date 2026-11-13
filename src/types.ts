@@ -160,7 +160,7 @@ export interface UserProfile {
   referredByCode?: string;
   operator?: string;
   points: number; // withdrawable balance in UGX (daily income, reg bonus, checkins, gift codes, rewards)
-  rechargeBalance?: number; // account recharge balance in UGX (from deposits, used for buying products)
+  rechargeBalance?: number; // account Trading capital in UGX (from deposits, used for buying products)
   withdrawnCash: number; // accumulated withdraw amount in UGX
   createdAt: string;
   // Referral stats

@@ -354,7 +354,7 @@ export default function DepositView({
         {/* Visa balance card — rechargeable only */}
         <VisaMetricCard
           mode="single"
-          leftLabel="Recharge balance"
+          leftLabel="Trading capital"
           leftValue={formatCurrency(userProfile.rechargeBalance || 0)}
         />
       </div>
