@@ -209,13 +209,17 @@ export default function CatalogView({
         <span className={`font-display font-black text-[13px] tabular-nums truncate ${highlight ? "text-[var(--theme-secondary)]" : ""}`}>{value}</span>
       </div>
     );
+    const total = Number(item.dailyYield || 0) * Number(item.duration || 0);
     return (
       <div className="mt-2 space-y-1.5">
-         {row("Price", formatCurrency(item.amount))}
-        {row("Duration", `${item.duration} Days`)}
+        {row("Price", formatCurrency(item.amount))}
         {row("Daily returns", formatCurrency(item.dailyYield))}
-
-
+        {/* The pair is the reason the bot is worth renting, so the total sits
+            directly under the daily figure it comes from. */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-sans font-bold uppercase tracking-wider text-[var(--theme-primary)]">Total returns</span>
+          <span className="font-display font-black text-[13px] tabular-nums truncate text-[var(--theme-primary)]">{formatCurrency(total)}</span>
+        </div>
       </div>
     );
   };
@@ -259,9 +263,20 @@ export default function CatalogView({
           )}
         </div>
         <div className="p-3 flex flex-col gap-1 font-sans">
-          <h3 className="font-display font-black text-[14px] text-[var(--theme-text)] tracking-tight leading-tight line-clamp-1">
-            {item.name}
-          </h3>
+          {/* Duration wears a timer chip on the title row — the same chip the
+              income cards and the confirm sheet use, so one language everywhere. */}
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="min-w-0 flex-1 font-display font-black text-[14px] text-[var(--theme-text)] tracking-tight leading-tight line-clamp-2">
+              {item.name}
+            </h3>
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2 py-0.5 text-[10.5px] font-sans font-semibold text-[var(--theme-primary)]"
+              aria-label={`${item.duration} day cycle`}
+            >
+              <Timer className="h-3 w-3" strokeWidth={2.4} />
+              <span className="tabular-nums">{item.duration}d</span>
+            </span>
+          </div>
           {renderVerticalSpecs(item)}
           <div className="mt-2 flex justify-center">{renderStartButton(item)}</div>
         </div>
@@ -366,7 +381,7 @@ export default function CatalogView({
       {/* Single modal: confirm — loading — success */}
       <AnimatePresence>
         {(confirmingItem || activated) && (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center p-2.5 sm:items-center sm:p-4">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -374,14 +389,14 @@ export default function CatalogView({
               className="absolute inset-0 bg-black/75 backdrop-blur-xs"
               onClick={handleCloseModal}
             />
-            {/* Bottom sheet on a phone (where a centred card would fight the
-                keyboard and the notch), centred dialog from sm up. */}
+            {/* Centred dialog on every size. It is kept short and it scrolls
+                internally, so it never needs to become a bottom sheet. */}
             <motion.div
               initial={{ scale: 0.94, y: 15, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.94, y: 15, opacity: 0 }}
               transition={{ type: "spring", damping: 26, stiffness: 360 }}
-              className="relative w-full max-w-[440px] max-h-[92vh] overflow-y-auto scrollbar-none bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-center flex flex-col backdrop-blur-xl"
+              className="relative w-full max-w-[440px] max-h-[90dvh] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[24px] shadow-2xl text-[var(--theme-text)] text-center flex flex-col backdrop-blur-xl"
             >
               {modalPhase === "success" && activated ? (
                 <div className="p-4 sm:p-8 flex flex-col items-center gap-3.5 sm:gap-4">
@@ -437,7 +452,7 @@ export default function CatalogView({
                   </div>
                 </div>
               ) : confirmingItem ? (
-                <div className="w-full overflow-y-auto">
+                <div className="flex w-full flex-col items-center overflow-y-auto">
                   {confirmingItem.imageUrl && (
                     <div className="w-full overflow-hidden rounded-t-[24px] bg-[var(--theme-bg)]">
                       <FloatingProduct

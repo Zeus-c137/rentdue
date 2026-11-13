@@ -1213,40 +1213,23 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
       <main>
         {/* ---------------- hero ---------------- */}
-        <section className="relative min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4.5rem)] flex flex-col overflow-hidden">
+        <section className="relative flex flex-col overflow-hidden md:min-h-[calc(100dvh-4.5rem)]">
           <motion.div
             {...heroStagger}
-            className="relative flex-1 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] gap-4 sm:gap-10 lg:gap-14 items-center w-full max-w-7xl mx-auto px-3 sm:px-8 pt-3 pb-8 sm:py-16"
+            className="relative flex-1 grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] gap-y-5 sm:gap-y-8 lg:gap-x-14 lg:gap-y-0 items-center w-full max-w-7xl mx-auto px-5 sm:px-8 pt-4 pb-8 sm:py-16"
           >
             <div className="min-w-0 order-2 lg:order-1">
-            <motion.h1
-              {...rise(0.06)}
-              className="max-w-3xl font-display font-black text-[30px] leading-[1.02] tracking-tight sm:text-[50px] lg:text-[54px] xl:text-[62px]"
-            >
-              Discover trading bots,
+              <motion.div {...rise(0.06)} className="max-w-3xl">
+                <h1 className="font-display font-black text-[30px] leading-[1.06] tracking-tight text-balance sm:text-[50px] sm:leading-[1.02] lg:text-[54px] xl:text-[62px]">
+                  Discover trading bots,
+                  <br />
+                  <span className="text-[var(--theme-primary)]">Put them to work.</span>
+                </h1>
 
-              <br />
-              <span className="text-[var(--theme-primary)]">Put them to work.</span>
-            </motion.h1>
-
-            <motion.p
-              {...rise(0.12)}
-              className="mt-6 max-w-xl text-[15px] font-sans leading-relaxed text-[var(--theme-text-muted)] sm:text-lg"
-            >
-              Explore automated trading bots that find you fixed trading opportunities in volatile markets. Rent them in one tap to start earning immediately.
-            </motion.p>
-
-            <motion.div {...rise(0.18)} className="mt-9 flex flex-col sm:flex-row gap-3 sm:items-center">
-
-              <button
-               type="button"
-                onClick={() => goTo("register")}
-                disabled={isLoading}
-                className="pressable inline-flex items-center justify-center gap-2 px-7 py-4 rounded-2xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] font-sans font-semibold text-[15px] text-[var(--theme-text)]"
-              >
-               Get started.
-              </button>
-            </motion.div>
+                <p className="mt-3.5 max-w-xl text-[15px] font-sans leading-relaxed text-pretty text-[var(--theme-text-muted)] sm:mt-6 sm:text-lg">
+                  Explore automated trading bots that find you fixed trading opportunities in volatile markets. Rent them in one tap to start earning immediately.
+                </p>
+              </motion.div>
             </div>
 
             {/* Hero art: the admin-configured auth background, shown bare. No
@@ -1261,7 +1244,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     animate: { opacity: 1, y: 0 },
                     transition: { duration: 0.55, ease: [0.23, 1, 0.32, 1] as const, delay: 0.2 },
                   })}
-              className="relative min-w-0 order-1 lg:order-2 -mx-3 -mt-2 sm:mx-0 sm:mt-0"
+              className="relative min-w-0 order-1 lg:order-2 -mx-5 sm:mx-0 sm:self-auto"
             >
               {heroImage ? (
                 <img
@@ -1269,15 +1252,15 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   alt=""
                   aria-hidden="true"
                   referrerPolicy="no-referrer"
-                  className="hero-art block w-full h-auto max-h-[280px] sm:max-h-[380px] lg:max-h-[480px] object-cover mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
+                  className="hero-art block w-full h-auto max-h-[300px] sm:max-h-[440px] lg:max-h-[480px] object-cover mx-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
                 />
               ) : null}
             </motion.div>
           </motion.div>
 
-          {/* Live tape pinned to the foot of the hero — the last thing you see
-              before the fold. Sits outside the staggered block so it never
-              competes with the headline for entrance timing. */}
+          {/* Live tape. Not pinned to the foot of the hero any more — it sits
+              after it as the closing band of the first screen, so the hero reads as
+              one section instead of a squeezed one with a bar clamped to its hem. */}
           <motion.div
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1286,7 +1269,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 ? { duration: 0.3, delay: 0.3 }
                 : { duration: 0.45, ease: [0.23, 1, 0.32, 1] as const, delay: 0.32 }
             }
-            className="relative w-full border-t border-[var(--theme-card-border)]/60 bg-[var(--theme-card-bg)]"
+            className="relative w-full border-y border-[var(--theme-card-border)]/60 bg-[var(--theme-card-bg)]"
           >
             <div className="max-w-7xl mx-auto px-5 sm:px-8">
               <TradingViewWidget

@@ -22,6 +22,7 @@ import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { metricMeta } from "../utils/vip";
 import HomeBalanceCard from "./HomeBalanceCard";
+import FloatingProduct from "./FloatingProduct";
 import FeaturedBotCard from "./FeaturedBotCard";
 import {
   getRunProgress,
@@ -436,6 +437,7 @@ const listsReady = items.length > 0;
         balanceRef={balanceRef}
         onOpenDeposit={onNavigateToDeposit}
         onOpenWithdraw={onNavigateToWithdraw}
+        onProfileUpdate={onProfileUpdate}
       />
 
       {/* First run — a featured bot rather than an empty state, so the slot sells
@@ -515,11 +517,20 @@ const listsReady = items.length > 0;
                 key={node.id}
                 type="button"
                 onClick={onNavigateToIncome}
-                className="w-full text-left py-3.5 transition-all active:opacity-70 cursor-pointer"
+                className="w-full text-left py-3.5 transition-opacity active:opacity-70 cursor-pointer"
               >
                 <div className="flex items-center gap-3">
+                  {/* The bot's own art, floating on the same loop as every other
+                      product image, rather than a flat thumbnail. */}
                   {thumb ? (
-                    <img src={thumb} alt="" loading="lazy" decoding="async" className="w-24 h-20 rounded-lg object-contain shrink-0 bg-[var(--theme-text)]/5" />
+                    <FloatingProduct
+                      src={thumb}
+                      alt={node.itemName}
+                      active={isHomeActive}
+                      still={reduceMotion}
+                      width={240}
+                      className="h-20 w-24 shrink-0 rounded-lg bg-[var(--theme-text)]/5 px-1 py-1 [--float-drift:10px]"
+                    />
                   ) : (
                     <span className="w-14 h-14 rounded-xl shrink-0 bg-[var(--theme-primary)]/15 text-[var(--theme-primary)] font-display font-black text-xl flex items-center justify-center">
                       {node.itemName.charAt(0).toUpperCase()}
