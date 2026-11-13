@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 
 
-import CapitalChip from "./components/CapitalChip";
+import AppHeader from "./components/AppHeader";
 import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -189,6 +189,12 @@ export default function App() {
   }, [siteConfig]);
   const chatUnread = useChatUnread(userProfile?.phone);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
+  // Unread alerts: anything newer than the last time the bell was opened. Kept
+  // out of render so the badge does not re-scan the list on every keystroke.
+  const alertsUnread = useMemo(() => {
+    const lastViewed = Number(localStorage.getItem("lastViewedAlertsTime") || 0);
+    return userNotifications.filter((n) => new Date(n.timestamp).getTime() > lastViewed).length;
+  }, [userNotifications]);
   const [showWelcomeBonus, setShowWelcomeBonus] = useState(false);
   const [welcomeBonusAmount, setWelcomeBonusAmount] = useState(0);
   const [welcomeBonusPending, setWelcomeBonusPending] = useState(false);
@@ -308,6 +314,9 @@ export default function App() {
   }, [siteConfig]);
 
   const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  // Home closes the header card with its own balance block; every other tab
+  // keeps the header as a finished card.
+  const showHomeCard = activeTab === "dashboard" || (activeTab === "alerts" && previousTab === "dashboard");
 
   useEffect(() => {
     if (activeTab !== "history" && !(activeTab === "alerts" && previousTab === "history")) {
@@ -667,52 +676,23 @@ export default function App() {
         }}
       >
         
-        {/* Header ribbon - M capital on the left, actions on the right. */}
-        <header className="sticky top-0 z-40 bg-transparent h-[72px] flex items-center justify-between gap-2 px-3.5 sm:px-4.5 shrink-0">
-          <div className="flex items-center min-w-0 flex-1">
-            <CapitalChip
-              amount={userProfile.rechargeBalance || 0}
-              formatCurrency={formatCurrency}
-              onOpen={() => setActiveTab("deposit")}
-            />
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Messages trigger button */}
-            <button
-              type="button"
-              onClick={() => setActiveTab("chat")}
-              className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
-              title="Messages"
-            >
-              <MessagesSquare className="w-6 h-6 text-[var(--theme-text)]" />
-              {chatUnread > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
-                  {chatUnread > 9 ? "9+" : chatUnread}
-                </span>
-              )}
-            </button>
-            {/* Notification Bell trigger button */}
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
-                setPreviousTab(activeTab as any);
-                setActiveTab("alerts");
-              }}
-              className="relative p-1 flex items-center justify-center border-0 transition-[transform,opacity] duration-100 cursor-pointer outline-none h-9 w-9 shrink-0 bg-transparent active:scale-[0.97] will-change-transform opacity-80 hover:opacity-100"
-              title="View Alerts & Notifications"
-            >
-              <Bell className="w-6 h-6 text-[var(--theme-text)]" />
-              {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border-2 border-[var(--theme-card-bg)] shadow-xs">
-                  {userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length > 9
-                    ? "9+"
-                    : userNotifications.filter(n => new Date(n.timestamp).getTime() > Number(localStorage.getItem("lastViewedAlertsTime") || 0)).length}
-                </span>
-              )}
-            </button>
-          </div>
-        </header>
+        {/* Header ribbon — the top edge of the home card. AppHeader carries the card
+            material so every tab wears it; Home closes the seam with its balance card. */}
+        <AppHeader
+          profile={userProfile}
+          formatCurrency={formatCurrency}
+          chatUnread={chatUnread}
+          alertsUnread={alertsUnread}
+          showHistoryLink={activeTab !== "history"}
+          onOpenDeposit={() => setActiveTab("deposit")}
+          onOpenHistory={() => setActiveTab("history")}
+          onOpenChat={() => setActiveTab("chat")}
+          onOpenAlerts={() => {
+            localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
+            setPreviousTab(activeTab as any);
+            setActiveTab("alerts");
+          }}
+        />
 
         {/* Main interactive tabs content view block */}
         <main className="flex-1 relative min-h-0 flex flex-col isolate overflow-hidden"
@@ -736,6 +716,8 @@ export default function App() {
                   onNavigateToIncome={() => setActiveTab("income")}
                   onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
                   onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
+                  onNavigateToDeposit={() => setActiveTab("deposit")}
+                  onNavigateToWithdraw={() => setActiveTab("withdraw")}
                   onProfileUpdate={handleProfileChange}
                 />
               </motion.div>
@@ -1063,7 +1045,7 @@ export default function App() {
                 <Compass className="w-6 h-6 col-start-1 row-start-1" />
                 <Compass  className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
               </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Market</span>
+              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Markets</span>
               <span className="w-4 h-1 flex items-center justify-center">
                 {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
               </span>

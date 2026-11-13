@@ -431,36 +431,25 @@ export default function WithdrawView({
                 </div>
               </>
             )}
-            <div className="flex justify-between text-xs opacity-60 font-bold">
-              <span>Fee</span>
-              <span>{formatCurrency(feeAmount)}</span>
-            </div>
+          
           </div>
 
-          <div className="space-y-3 p-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)]">
-            <div className="flex gap-2.5 items-start text-[11px] opacity-80 font-bold">
-              <Info className="w-3.5 h-3.5 text-[var(--theme-primary)] shrink-0 mt-0.5" />
-              <div>
-                <span className="font-black block mb-0.5">Processing time</span>
-                {withdrawalMode === "manual"
-                  ? "Pending approval — once approved, settled to destination."
-                  : "Pending until provider webhook confirms — usually 5–30 min."}
-              </div>
-            </div>
-            <div className="border-t border-[var(--theme-card-border)]" />
+          <div className="space-y-3 p-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl ">
+           
+            <div className="" />
             <div className="flex gap-2.5 items-start text-[11px] opacity-80 font-bold">
               {activeNodes && activeNodes.length > 0 ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-black block mb-0.5">Security</span>Active product verified.
+                    <span className="font-black block mb-0.5">Security</span>Active trading robot verified.
                   </div>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
-Activate withdrawals by starting at least 1 bot.
+Activate withdrawals by renting at least 1 bot.
                   </div>
                 </>
               )}
