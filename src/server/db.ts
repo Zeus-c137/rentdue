@@ -129,6 +129,9 @@ export function verifyPassword(stored: string, supplied: string): { ok: boolean;
   }
 }
 
+// Fields that must never leave the server. `emailVerifiedAt` is included so
+// an unverified address is not advertised as usable; the address itself is
+// already visible to the signed-in owner on their profile screen.
 export function publicProfile<T extends { password?: unknown; telegramId?: unknown }>(profile: T | null | undefined): Omit<T, "password" | "telegramId"> | null {
   if (!profile) return null;
   const { password: _dropped, telegramId: _telegramId, ...rest } = profile as T & { telegramId?: unknown };
@@ -366,6 +369,8 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
         const user: UserProfile = {
           phone: u.phone,
           telegramId: (u as any).telegramId || null,
+          email: (u as any).email || null,
+          emailVerifiedAt: (u as any).emailVerifiedAt || null,
           username: u.username,
           password: u.password,
           inviteCode: u.username,
@@ -435,6 +440,10 @@ export async function registerUserProfile(data: any): Promise<any> {
 
   const newUser: UserProfile = {
     phone,
+    // Optional second identifier. Lowercased here so every later equality
+    // lookup is case-insensitive without depending on the column collation.
+    email: typeof data.email === "string" && data.email.trim() ? data.email.trim().toLowerCase() : null,
+    emailVerifiedAt: null,
     // Optional Telegram binding (verified server-side from the OIDC id_token
     // before this call). NULL for phone-only registrations; the unique index
     // on telegram_id keeps one Telegram account to one user profile.
@@ -469,6 +478,8 @@ export async function registerUserProfile(data: any): Promise<any> {
     await drizzleDb.insert(schema.users).values({
       phone: newUser.phone,
       telegramId: newUser.telegramId || null,
+      email: newUser.email || null,
+      emailVerifiedAt: newUser.emailVerifiedAt || null,
       username: newUser.username,
       password: newUser.password || "",
       inviteCode: newUser.inviteCode,
@@ -576,8 +587,250 @@ export async function registerUserProfile(data: any): Promise<any> {
   return { success: true, profile: newUser, ...newUser };
 }
 
-export async function loginUser(phone: string, pass: string): Promise<UserProfile | null> {
-  const user = await getUserProfile(phone);
+/**
+ * Classify a login identifier.
+ *
+ * Login accepts a phone number only. Email exists so a user can be reached and
+ * can reset a password, not as a second way in, so anything that is not a phone
+ * number is rejected before it reaches the database. Keeping the shape check
+ * explicit means a malformed value can never fall through to a broad LIKE or a
+ * multi-column scan.
+ */
+export function classifyLoginIdentifier(identifier: string): "phone" | "unsupported" {
+  const value = String(identifier || "").trim();
+  if (!value) return "unsupported";
+  return /^\+?\d{9,14}$/.test(value) ? "phone" : "unsupported";
+}
+
+/**
+ * Resolve the account that owns an email address.
+ *
+ * Used only by the password-reset flow. Returns null for an unknown address, so
+ * the caller cannot tell "no such account" from anything else and the reset form
+ * cannot be used to enumerate accounts.
+ *
+ * The address does not have to be verified first. Requiring a verification
+ * round-trip would lock out every account that supplied an address at signup,
+ * and the code itself is the proof of ownership: it is only ever delivered to
+ * the address stored on the account.
+ */
+export async function findUserByEmail(email: string): Promise<UserProfile | null> {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return null;
+  const drizzleDb = requireDatabase("find your account by email");
+  try {
+    const rows = await drizzleDb.select({ phone: schema.users.phone })
+      .from(schema.users)
+      .where(eq(schema.users.email, normalized))
+      .limit(1);
+    return rows[0] ? getUserProfile(rows[0].phone) : null;
+  } catch (err) {
+    throw databaseFailure("find your account by email", err);
+  }
+}
+
+/**
+ * Record that a user proved control of their email address.
+ *
+ * Also persists the address itself, which is the path a first-time verification
+ * takes for an account created before email existed.
+ */
+export async function markEmailVerified(phone: string, email: string): Promise<void> {
+  const normalized = String(email || "").trim().toLowerCase();
+  const drizzleDb = requireDatabase("verify your email");
+  try {
+    await drizzleDb.update(schema.users)
+      .set({ email: normalized, emailVerifiedAt: new Date().toISOString() })
+      .where(eq(schema.users.phone, phone));
+  } catch (err) {
+    throw databaseFailure("verify your email", err);
+  }
+}
+
+/**
+ * Replace a password for an account already authenticated by an OTP.
+ *
+ * The caller passes the account it verified; no phone number arrives from the
+ * client at this point.
+ */
+export async function setPasswordAfterReset(phone: string, newPassword: string): Promise<void> {
+  const drizzleDb = requireDatabase("reset your password");
+  try {
+    await drizzleDb.update(schema.users)
+      .set({ password: hashPassword(newPassword) })
+      .where(eq(schema.users.phone, phone));
+  } catch (err) {
+    throw databaseFailure("reset your password", err);
+  }
+}
+
+/**
+ * Issue a single-use OTP for an email address.
+ *
+ * Only a hash of the code is stored, so a database read cannot be turned into
+ * working codes. Any unconsumed code already outstanding for the same contact
+ * and purpose is deleted in the same transaction: requesting a second code must
+ * invalidate the first, otherwise a burst of requests leaves several live codes.
+ */
+export async function issueOtp(params: {
+  contact: string;
+  contactType?: "email" | "phone";
+  purpose?: string;
+  codeHash: string;
+  expiresAt: string;
+  requestIp?: string;
+}): Promise<void> {
+  const contact = String(params.contact || "").trim().toLowerCase();
+  if (!contact || !params.codeHash) throw new Error("An OTP needs a contact and a code.");
+
+  const drizzleDb = requireDatabase("issue a verification code");
+  const purpose = params.purpose || "password_reset";
+  const contactType = params.contactType || "email";
+
+  try {
+    await drizzleDb.transaction(async (tx: any) => {
+      await tx.delete(schema.userOtps)
+        .where(and(
+          eq(schema.userOtps.contact, contact),
+          eq(schema.userOtps.purpose, purpose),
+          isNull(schema.userOtps.consumedAt)
+        ));
+
+      await tx.insert(schema.userOtps).values({
+        id: "otp_" + crypto.randomBytes(12).toString("hex"),
+        contact,
+        contactType,
+        purpose,
+        codeHash: params.codeHash,
+        expiresAt: params.expiresAt,
+        consumedAt: null,
+        attempts: 0,
+        maxAttempts: 5,
+        requestIp: params.requestIp || null,
+        createdAt: new Date().toISOString()
+      });
+    });
+  } catch (err) {
+    throw databaseFailure("issue a verification code", err);
+  }
+}
+
+export type OtpCheckResult =
+  | { status: "ok" }
+  | { status: "no_code" }
+  | { status: "expired" }
+  | { status: "too_many_attempts" }
+  | { status: "mismatch" };
+
+/**
+ * Verify a code and consume it on success.
+ *
+ * Consumption is a conditional UPDATE guarded by `consumed_at IS NULL`, so two
+ * simultaneous correct submissions cannot both succeed: exactly one matches. A
+ * wrong code increments `attempts`, and once the cap is reached the code is dead
+ * even if the user later types it correctly.
+ *
+ * `no_code`, `expired` and `too_many_attempts` stay distinct here so the server
+ * log shows the real reason; the HTTP layer collapses them for the user.
+ */
+export async function verifyOtp(params: {
+  contact: string;
+  purpose?: string;
+  codeHash: string;
+}): Promise<OtpCheckResult> {
+  const contact = String(params.contact || "").trim().toLowerCase();
+  const purpose = params.purpose || "password_reset";
+  if (!contact || !params.codeHash) return { status: "no_code" };
+
+  const drizzleDb = requireDatabase("verify a verification code");
+
+  try {
+    return await drizzleDb.transaction(async (tx: any) => {
+      const rows = await tx.select()
+        .from(schema.userOtps)
+        .where(and(
+          eq(schema.userOtps.contact, contact),
+          eq(schema.userOtps.purpose, purpose),
+          isNull(schema.userOtps.consumedAt)
+        ))
+        .orderBy(desc(schema.userOtps.createdAt))
+        .limit(1)
+        .for("update");
+
+      const record = rows[0];
+      if (!record) return { status: "no_code" } as OtpCheckResult;
+
+      const expiresAt = new Date(record.expiresAt).getTime();
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        // Burn it so a code that arrived late cannot be replayed later.
+        await tx.update(schema.userOtps)
+          .set({ consumedAt: new Date().toISOString() })
+          .where(eq(schema.userOtps.id, record.id));
+        return { status: "expired" } as OtpCheckResult;
+      }
+
+      if (Number(record.attempts) >= Number(record.maxAttempts)) {
+        return { status: "too_many_attempts" } as OtpCheckResult;
+      }
+
+      const supplied = Buffer.from(params.codeHash, "utf8");
+      const expected = Buffer.from(record.codeHash, "utf8");
+      const matches = supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+
+      if (!matches) {
+        await tx.update(schema.userOtps)
+          .set({ attempts: Number(record.attempts) + 1 })
+          .where(eq(schema.userOtps.id, record.id));
+        return { status: "mismatch" } as OtpCheckResult;
+      }
+
+      const consumed = await tx.update(schema.userOtps)
+        .set({ consumedAt: new Date().toISOString() })
+        .where(and(eq(schema.userOtps.id, record.id), isNull(schema.userOtps.consumedAt)));
+
+      if (Number(consumed?.[0]?.affectedRows || 0) === 0) {
+        return { status: "no_code" } as OtpCheckResult;
+      }
+
+      return { status: "ok" } as OtpCheckResult;
+    });
+  } catch (err) {
+    throw databaseFailure("verify a verification code", err);
+  }
+}
+
+/**
+ * Codes requested from one IP in a rolling window.
+ *
+ * This rate limit lives here rather than in generic middleware because the cost
+ * being protected is outbound email, which only this path consumes.
+ */
+export async function countRecentOtpRequests(requestIp: string, sinceIso: string): Promise<number> {
+  const drizzleDb = requireDatabase("count verification code requests");
+  try {
+    const rows = await drizzleDb.select({ value: sql<number>`COUNT(*)` })
+      .from(schema.userOtps)
+      .where(and(
+        eq(schema.userOtps.requestIp, requestIp),
+        sql`${schema.userOtps.createdAt} > ${sinceIso}`
+      ));
+    return Number(rows[0]?.value || 0);
+  } catch (err) {
+    // A count failure must not block a legitimate user; degrade to 0 and let
+    // the caller decide what that means.
+    console.warn("[Database] count verification code requests failed:", err);
+    return 0;
+  }
+}
+
+export async function loginUser(identifier: string, pass: string): Promise<UserProfile | null> {
+  const value = String(identifier || "").trim();
+  if (!value) return null;
+
+  // Phone-only by product decision.
+  if (classifyLoginIdentifier(value) !== "phone") return null;
+
+  const user = await getUserProfile(value);
   if (!user) return null;
   const { ok, needsRehash } = verifyPassword(user.password || "", pass);
   if (!ok) return null;
@@ -588,10 +841,10 @@ export async function loginUser(phone: string, pass: string): Promise<UserProfil
     try {
       const drizzleDb = getDb();
       if (drizzleDb) {
-        await drizzleDb.update(schema.users).set({ password: hashPassword(pass) }).where(eq(schema.users.phone, phone));
+        await drizzleDb.update(schema.users).set({ password: hashPassword(pass) }).where(eq(schema.users.phone, value));
       }
     } catch (err) {
-      console.warn("[Database] transparent password rehash failed for", phone);
+      console.warn("[Database] transparent password rehash failed for", value);
     }
   }
   return user;
@@ -649,12 +902,15 @@ export async function updateUserProfile(
   if (updates.username !== undefined && updates.username !== existing.username) {
     throw new Error("Your username is permanent because it is also your invite code.");
   }
-
   const drizzleDb = requireDatabase("save your account changes");
   try {
       await drizzleDb.update(schema.users).set({
         username: updated.username,
         password: updated.password || "",
+        // Only the verified path writes these, so a profile save can never
+        // smuggle in an unverified address and present it as usable.
+        ...((updated as any).email !== undefined ? { email: (updated as any).email } : {}),
+        ...((updated as any).emailVerifiedAt !== undefined ? { emailVerifiedAt: (updated as any).emailVerifiedAt } : {}),
         operator: updated.operator,
         points: updated.points,
         rechargeBalance: updated.rechargeBalance,
@@ -1379,6 +1635,10 @@ export async function requestCashout(phone: string, amount: number, paymentMetho
       operator: operator || "",
       mode: currentWithdrawMode,
       metadata,
+      // Deterministic payout key. A retry of the same withdrawal reuses the same
+      // txId, so the unique index on (type, provider_reference) makes a replayed
+      // payout impossible to settle twice even if the webhook races itself.
+      providerReference: `WR-${txId}`,
       timestamp
     });
   });
@@ -1985,6 +2245,21 @@ export async function completeSuccessfulWithdrawal(txId: string): Promise<any> {
     await tx.update(schema.users)
       .set({ withdrawnCash: sql`${schema.users.withdrawnCash} + ${payoutAmount}` })
       .where(eq(schema.users.phone, transaction.userId));
+    // Record the provider's own payout id if it sent one, but never overwrite
+    // the deterministic WR-<txId> anchor: the unique index on
+    // (type, provider_reference) dedupes on it, so it must stay stable for the
+    // life of the row.
+    const providerRef = normalizeExternalReference(
+      metadata.providerReference || metadata.provider_reference || metadata.trans_id || ""
+    );
+    if (providerRef) {
+      await tx.update(schema.transactions)
+        .set({ providerReference: sql`COALESCE(NULLIF(${schema.transactions.providerReference}, ''), ${providerRef})` })
+        .where(and(
+          eq(schema.transactions.id, txId),
+          sql`(${schema.transactions.providerReference} IS NULL OR ${schema.transactions.providerReference} = '')`
+        ));
+    }
     await tx.update(schema.transactions)
       .set({ status: "SUCCESSFUL" })
       .where(eq(schema.transactions.id, txId));
@@ -3224,10 +3499,64 @@ export async function adminGetChatConversations() {
   return [];
 }
 
+// Site config is read on every authenticated request (session verification
+// needs the admin secret) and again inside most route handlers. It changes
+// rarely, so it is cached in-process with a short TTL. updateSiteConfig()
+// invalidates the cache so an admin save is visible immediately.
+const SITE_CONFIG_CACHE_TTL_MS = 30_000;
+let siteConfigCache: { config: SiteConfig; expiresAt: number } | null = null;
+
+export function invalidateSiteConfigCache(): void {
+  siteConfigCache = null;
+}
+
+/**
+ * Count of transactions still awaiting settlement, split by direction. Used by
+ * GET /api/admin/queue-stats so a backlog is visible instead of inferred.
+ *
+ * Uses COUNT(*) so the database aggregates instead of streaming every pending
+ * row into the process - this endpoint is polled, and a backlog of thousands of
+ * rows must not cost a full table scan per poll.
+ */
+export async function countPendingWithdrawals(): Promise<number> {
+  const drizzleDb = requireDatabase("count pending withdrawals");
+  try {
+    const rows = await drizzleDb.select({ value: sql<number>`COUNT(*)` })
+      .from(schema.transactions)
+      .where(and(
+        eq(schema.transactions.type, "withdrawal"),
+        eq(schema.transactions.status, "pending")
+      ));
+    return Number(rows[0]?.value || 0);
+  } catch (err) {
+    throw databaseFailure("count pending withdrawals", err);
+  }
+}
+
+export async function countPendingDeposits(): Promise<number> {
+  const drizzleDb = requireDatabase("count pending deposits");
+  try {
+    const rows = await drizzleDb.select({ value: sql<number>`COUNT(*)` })
+      .from(schema.transactions)
+      .where(and(
+        eq(schema.transactions.type, "deposit"),
+        eq(schema.transactions.status, "pending")
+      ));
+    return Number(rows[0]?.value || 0);
+  } catch (err) {
+    throw databaseFailure("count pending deposits", err);
+  }
+}
+
 export async function getSiteConfig(): Promise<SiteConfig> {
+  if (siteConfigCache && siteConfigCache.expiresAt > Date.now()) {
+    return siteConfigCache.config;
+  }
+
   const drizzleDb = requireDatabase("load site configuration");
   try {
     const rows = await drizzleDb.select().from(schema.siteConfig).where(eq(schema.siteConfig.id, "main")).limit(1);
+    let resolved: SiteConfig = {};
     if (rows.length > 0 && rows[0].configJson) {
       const parsed = parseJsonField<Record<string, any>>(rows[0].configJson, {});
       // Drop numeric keys left by a legacy string-spread write so a repaired
@@ -3236,10 +3565,11 @@ export async function getSiteConfig(): Promise<SiteConfig> {
         for (const key of Object.keys(parsed)) {
           if (key !== "" && Number.isInteger(Number(key))) delete (parsed as any)[key];
         }
-        return parsed as SiteConfig;
+        resolved = parsed as SiteConfig;
       }
     }
-    return {};
+    siteConfigCache = { config: resolved, expiresAt: Date.now() + SITE_CONFIG_CACHE_TTL_MS };
+    return resolved;
   } catch (err) {
     throw databaseFailure("load site configuration", err);
   }
@@ -3356,6 +3686,9 @@ export async function updateSiteConfig(newConfig: Partial<SiteConfig>): Promise<
     }
 
     await drizzleDb.insert(schema.siteConfig).values({ id: "main", configJson: updated }).onDuplicateKeyUpdate({ set: { configJson: updated } });
+    // Publish the new config to the in-process read cache so the very next
+    // request sees the admin's save instead of a stale 30s-old snapshot.
+    siteConfigCache = { config: updated, expiresAt: Date.now() + SITE_CONFIG_CACHE_TTL_MS };
     return updated;
   } catch (err) {
     if (err instanceof SiteConfigValidationError) throw err;

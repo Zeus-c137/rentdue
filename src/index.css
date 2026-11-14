@@ -35,6 +35,7 @@
   --theme-card-border: rgba(26,46,5,0.1);
   --theme-card-shadow: #E3E8CF;
   --theme-radius: 1.25rem;
+  --input-radius: 0.625rem;
   --theme-text: #1A2E05;
   --theme-text-muted: #5B6B4C;
 }
@@ -185,7 +186,7 @@ textarea {
   background-color: color-mix(in srgb, var(--theme-card-bg) 92%, var(--theme-bg));
   border: 1px solid var(--theme-card-border);
   color: var(--theme-text);
-  border-radius: var(--theme-radius);
+  border-radius: var(--input-radius);
 }
 .theme-input::placeholder,
 input::placeholder,
@@ -253,6 +254,30 @@ select:-webkit-autofill {
   transition: background-color 5000s ease-in-out 0s;
 }
 input:-webkit-autofill::first-line { font-size: 14px; }
+
+/* Phone field digits box — seamless inside the single field wrapper.
+   The universal input preset above must not repaint this box, or the
+   field looks like two boxes (and its own focus ring shows inside the
+   wrapper's focus ring). Same fill as the wrapper, no border, no radius,
+   no ring. Autofill keeps the wrapper fill via an inset shadow instead of
+   the native gray. */
+.phone-input,
+.phone-input:focus {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  outline: none !important;
+}
+.phone-input:-webkit-autofill,
+.phone-input:-webkit-autofill:hover,
+.phone-input:-webkit-autofill:focus,
+.phone-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--theme-card-bg) inset !important;
+  box-shadow: 0 0 0 1000px var(--theme-card-bg) inset !important;
+}
 
 
 /* Dynamic Adaptive Card Utilities */
@@ -416,7 +441,7 @@ input:-webkit-autofill::first-line { font-size: 14px; }
 .theme-input {
   background-color: var(--theme-card-bg);
   border: 1px solid var(--theme-card-border);
-  border-radius: var(--theme-radius);
+  border-radius: var(--input-radius);
   color: var(--theme-text);
   outline: none;
   transition: all 0.15s ease-in-out;

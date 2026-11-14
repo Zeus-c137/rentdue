@@ -23,6 +23,15 @@ export const users = mysqlTable(
   {
     phone: varchar("phone", { length: 32 }).primaryKey(),
     telegramId: varchar("telegram_id", { length: 32 }),
+    // Email is an optional SECOND identifier, not a replacement for the phone
+    // number. The phone remains the primary key because every balance, payout
+    // and referral row already keys off it. Stored lowercased so equality
+    // lookups behave case-insensitively without needing citext.
+    email: varchar("email", { length: 254 }),
+    // NULL until the user proves they own the address. A reset email is only
+    // ever sent to a verified address, otherwise the reset form becomes a way
+    // to mail arbitrary strangers.
+    emailVerifiedAt: varchar("email_verified_at", { length: 64 }),
     username: varchar("username", { length: 64 }).notNull(),
     password: varchar("password", { length: 255 }).notNull(),
     inviteCode: varchar("invite_code", { length: 64 }).notNull().unique(),
@@ -48,7 +57,11 @@ export const users = mysqlTable(
     inviteCodeIdx: index("idx_users_invite_code").on(table.inviteCode),
     referredByIdx: index("idx_users_referred_by").on(table.referredByCode),
     usernameUnique: uniqueIndex("uq_users_username").on(table.username),
-    telegramIdUnique: uniqueIndex("uq_users_telegram_id").on(table.telegramId)
+    telegramIdUnique: uniqueIndex("uq_users_telegram_id").on(table.telegramId),
+    // Partial-equivalent uniqueness: MySQL has no partial indexes, so NULL is
+    // the escape hatch. Multiple rows may hold NULL email, but a non-NULL
+    // email is unique because the column is NOT NULL-unique in practice.
+    emailUnique: uniqueIndex("uq_users_email").on(table.email)
   })
 );
 
@@ -200,6 +213,9 @@ export const transactions = mysqlTable(
     mode: varchar("mode", { length: 16 }),
     metadata: json("metadata"),
     externalReference: varchar("external_reference", { length: 160 }),
+    // Payout-side reference. Withdrawals write WR-<txId> deterministically;
+    // the provider's own id is backfilled if it arrives later.
+    providerReference: varchar("provider_reference", { length: 160 }),
     // Set exactly once when a successful deposit has been applied to the user
     // balance. This makes webhook/status retries idempotent.
     balanceAppliedAt: varchar("balance_applied_at", { length: 64 }),
@@ -208,7 +224,8 @@ export const transactions = mysqlTable(
   (table) => ({
     userTxIdx: index("idx_transactions_user_id").on(table.userId),
     statusIdx: index("idx_transactions_status").on(table.status),
-    externalReferenceUnique: uniqueIndex("uq_transactions_external_reference").on(table.operator, table.externalReference)
+    externalReferenceUnique: uniqueIndex("uq_transactions_external_reference").on(table.operator, table.externalReference),
+    providerReferenceUnique: uniqueIndex("uq_transactions_provider_reference").on(table.type, table.providerReference)
   })
 );
 
@@ -242,6 +259,34 @@ export const vipTaskClaims = mysqlTable(
 export const subscriptions = subscribedNodes;
 export const catalogItems = catalogProducts;
 
+// 9. OTP / password-reset codes
+//
+// One row per code issued. Codes are single-use: `consumed_at` is set the
+// moment one is redeemed, and the UNIQUE index on (contact, code) makes a
+// replay impossible even under a race. `attempts` is capped so a 6-digit code
+// cannot be brute-forced. `purpose` separates a signup verification from a
+// password reset so a code minted for one cannot be spent on the other.
+export const userOtps = mysqlTable(
+  "user_otp",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    contact: varchar("contact", { length: 254 }).notNull(),
+    contactType: varchar("contact_type", { length: 16 }).notNull().default("email"),
+    purpose: varchar("purpose", { length: 32 }).notNull().default("password_reset"),
+    // Only a hash is stored. A leaked database must not hand out working codes.
+    codeHash: varchar("code_hash", { length: 128 }).notNull(),
+    expiresAt: varchar("expires_at", { length: 64 }).notNull(),
+    consumedAt: varchar("consumed_at", { length: 64 }),
+    attempts: int("attempts").notNull().default(0),
+    maxAttempts: int("max_attempts").notNull().default(5),
+    requestIp: varchar("request_ip", { length: 64 }),
+    createdAt: varchar("created_at", { length: 64 }).notNull()
+  },
+  (table) => ({
+    contactPurposeIdx: index("idx_user_otp_contact_purpose").on(table.contact, table.purpose),
+    expiresIdx: index("idx_user_otp_expires_at").on(table.expiresAt)
+  })
+);
 export const announcements = mysqlTable("announcements", {
   id: varchar("id", { length: 64 }).primaryKey(),
   title: varchar("title", { length: 255 }).notNull(),

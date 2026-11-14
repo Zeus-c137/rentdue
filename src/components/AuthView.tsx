@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { UserProfile, SubscriptionItem } from "../types";
 import {
   Phone,
@@ -51,6 +51,20 @@ interface AuthViewProps {
 type AuthScreen = "welcome" | "login" | "register" | "support";
 
 const PHONE_PATTERN = /^\d{9,10}$/;
+// Country selector for the phone field. Flags live in /public/flags (served at
+// /flags/* by Vite in dev and copied into dist/ for production). Numbers are
+// stored as local digits server-side (PHONE_PATTERN 9-10 digits), so the dial
+// code is display context only and never sent in the payload.
+const PHONE_COUNTRIES = [
+  { code: "UG", name: "Uganda", dialCode: "+256", flag: "/flags/uganda.svg", example: "700 123 456" },
+  { code: "RW", name: "Rwanda", dialCode: "+250", flag: "/flags/rwanda.svg", example: "788 123 456" },
+  { code: "TZ", name: "Tanzania", dialCode: "+255", flag: "/flags/tanzania.svg", example: "754 123 456" },
+  { code: "KE", name: "Kenya", dialCode: "+254", flag: "/flags/kenya.svg", example: "712 345 678" },
+  { code: "ZA", name: "South Africa", dialCode: "+27", flag: "/flags/south-africa.svg", example: "71 234 5678" },
+  { code: "NG", name: "Nigeria", dialCode: "+234", flag: "/flags/nigeria.png", example: "803 123 4567" },
+] as const;
+
+type PhoneCountry = (typeof PHONE_COUNTRIES)[number];
 
 /* ------------------------------------------------------------------ *
  * Landing content
@@ -179,8 +193,120 @@ function AuthField({
       </span>
       <input
         {...props}
-        className={`w-full pl-10 pr-10 py-3 sm:pl-12 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-md text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
+        className={`w-full pl-10 pr-10 py-3 sm:pl-12 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[10px] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[13.5px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
       />
+    </div>
+  );
+}
+
+function CountrySelect({
+  value,
+  onChange,
+}: {
+  value: PhoneCountry;
+  onChange: (country: PhoneCountry) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click or Escape so the list never traps the form.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    // Lives *inside* the input box: absolutely positioned against the field
+    // wrapper, so the flag + dial code read as the start of the input rather
+    // than a separate control bolted onto its left edge.
+    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10" ref={ref}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Country code ${value.dialCode} ${value.name}`}
+        onClick={() => setOpen((o) => !o)}
+        className="h-9 flex items-center gap-2 pl-1.5 pr-1.5 rounded-[8px] text-[var(--theme-text)] cursor-pointer hover:bg-[var(--theme-primary)]/10 transition-colors"
+      >
+        <img src={value.flag} alt="" className="w-6 h-4 rounded-[2px] object-cover" draggable={false} />
+        <span className="text-[16px] font-sans font-semibold tabular-nums">{value.dialCode}</span>
+        <ChevronDown className={`w-4 h-4 opacity-50 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label="Country"
+          className="absolute left-[-10px] top-[calc(100%+10px)] z-50 w-64 overflow-hidden rounded-xl border border-white/15 bg-black shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
+        >
+          {PHONE_COUNTRIES.map((c) => (
+            <button
+              key={c.code}
+              type="button"
+              role="option"
+              aria-selected={c.code === value.code}
+              onClick={() => {
+                onChange(c);
+                setOpen(false);
+              }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left cursor-pointer transition-colors ${
+                c.code === value.code
+                  ? "bg-white/15 text-white"
+                  : "text-white/80 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <img src={c.flag} alt="" className="w-6 h-4 rounded-[2px] object-cover" draggable={false} />
+              <span className="flex-1 text-[13.5px] font-sans font-normal">{c.name}</span>
+              <span className="text-xs font-sans font-normal tabular-nums">{c.dialCode}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Flag + dial-code prefix glued to a local-digits phone input.
+ *
+ *  This is the whole field: the border, the fill and the focus ring live on the
+ *  single wrapper below. The flag + dial code sit inside that wrapper
+ *  (absolutely positioned) rather than in a cell of their own, and the digits
+ *  box is .phone-input (borderless, transparent — see index.css).
+ *
+ *  The dial code is display context only: the server stores phone numbers as
+ *  local digits, so nothing here is sent to the API. */
+function PhoneInput({
+  country,
+  onCountryChange,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  country: PhoneCountry;
+  onCountryChange: (country: PhoneCountry) => void;
+}) {
+  return (
+    <div>
+      {/* One field, one shape: the wrapper is the input's border/fill/focus
+          ring. The flag + dial code are absolutely positioned inside it, the
+          digits box is transparent and borderless (see .phone-input in
+          index.css) so nothing repaints as a second box. */}
+      <div className="relative w-full rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] transition-colors focus-within:border-[var(--theme-primary)]">
+        <CountrySelect value={country} onChange={onCountryChange} />
+        <input
+          {...props}
+          className="phone-input w-full pl-[124px] pr-3 sm:pr-4 py-3 sm:py-3.5 text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium select-text"
+        />
+      </div>
+
     </div>
   );
 }
@@ -357,19 +483,63 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
 
   const [phone, setPhone] = useState("");
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>(PHONE_COUNTRIES[0]);
   const [username, setUsername] = useState("");
+  // Optional at registration. It is how an account is recovered, so it is worth
+  // asking for, but the phone number stays the login identifier.
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Fire-and-forget recovery desk: phone is the ticket key (direct_<phone>),
-  // email + message ride inside the text — no schema change.
-  const [recoveryPhone, setRecoveryPhone] = useState("");
-  const [recoveryEmail, setRecoveryEmail] = useState("");
-  const [recoveryMsg, setRecoveryMsg] = useState("");
-  const [recoverySending, setRecoverySending] = useState(false);
-  const [recoverySent, setRecoverySent] = useState(false);
+  // Password reset lives on the screen that used to file a support ticket.
+  //
+  // Flow: email -> code -> new password -> done. Each step is its own screen so
+  // the back button and the browser's own affordances stay honest, and so a
+  // half-finished reset is never mistaken for a completed one.
+  //
+  // Two rules drive the copy and the state machine:
+  //
+  // 1. The request step always advances, even when the address is unknown. The
+  //    server answers 202 either way, so the UI must not try to distinguish
+  //    them - a "no account found" message here would be an enumeration oracle.
+  // 2. The confirm step is where failures become visible, because by then the
+  //    user has proved they hold the code. Every failure there uses one message.
+  type ResetStep = "request" | "code" | "done";
+
+  const [resetStep, setResetStep] = useState<ResetStep>("request");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [resetShowPassword, setResetShowPassword] = useState(false);
+  // Seconds left before a new code may be requested. The server throttles per IP
+  // anyway, but the countdown makes the wait visible instead of letting the user
+  // hammer "resend" and think the app is broken.
+  const [resetCooldown, setResetCooldown] = useState(0);
+
+  // Any transition out of the reset flow clears its secrets, so a code or a
+  // password never survives into another screen's state.
+  // Tick the resend cooldown down once a second. */
+  useEffect(() => {
+    if (resetCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResetCooldown((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resetCooldown]);
+
+  const resetClearSecrets = () => {
+    setResetCode("");
+    setResetPassword("");
+    setResetConfirm("");
+    setResetError("");
+    setResetShowPassword(false);
+    setResetCooldown(0);
+  };
 
   const [localSiteConfig, setLocalSiteConfig] = useState<any>(null);
   const [catalog, setCatalog] = useState<SubscriptionItem[]>([]);
@@ -496,6 +666,9 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const goTo = (next: AuthScreen) => {
     setPassword("");
     setShowPassword(false);
+    // Leaving the reset flow drops any half-typed code or password, so a secret
+    // never sits in memory while the user is somewhere else.
+    resetClearSecrets();
     setScreen(next);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
   };
@@ -526,7 +699,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       // matching confirmPassword, so echo it.
       const payload =
         mode === "register"
-          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined, ...(telegramIdToken ? { id_token: telegramIdToken } : {}) }
+          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined, email: email.trim() || undefined, ...(telegramIdToken ? { id_token: telegramIdToken } : {}) }
           : { phone, password };
 
       const res = await fetch(endpoint, {
@@ -646,45 +819,112 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     telegramRegister.authenticate();
   };
 
-  // Fire-and-forget recovery: lands in the admin Support Desk as a
-  // direct_<phone> ticket. No polling here — support reaches out.
-  const handleRecoverySubmit = async (e: React.FormEvent) => {
+  // Password-reset request. Always advances to the code step.
+  //
+  // The server returns 202 whether or not the address is known, so there is
+  // nothing to branch on here. Advancing unconditionally is what keeps this
+  // screen from becoming an account-enumeration oracle.
+  const handleResetRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    const tel = recoveryPhone.trim();
-    const mail = recoveryEmail.trim();
-    const msg = recoveryMsg.trim();
-    if (!PHONE_PATTERN.test(tel)) {
-      toast.error("Enter the 9–10 digit phone number on your account.");
-      return;
-    }
+    const mail = resetEmail.trim();
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-      toast.error("Enter a valid email address.");
+      setResetError("Enter a valid email address.");
       return;
     }
-    if (msg.length < 10) {
-      toast.error("Describe the issue in a few words (min 10 characters).");
-      return;
-    }
-    setRecoverySending(true);
+
+    setResetBusy(true);
+    setResetError("");
     try {
-      const res = await fetch("/api/chat/send", {
+      const res = await fetch("/api/auth/password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: mail }),
+      });
+      // A non-2xx here is still treated as "check your inbox": the endpoint is
+      // specified to answer 202 for every input, so anything else is a server
+      // fault rather than a fact about the account.
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || "Could not send the reset code. Try again.");
+      }
+      setResetStep("code");
+      setResetCooldown(60);
+    } catch (err: unknown) {
+      setResetError(err instanceof Error ? err.message : "Could not send the reset code. Try again.");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  // Resend without leaving the code step. Reuses the request endpoint so the
+  // same rate limit and the same neutral response apply.
+  const handleResendCode = async () => {
+    if (resetCooldown > 0) return;
+    setResetBusy(true);
+    setResetError("");
+    try {
+      const res = await fetch("/api/auth/password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || "Could not resend the code.");
+      }
+      toast.success("A new code is on its way.", { duration: 4000 });
+    } catch (err: unknown) {
+      setResetError(err instanceof Error ? err.message : "Could not resend the code.");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  // Password-reset confirm. This is the only step that can fail for a reason
+  // the user can act on, and the server collapses every failure mode into one
+  // message, so this screen repeats that one message rather than guessing.
+  const handleResetConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!/^\d{4,8}$/.test(resetCode.trim())) {
+      setResetError("Enter the 6-digit code from your email.");
+      return;
+    }
+    if (resetPassword.length < 8 || resetPassword.length > 128) {
+      setResetError("Password must be between 8 and 128 characters.");
+      return;
+    }
+    if (resetPassword !== resetConfirm) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+
+    setResetBusy(true);
+    setResetError("");
+    try {
+      const res = await fetch("/api/auth/password-reset/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          roomId: `direct_${tel}`,
-          sender: tel,
-          senderName: "Recovery Guest",
-          text: `[recovery] Phone: ${tel} | Email: ${mail} | ${msg}`,
+          email: resetEmail.trim(),
+          code: resetCode.trim(),
+          password: resetPassword,
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error || "Could not reach support. Try again.");
-      setRecoverySent(true);
-      toast.success("Sent to support. They'll reach out. Typical response time is 15 mins.", { duration: 6000 });
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error || "That reset code is invalid or has expired.");
+      }
+      // Clear the code and the passwords the moment they are spent.
+      setResetCode("");
+      setResetPassword("");
+      setResetConfirm("");
+      setResetStep("done");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not reach support. Try again.");
+      setResetError(err instanceof Error ? err.message : "That reset code is invalid or has expired.");
     } finally {
-      setRecoverySending(false);
+      setResetBusy(false);
     }
   };
 
@@ -725,11 +965,21 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
     <div className="min-h-[100dvh] bg-[var(--theme-bg)] text-[var(--theme-text)] font-[var(--theme-font-family)] transition-colors">
       <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col px-4 min-[380px]:px-5 sm:px-6 pt-5 sm:pt-6 pb-6 sm:pb-8">
         {/* Brand header */}
-        <div className="flex items-center gap-3">
-          <button
+          <div className="flex items-center gap-3">
+            <button
             type="button"
             aria-label="Back"
-            onClick={() => goTo(screen === "support" ? "login" : "welcome")}
+            onClick={() => {
+              // Inside the reset flow, back steps through the flow rather than
+              // dropping the user out of it - otherwise the code step becomes a
+              // dead end with no way to correct the email address.
+              if (screen === "support" && resetStep === "code") {
+                resetClearSecrets();
+                setResetStep("request");
+                return;
+              }
+              goTo(screen === "support" ? "login" : "welcome");
+            }}
             className="w-9 h-9 -ml-2 flex items-center justify-center text-[var(--theme-text)] opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -758,15 +1008,17 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               </p>
 
               <form onSubmit={(e) => handleSubmit(e, "login")} className="mt-6 sm:mt-8 space-y-3 sm:space-y-3.5 flex-1 flex flex-col">
-                <AuthField
-                  icon={<Phone className="w-5 h-5" />}
-                  type="tel"
+                <PhoneInput
+                  country={phoneCountry}
+                  onCountryChange={setPhoneCountry}
                   required
                   autoComplete="tel"
+                  inputMode="numeric"
+                  maxLength={10}
                   aria-label="Phone Number"
-                  placeholder="Phone Number"
+                  placeholder={phoneCountry.example}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
                 />
                 <div className="relative">
                   <AuthField
@@ -815,7 +1067,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     )}
                   </PrimaryButton>
                 </div>
-               
+
               </form>
 
               <div className="border-t border-[var(--theme-card-border)] mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
@@ -858,6 +1110,19 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               )}
 
               <form onSubmit={(e) => handleSubmit(e, "register")} className="mt-6 sm:mt-8 space-y-3 sm:space-y-3.5 flex-1 flex flex-col">
+                <PhoneInput
+                  country={phoneCountry}
+                  onCountryChange={setPhoneCountry}
+                  required
+                  autoComplete="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  aria-label="Phone Number"
+                  placeholder={phoneCountry.example}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                />
+
                 <AuthField
                   icon={<User className="w-5 h-5" />}
                   type="text"
@@ -868,15 +1133,17 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
+
                 <AuthField
-                  icon={<Phone className="w-5 h-5" />}
-                  type="tel"
-                  required
-                  autoComplete="tel"
-                  aria-label="Phone Number"
-                  placeholder="Phone Number"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  icon={<Mail className="w-5 h-5" />}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  aria-label="Email address"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                 />
                 <div className="relative">
                   <AuthField
@@ -915,16 +1182,15 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   )}
                 </div>
 
-                {/* Optional Telegram binding — pill floats right with the info
-                    icon outside it and an Optional subtext below. The
+                {/* Optional Telegram binding — pill floats right with the
+                    info icon outside it and an Optional subtext below. The
                     verified id_token attaches to the register submit; the
                     pill flips to Connected once this Telegram is confirmed
                     unlinked. */}
-              
 
                 <div className="flex-1" />
 
-              
+
 
                 <div className="pt-2">
                   <PrimaryButton type="submit" disabled={isLoading}>
@@ -955,129 +1221,242 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             </motion.div>
           )}
 
-          {/* ============ SUPPORT ============ */}
+          {/* ============ PASSWORD RESET ============ */}
           {screen === "support" && (
             <motion.div
               key="support"
               initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
+              exit={reduce ? { opacity: 0, y: -12 } : { opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
               className="flex-1 flex flex-col pt-7 sm:pt-10"
             >
-              <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
-                Need a<br />
-                hand?
-              </h1>
-              <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                Send a note to the support desk to recover your account.
-              </p>
-
-              {/* Primary: fire-and-forget recovery form */}
-              {recoverySent ? (
-                <div className="mt-8 rounded-2xl border border-[var(--theme-primary)]/30 bg-[var(--theme-primary)]/10 px-5 py-6 text-center">
-                  <CheckCircle2 className="w-10 h-10 mx-auto text-[var(--theme-primary)]" />
-                  <p className="mt-3 font-display font-black text-lg tracking-tight">Message sent.</p>
-                  <p className="mt-2 text-[14px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                    Support will reach out on your email or phone. Typical response time is 15 mins. Keep them handy.
+              {resetStep === "done" ? (
+                <>
+                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
+                    Password
+                    <br />
+                    updated.
+                  </h1>
+                  <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                    Sign in with your phone number and your new password.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => { setRecoverySent(false); setRecoveryMsg(""); }}
-                    className="mt-4 text-[13px] font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer"
-                  >
-                    Send another message
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleRecoverySubmit} className="mt-8 space-y-3.5">
-                  <AuthField
-                    icon={<Phone className="w-5 h-5" />}
-                    type="tel"
-                    required
-                    autoComplete="tel"
-                    aria-label="Account phone number"
-                    placeholder="Account phone number"
-                    value={recoveryPhone}
-                    onChange={(e) => setRecoveryPhone(e.target.value)}
-                  />
-                  <AuthField
-                    icon={<Mail className="w-5 h-5" />}
-                    type="email"
-                    required
-                    autoComplete="email"
-                    aria-label="Email address"
-                    placeholder="Email address"
-                    value={recoveryEmail}
-                    onChange={(e) => setRecoveryEmail(e.target.value)}
-                  />
-                  <textarea
-                    required
-                    aria-label="Describe the issue"
-                    placeholder="Describe the issue e.g. locked out after number change"
-                    value={recoveryMsg}
-                    onChange={(e) => setRecoveryMsg(e.target.value)}
-                    rows={4}
-                    maxLength={1000}
-                    className="w-full px-4 py-3 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-xl sm:rounded-2xl text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text resize-none"
-                  />
-                  <PrimaryButton type="submit" disabled={recoverySending}>
-                    {recoverySending ? (
-                      <>
-                        <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                        Sending..
-                      </>
-                    ) : (
-                      <>
-                        Send message <Send className="w-4 h-4" />
-                      </>
+
+                  <div className="mt-8 rounded-2xl border border-[var(--theme-primary)]/30 bg-[var(--theme-primary)]/10 px-5 py-6 text-center">
+                    <CheckCircle2 className="w-10 h-10 mx-auto text-[var(--theme-primary)]" />
+                    <p className="mt-3 font-display font-black text-lg tracking-tight">You're all set.</p>
+                    <p className="mt-2 text-[14px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                      For your security, this reset code can no longer be used.
+                    </p>
+                  </div>
+                </>
+              ) : resetStep === "code" ? (
+                <>
+                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
+                    Enter your
+                    <br />
+                    code.
+                  </h1>
+                  <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                    If that email matches a verified account, a 6-digit code is on its way. It expires in 15 minutes.
+                  </p>
+
+                  <div className="mt-5 flex items-center gap-2 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-3">
+                    <Mail className="w-4 h-4 shrink-0 text-[var(--theme-text)] opacity-40" />
+                    <span className="text-[14px] font-sans font-semibold text-[var(--theme-text)] truncate">
+                      {resetEmail}
+                    </span>
+                    <div className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => { resetClearSecrets(); setResetStep("request"); }}
+                      className="text-[13px] font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer shrink-0"
+                    >
+                      Change
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleResetConfirm} className="mt-5 space-y-3.5">
+                    <AuthField
+                      icon={<ShieldCheck className="w-5 h-5" />}
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      required
+                      maxLength={8}
+                      aria-label="Reset code"
+                      placeholder="6-digit code"
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    />
+
+                    <div className="relative">
+                      <AuthField
+                        icon={<Lock className="w-5 h-5" />}
+                        type={resetShowPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        aria-label="New password"
+                        placeholder="New password"
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        aria-label={resetShowPassword ? "Hide password" : "Show password"}
+                        onClick={() => setResetShowPassword(!resetShowPassword)}
+                        className="auth-eye absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40 hover:opacity-100 transition-opacity cursor-pointer"
+                      >
+                        {resetShowPassword ? <EyeOff className="w-[18px] h-[18px] sm:w-5 sm:h-5" /> : <Eye className="w-[18px] h-[18px] sm:w-5 sm:h-5" />}
+                      </button>
+                    </div>
+
+                    <AuthField
+                      icon={<Lock className="w-5 h-5" />}
+                      type={resetShowPassword ? "text" : "password"}
+                      required
+                      autoComplete="new-password"
+                      aria-label="Confirm new password"
+                      placeholder="Confirm new password"
+                      value={resetConfirm}
+                      onChange={(e) => setResetConfirm(e.target.value)}
+                    />
+
+                    {resetError && (
+                      <p className="flex items-start gap-2 text-[13px] font-sans font-medium text-red-400">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        {resetError}
+                      </p>
                     )}
-                  </PrimaryButton>
-                </form>
+
+                    <PrimaryButton type="submit" disabled={resetBusy}>
+                      {resetBusy ? (
+                        <>
+                          <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Updating..
+                        </>
+                      ) : (
+                        <>
+                          Update password <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </PrimaryButton>
+                  </form>
+
+                  <div className="mt-4 text-center">
+                    <button
+                      type="button"
+                      onClick={handleResendCode}
+                      disabled={resetBusy || resetCooldown > 0}
+                      className="text-[13px] font-sans font-semibold text-[var(--theme-primary)] hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      {resetCooldown > 0
+                        ? `Didn't get it? Resend in 0:${String(resetCooldown).padStart(2, "0")}`
+                        : "Didn't get it? Resend code"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
+                    Reset your
+                    <br />
+                    password.
+                  </h1>
+                  <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
+                    Enter the email on your account and we'll send you a reset code.
+                  </p>
+
+                  <form onSubmit={handleResetRequest} className="mt-8 space-y-3.5">
+                    <AuthField
+                      icon={<Mail className="w-5 h-5" />}
+                      type="email"
+                      inputMode="email"
+                      autoComplete="email"
+                      required
+                      aria-label="Email address"
+                      placeholder="Email address"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                    />
+
+                    {resetError && (
+                      <p className="flex items-start gap-2 text-[13px] font-sans font-medium text-red-400">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        {resetError}
+                      </p>
+                    )}
+
+                    <PrimaryButton type="submit" disabled={resetBusy}>
+                      {resetBusy ? (
+                        <>
+                          <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          Sending..
+                        </>
+                      ) : (
+                        <>
+                          Send reset code <Send className="w-4 h-4" />
+                        </>
+                      )}
+                    </PrimaryButton>
+                  </form>
+
+
+
+                  {/* Secondary: external channels. A user who has lost access to
+                      their email has no automated path back, so a human has to
+                      verify them. Each card renders only when its link is
+                      actually configured, so nobody is sent to a dead t.me/#. */}
+                  {activeConfig?.whatsappLink || activeConfig?.telegramLink ? (
+                    <>
+                      <p className="mt-8 mb-2 text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+                        Or try a channel
+                      </p>
+                      <div className="space-y-3 opacity-80">
+                        {activeConfig?.whatsappLink ? (
+                          <a
+                            href={activeConfig.whatsappLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0" style={{ fill: "#25D366" }} aria-hidden="true">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                            </svg>
+                            <div className="text-left font-sans flex-1">
+                              <div className="font-bold text-[15px]">WhatsApp Support</div>
+                              <div className="text-[13px] text-[var(--theme-text-muted)]">Live agent chat</div>
+                            </div>
+                          </a>
+                        ) : null}
+                        {activeConfig?.telegramLink ? (
+                          <a
+                            href={activeConfig.telegramLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500" aria-hidden="true">
+                              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z" />
+                            </svg>
+                            <div className="text-left font-sans flex-1">
+                              <div className="font-bold text-[15px]">Telegram Channel</div>
+                              <div className="text-[13px] text-[var(--theme-text-muted)]">Official community announcements</div>
+                            </div>
+                          </a>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : null}
+                </>
               )}
-
-              {/* Secondary: external channels */}
-              <p className="mt-8 mb-2 text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                Or try a channel
-              </p>
-              <div className="space-y-3 opacity-80">
-                <a
-                  href={activeConfig?.whatsappLink || "https://t.me/#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500">
-                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z" />
-                  </svg>
-                  <div className="text-left font-sans flex-1">
-                    <div className="font-bold text-[15px]">Telegram Support</div>
-                    <div className="text-[13px] text-[var(--theme-text-muted)]">Live agent chat</div>
-                  </div>
-                </a>
-
-                <a
-                  href={activeConfig?.telegramLink || "https://t.me/#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-4 px-5 flex items-center gap-3 rounded-2xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] transition-all active:scale-[0.98]"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-6 h-6 shrink-0 fill-sky-500">
-                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z" />
-                  </svg>
-                  <div className="text-left font-sans flex-1">
-                    <div className="font-bold text-[15px]">Telegram Channel</div>
-                    <div className="text-[13px] text-[var(--theme-text-muted)]">Official community announcements</div>
-                  </div>
-                </a>
-              </div>
 
               <div className="flex-1" />
               <div className="border-t border-[var(--theme-card-border)] mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
                 Remembered it?{" "}
                 <button
                   type="button"
-                  onClick={() => goTo("login")}
+                  onClick={() => { resetClearSecrets(); setResetStep("request"); goTo("login"); }}
                   className="font-bold text-[var(--theme-primary)] hover:underline cursor-pointer"
                 >
                   Login
@@ -1402,7 +1781,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
                   <div className="flex-1 p-6 sm:p-9">
                     <div className="flex flex-wrap items-center gap-2">
-                    
+
                       <span className="rounded-full border border-[var(--theme-card-border)] px-3 py-1 text-[11px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-text-muted)]">
                         Available now
                       </span>
@@ -1422,7 +1801,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                         </dd>
                       </div>
                       <div>
-                       
+
                       </div>
                       <div>
                         <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
@@ -1704,7 +2083,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
           </div>
         </section>
 
-      
+
       </main>
 
       {/* ---------------- footer ---------------- */}

@@ -154,6 +154,13 @@ export interface VipTaskboard {
 export interface UserProfile {
   phone: string;
   telegramId?: string | null;
+  // Optional second contact identifier. The phone number stays the primary
+  // key and the only login identifier; email is how a user is reached and how
+  // they recover an account. Null for every account created before this existed.
+  email?: string | null;
+  // Set once the user proves they control the address. A password reset is only
+  // ever sent to a verified address.
+  emailVerifiedAt?: string | null;
   username: string;
   password?: string;
   inviteCode: string;

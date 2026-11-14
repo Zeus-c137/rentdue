@@ -4,7 +4,7 @@
  */
 
 import express from "express";
-import { createHmac, timingSafeEqual } from "crypto";
+import crypto, { createHmac, createHash, timingSafeEqual } from "crypto";
 import path from "path";
 import fs from "fs";
 import cron from "node-cron";
@@ -81,9 +81,19 @@ import {
   publicProfile,
   verifyPassword,
   linkTelegramAccount,
-  getUserProfileByTelegramId
+  getUserProfileByTelegramId,
+  countPendingWithdrawals,
+  findUserByEmail,
+  markEmailVerified,
+  setPasswordAfterReset,
+  issueOtp,
+  verifyOtp,
+  countRecentOtpRequests,
+  classifyLoginIdentifier,
+  countPendingDeposits
 } from "./src/server/db";
 import { verifyTelegramIdToken } from "./src/server/telegramAuth";
+import { sendPasswordResetCode, sendEmailVerificationCode, isMailConfigured } from "./src/server/mail";
 import { normalizeExternalReference } from "./src/utils/transactionMeta";
 import { migratePreset as migratePresetServer, migrateCardStyle as migrateCardStyleServer, migrateFontFamily as migrateFontFamilyServer, sanitizeSiteConfig as sanitizeSiteConfigServer } from "./src/utils/themeTokens";
 
@@ -139,6 +149,16 @@ if (!loadedEnv) {
 }
 
 const app = express();
+
+// JSON body parsing. This must be registered before any route that reads
+// req.body, otherwise every POST arrives with req.body === undefined and the
+// route destructure throws (crashing the process under Express 4's default
+// final handler). 1 MB is enough for the largest payload the app accepts
+// (profile/logo uploads go up to 2 MB as base64, but those are posted to
+// /api/admin/upload, which is capped separately and rejects oversize bodies
+// here with a clean 413 instead of a crash).
+app.use(express.json({ limit: "1mb" }));
+
 // IISNode provides PORT (often a named pipe). Keep 3000 only for local development.
 const PORT = process.env.PORT || 3000;
 let databaseReady = false;
@@ -152,6 +172,151 @@ const processStartedAt = Date.now();
 const PAYMENT_GATEWAY_URL = process.env.PAYMENT_GATEWAY_URL?.replace(/\/$/, "") || "https://zulupay.org";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 12_000);
 
+// Upstream provider concurrency gate.
+//
+// The gateway tolerates only so many simultaneous calls. Without a cap, a burst
+// of users produces a burst of outbound HTTPS requests that the provider
+// answers with timeouts or 429s, which the app then reports as random failures.
+// A semaphore makes the limit explicit: requests beyond the cap wait briefly
+// and then get a clean, non-retriable "busy, retry later" outcome.
+//
+// Upstream provider concurrency gate.
+//
+// The gateway tolerates only so many simultaneous calls. Without a cap, a burst
+// of users produces a burst of outbound HTTPS requests that the provider
+// answers with timeouts or 429s, which the app then reports as random failures.
+// A semaphore makes the limit explicit: requests beyond the cap wait for a slot
+// and only fail if none frees up in time.
+//
+// The cap is per operator because MTN and Airtel are independent rate-limit
+// domains upstream; one being saturated should not block the other.
+//
+// Sizing, which is the part that is easy to get wrong:
+//
+// A provider call takes tens of seconds. The wait below must therefore be long
+// enough to outlast at least one in-flight call, otherwise every contended
+// request fails at the timeout instead of simply queueing for the slot that is
+// about to free up. The previous 8s wait against a ~60s call guaranteed that
+// the second concurrent user always failed, which made the gate look like the
+// outage it was meant to prevent.
+//
+// When the wait does run out, the caller gets a non-retriable "busy" outcome:
+// the transaction is released and the user is told to retry. That matters for
+// withdrawals, where a blind retry against an accepted payout would pay twice.
+const PROVIDER_MAX_INFLIGHT = Number(process.env.PAYMENT_MAX_INFLIGHT || 8);
+// Comfortably above one provider call, below the proxy/nginx 100s ceiling that
+// would otherwise cut the response before this can explain itself.
+const PROVIDER_QUEUE_TIMEOUT_MS = Number(process.env.PAYMENT_QUEUE_TIMEOUT_MS || 75_000);
+type ProviderGate = {
+  limit: number;
+  inFlight: number;
+  queued: number;
+  waiters: Array<() => void>;
+};
+
+const providerGates = new Map<string, ProviderGate>();
+
+function getProviderGate(operator: string): ProviderGate {
+  const key = String(operator || "default").toUpperCase();
+  let gate = providerGates.get(key);
+  if (!gate) {
+    gate = { limit: PROVIDER_MAX_INFLIGHT, inFlight: 0, queued: 0, waiters: [] };
+    providerGates.set(key, gate);
+  }
+  return gate;
+}
+
+/**
+ * Run a provider call under the per-operator in-flight cap.
+ *
+ * Throws ProviderBusyError when the cap is reached and no slot frees up within
+ * PAYMENT_QUEUE_TIMEOUT_MS. Callers must map that to a 503 + Retry-After, never
+ * to a generic 500, so it is not mistaken for a provider outage and retried
+ * blindly.
+ *
+/**
+ * Run a provider call under the per-operator in-flight cap.
+ *
+ * `key` separates callers that must not share a queue even though they share an
+ * operator. Withdrawals pass the user's phone number so two payouts to different
+ * people can proceed in parallel instead of one user's request blocking every
+ * other user's; deposits and status polls pass the operator, since those are
+ * read-mostly and benefit from being batched.
+ *
+ * Throws ProviderBusyError when no slot frees up within
+ * PAYMENT_QUEUE_TIMEOUT_MS. Callers must map that to a 503 + Retry-After, never to
+ * a generic 500 and never to a blind retry: for a withdrawal, retrying a payout
+ * the provider already accepted would pay the user twice.
+ *
+ * Every grant is paired with exactly one release in a finally block, so the
+ * counter cannot drift even if the call throws.
+ */
+async function withProviderSlot<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const gate = getProviderGate(key);
+
+  // Fast path, but only when nobody is queued. Taking a free slot while others
+  // wait would let a late arrival barge past requests that have already been
+  // waiting, which under sustained load starves them indefinitely.
+  if (gate.inFlight < gate.limit && gate.waiters.length === 0) {
+    gate.inFlight += 1;
+    try {
+      return await fn();
+    } finally {
+      gate.inFlight -= 1;
+      const next = gate.waiters.shift();
+      if (next) next();
+    }
+  }
+
+  // Contended path: queue for a slot with a hard timeout. A waiter that times
+  // out removes itself so it can never consume a slot it gave up on.
+  gate.queued += 1;
+  const outcome = await new Promise<"granted" | "timeout">((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const grant = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve("granted");
+    };
+
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const idx = gate.waiters.indexOf(grant);
+      if (idx >= 0) gate.waiters.splice(idx, 1);
+      resolve("timeout");
+    }, PROVIDER_QUEUE_TIMEOUT_MS);
+
+    gate.waiters.push(grant);
+  });
+
+  gate.queued = Math.max(0, gate.queued - 1);
+
+  if (outcome === "timeout") {
+    throw new ProviderBusyError();
+  }
+
+  // Granted: the releasing request already decremented inFlight, so take the
+  // slot here and hand it back in the finally block.
+  gate.inFlight += 1;
+  try {
+    return await fn();
+  } finally {
+    gate.inFlight -= 1;
+    const next = gate.waiters.shift();
+    if (next) next();
+  }
+}
+class ProviderBusyError extends Error {
+  constructor() {
+    super("The payment provider is busy right now. Please try again in a moment.");
+    this.name = "ProviderBusyError";
+  }
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -162,56 +327,82 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
-// NOTE: no www<->apex canonical redirect lives here on purpose. The host
-// redirects apex -> www upstream, so this server must serve the app on
-// whatever host it receives — a redirect here would loop against it
-// (apex -> www -> apex) and surface in browsers as CORS-blocked 301s.
-// Keep BotFather Allowed URLs in sync with the exact page URL instead
-// (see .env.example).
-// Middleware
-app.use(express.json({ limit: "15mb" })); // allow larger payload for base64 chat screenshot uploads!
+/**
+ * Snapshot of provider-gate saturation. Used by GET /api/admin/queue-stats so a
+ * backlog is visible instead of inferred from user complaints.
+ */
+export function getProviderQueueStats() {
+  const byOperator: Record<string, { limit: number; inFlight: number; queued: number }> = {};
+  let inFlight = 0;
+  let queued = 0;
+  for (const [key, gate] of providerGates.entries()) {
+    byOperator[key] = { limit: gate.limit, inFlight: gate.inFlight, queued: gate.queued };
+    inFlight += gate.inFlight;
+    queued += gate.queued;
+  }
 
-// Runtime uploads (site logo etc.) go to Cloudinary — required on hosts with
-// ephemeral disks (Render). There is no local-disk fallback.
+  return { inFlight, queued, byOperator };
+}
+
+function providerBusyResponse(res: express.Response) {
+  return res.status(503).json({
+    success: false,
+    code: "PROVIDER_BUSY",
+    error: "The payment provider is busy right now. Please try again in a moment.",
+    retryAfter: Math.ceil(PROVIDER_QUEUE_TIMEOUT_MS / 1000)
+  });
+}
+const IMAGE_ORPHAN_GRACE_MS = 24 * 3600 * 1000;
+const IMAGE_ORPHAN_PAGE_SIZE = 200;
+
+// Destroys unreferenced site art older than the grace period so abandoned
+// uploads can't accumulate forever. Fresh drafts and everything referenced by
+// the saved config are always kept.
 const CLOUDINARY_FOLDER = process.env.CLOUDINARY_FOLDER || "rentdue";
 const cloudinaryConfigured = Boolean(
   (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) ||
-    process.env.CLOUDINARY_URL
+  process.env.CLOUDINARY_URL
 );
-if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+
+if (cloudinaryConfigured) {
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
   });
-}
-// Otherwise the SDK picks up CLOUDINARY_URL from env on its own.
-if (!cloudinaryConfigured) {
+} else {
   console.error("[Uploads] No Cloudinary keys — /api/admin/upload will refuse uploads until CLOUDINARY_* is set.");
 }
 
-// ---------- Site-art lifecycle ----------
-// Uploads never destroy anything. Replaced art is retired only after the new
-// config is successfully saved (see PUT /api/admin/config); abandoned uploads
-// age out via collectImageOrphans(). This ordering makes "upload then don't
-// save" and "failed upload" incapable of 404ing the live site.
+// Anything that looks like a Cloudinary URL, so config values saved before a
+// given asset existed are still swept.
+function isUrlLikeImage(value: unknown): boolean {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
 function cloudinaryPublicId(url: string): string | null {
-  if (typeof url !== "string" || !url.includes("res.cloudinary.com")) return null;
-  const afterUpload = url.split("?")[0].split("/upload/")[1];
-  if (!afterUpload) return null;
-  // Our uploads always carry a version segment (secure_url includes /vNNN/),
-  // which unambiguously anchors the public_id even when transformation
-  // segments precede it. Without a version we fall back to the full path —
-  // a wrong guess only fails a destroy (asset kept), never deletes wrong art.
-  const versioned = afterUpload.match(/(?:^|\/)v\d+\/(.+)\.[a-z0-9]+$/i);
-  if (versioned) return versioned[1];
-  const bare = afterUpload.match(/^(.+)\.[a-z0-9]+$/i);
-  return bare ? bare[1] : null;
+  if (!isUrlLikeImage(url)) return null;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes("cloudinary.com")) return null;
+    const afterUpload = parsed.pathname.split("/upload/")[1] || "";
+    if (!afterUpload) return null;
+    // Our uploads always carry a version segment (secure_url includes /vNNN/),
+    // which unambiguously anchors the public_id even when transformation
+    // segments precede it. Without a version we fall back to the full path —
+    // a wrong guess only fails a destroy (asset kept), never deletes wrong art.
+    const versioned = afterUpload.match(/(?:^|\/)v\d+\/(.+)\.[a-z0-9]+$/i);
+    if (versioned) return versioned[1];
+    const bare = afterUpload.match(/^(.+)\.[a-z0-9]+$/i);
+    return bare ? bare[1] : null;
+  } catch {
+    return null;
+  }
 }
 
 function collectCloudinaryIds(value: unknown, into = new Set<string>()): Set<string> {
-  if (typeof value === "string") {
-    const id = cloudinaryPublicId(value);
+  if (isUrlLikeImage(value)) {
+    const id = cloudinaryPublicId(value as string);
     if (id) into.add(id);
   } else if (Array.isArray(value)) {
     for (const entry of value) collectCloudinaryIds(entry, into);
@@ -225,18 +416,13 @@ async function destroyPublicIds(ids: Iterable<string>): Promise<void> {
   for (const id of ids) {
     try {
       await cloudinary.uploader.destroy(id, { resource_type: "image", invalidate: true });
-    } catch {
-      // best effort — a failed destroy must never break saves or uploads
+    } catch (err) {
+      console.warn(`[Uploads] Could not retire ${id}:`, err);
     }
   }
 }
 
-const IMAGE_ORPHAN_GRACE_MS = 24 * 3600 * 1000;
-const IMAGE_ORPHAN_PAGE_SIZE = 200;
-
 // Destroys unreferenced site art older than the grace period so abandoned
-// uploads can't accumulate forever. Fresh drafts and everything referenced by
-// the saved config are always kept.
 async function collectImageOrphans(): Promise<void> {
   if (!cloudinaryConfigured) return;
   try {
@@ -545,6 +731,19 @@ app.get("/api/jobs/daily-credit", async (req, res) => {
 
 const PHONE_PATTERN = /^\d{9,10}$/;
 const MAX_PASSWORD_LENGTH = 128;
+// Pragmatic email shape check, not RFC 5322. Deliberately strict on the domain
+// dot so a typo like "user@gmail" is caught before it is stored and becomes
+// an address that can never receive a reset.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+// Password-reset codes. Short enough to type from another device, long enough
+// that guessing is hopeless inside the 5-attempt cap (1 in 100,000 per try).
+const OTP_LENGTH = 6;
+const OTP_TTL_MINUTES = 15;
+// Rolling-window cap on reset requests per IP. Gmail will defer or block a
+// sender that pushes past a few hundred messages a day, and each request here
+// costs one outbound email.
+const OTP_REQUEST_WINDOW_MS = 60 * 60 * 1000;
+const OTP_MAX_REQUESTS_PER_WINDOW = 5;
 
 function normalizePhone(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, "").trim() : "";
@@ -735,11 +934,234 @@ app.post("/api/auth/logout", (_req, res) => {
   res.json({ success: true });
 });
 
+// ---------------------------------------------------------------------------
+// Password reset (email only)
+// ---------------------------------------------------------------------------
+//
+// The reset flow is deliberately email-only and deliberately two steps:
+//
+//   1. POST /api/auth/password-reset/request  { email }
+//        -> always the same 202 response, whether or not the address is known.
+//   2. POST /api/auth/password-reset/confirm  { email, code, password }
+//        -> sets the new password.
+//
+// The response to step 1 never reveals whether an account exists, so this
+// endpoint cannot be used to enumerate customers. The code is a 6-digit number
+// rather than a link: a link would need a public route that accepts a bearer
+// token in a URL, which mail scanners and referrer headers leak.
+//
+// Note the account recovery form on the landing page still files a support
+// ticket. That is intentional: a user who has lost access to their email has no
+// automated path back, and a human has to verify them.
+
+function hashCode(code: string): string {
+  // A plain SHA-256 is the right choice here. The code space is only 10^6, but
+  // the value being hashed is not a user password: it is a 15-minute single-use
+  // code that is already rate limited to 5 attempts, so a fast hash is not a
+  // weakness and it keeps lookups indexable.
+  return createHash("sha256").update(code, "utf8").digest("hex");
+}
+
+function clientIp(req: express.Request): string {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || req.ip || "unknown";
+}
+
+app.post("/api/auth/password-reset/request", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+
+  // The same 202 is returned for a malformed address as for an unknown one.
+  // Anything else tells a caller which addresses are worth guessing at.
+  const acknowledged = {
+    success: true,
+    status: "SENT",
+    message: "If that email matches a verified account, a reset code is on its way. It expires in " + OTP_TTL_MINUTES + " minutes."
+  };
+
+  if (!EMAIL_PATTERN.test(email) || email.length > 254) {
+    return res.status(202).json(acknowledged);
+  }
+
+  if (!isMailConfigured()) {
+    // Without credentials there is no way to deliver the code. Say so plainly
+    // in the log; the user still gets the neutral response.
+    console.warn("[PWA] Password reset requested but mail is not configured (MAIL_USER / MAIL_PASSWORD).");
+    return res.status(202).json(acknowledged);
+  }
+
+  try {
+    const ip = clientIp(req);
+    const sinceIso = new Date(Date.now() - OTP_REQUEST_WINDOW_MS).toISOString();
+    const recent = await countRecentOtpRequests(ip, sinceIso);
+    if (recent >= OTP_MAX_REQUESTS_PER_WINDOW) {
+      // Do not send, but do not reveal that either.
+      console.warn(`[Auth] Password reset throttled for ${ip} (${recent} in the last hour).`);
+      return res.status(202).json(acknowledged);
+    }
+
+    // An unknown address stops here. The lookup is the only thing that tells
+    // them apart, and it stays server-side.
+    const account = await findUserByEmail(email);
+    if (!account) {
+      return res.status(202).json(acknowledged);
+    }
+
+    const code = String(crypto.randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, "0");
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+    await issueOtp({
+      contact: email,
+      contactType: "email",
+      purpose: "password_reset",
+      codeHash: hashCode(code),
+      expiresAt,
+      requestIp: ip
+    });
+
+    // Fire and forget would risk losing the code silently, so this is awaited,
+    // but a delivery failure is not allowed to change the response.
+    const delivered = await sendPasswordResetCode(email, code, OTP_TTL_MINUTES);
+    if (!delivered) {
+      console.warn(`[Auth] Reset code for ${email} could not be delivered; the code remains valid for ${OTP_TTL_MINUTES} minutes if the user retries.`);
+    }
+
+    return res.status(202).json(acknowledged);
+  } catch (error: any) {
+    logError("Password reset request failed:", error);
+    return res.status(202).json(acknowledged);
+  }
+});
+
+app.post("/api/auth/password-reset/confirm", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const code = String(req.body?.code || "").trim();
+  const password = req.body?.password;
+
+  if (!EMAIL_PATTERN.test(email) || !/^\d{4,8}$/.test(code) || typeof password !== "string") {
+    return res.status(400).json({ error: "Enter the code from your email and a new password." });
+  }
+  if (password.length < 8 || password.length > MAX_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: "Password must be between 8 and 128 characters." });
+  }
+
+  try {
+    // Re-check the account before touching the OTP table, so a valid code that
+    // was minted for a since-deleted account cannot set a password on nothing.
+    const account = await findUserByEmail(email);
+    if (!account) {
+      return res.status(400).json({ error: "That reset code is invalid or has expired." });
+    }
+
+    const result = await verifyOtp({ contact: email, purpose: "password_reset", codeHash: hashCode(code) });
+
+    // One message for every failure mode. Distinguishing "no such code" from
+    // "too many attempts" would tell an attacker which addresses are real and
+    // how close they are to guessing.
+    if (result.status !== "ok") {
+      if (result.status === "too_many_attempts") {
+        console.warn(`[Auth] Reset code exhausted for ${email}; a new one must be requested.`);
+      }
+      return res.status(400).json({ error: "That reset code is invalid or has expired." });
+    }
+
+    await setPasswordAfterReset(account.phone, password);
+
+    // Do not sign the user in here. A reset proves control of a mailbox, and the
+    // session should be created only through the normal login path so the
+    // existing session TTL and cookie handling apply.
+    return res.json({
+      success: true,
+      message: "Password updated. Sign in with your phone number and new password."
+    });
+  } catch (error: any) {
+    logError("Password reset confirm failed:", error);
+    const response = errorResponse(error, "We could not reset your password right now. Please try again.", 500);
+    return res.status(response.status).json(response.body);
+  }
+});
+
+// Confirm an email address for a signed-in user. Authentication is required so
+// this cannot be used to attach someone else's address to an account.
+app.post("/api/auth/verify-email/request", async (req, res) => {
+  const phone = await getAuthenticatedUserPhone(req);
+  if (!phone) return res.status(401).json({ error: "Please sign in again." });
+
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!EMAIL_PATTERN.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Enter a valid email address." });
+  }
+  if (!isMailConfigured()) {
+    return res.status(503).json({ error: "Email verification is not available right now." });
+  }
+
+  try {
+    const taken = await findUserByEmail(email).catch(() => null);
+    if (taken && taken.phone !== phone) {
+      // The user typed this address themselves, so naming the conflict is not a
+      // disclosure to a third party.
+      return res.status(409).json({ error: "That email is already on another account." });
+    }
+
+    const code = String(crypto.randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, "0");
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+    // Reuse the OTP table with a different purpose so a verification code can
+    // never be spent as a password reset.
+    await issueOtp({
+      contact: email,
+      contactType: "email",
+      purpose: "email_verify",
+      codeHash: hashCode(code),
+      expiresAt,
+      requestIp: clientIp(req)
+    });
+
+    const delivered = await sendEmailVerificationCode(email, code, OTP_TTL_MINUTES);
+    if (!delivered) {
+      return res.status(502).json({ error: "We could not send a code to that address right now." });
+    }
+
+    return res.json({ success: true, message: "Check your inbox for the confirmation code." });
+  } catch (error: any) {
+    logError("Email verification request failed:", error);
+    const response = errorResponse(error, "We could not send a verification code right now.", 500);
+    return res.status(response.status).json(response.body);
+  }
+});
+
+app.post("/api/auth/verify-email/confirm", async (req, res) => {
+  const phone = await getAuthenticatedUserPhone(req);
+  if (!phone) return res.status(401).json({ error: "Please sign in again." });
+
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const code = String(req.body?.code || "").trim();
+  if (!EMAIL_PATTERN.test(email) || !/^\d{4,8}$/.test(code)) {
+    return res.status(400).json({ error: "Enter the code from your email." });
+  }
+
+  try {
+    const result = await verifyOtp({ contact: email, purpose: "email_verify", codeHash: hashCode(code) });
+    if (result.status !== "ok") {
+      return res.status(400).json({ error: "That code is invalid or has expired." });
+    }
+
+    await markEmailVerified(phone, email);
+    return res.json({ success: true, message: "Email confirmed. You can now use it to recover your account." });
+  } catch (error: any) {
+    logError("Email verification failed:", error);
+    const response = errorResponse(error, "We could not verify that code right now.", 500);
+    return res.status(response.status).json(response.body);
+  }
+});
+
 // Registration
 app.post("/api/auth/register", async (req, res) => {
   const { phone, password, confirmPassword, inviteCode } = req.body;
   const normalizedPhone = normalizePhone(phone);
   const displayName = typeof req.body?.username === "string" ? req.body.username.trim().slice(0, 64) : "";
+  // Optional at registration. Stored as-is, and it is the address a password
+  // reset code is delivered to.
+  const emailInput = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
 
   if (!normalizedPhone || typeof password !== "string") {
     return res.status(400).json({ error: "Phone number and password are required." });
@@ -753,12 +1175,17 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(400).json({ error: "Password must be between 8 and 128 characters." });
   }
 
+
   if (password !== confirmPassword) {
     return res.status(400).json({ error: "Passwords do not match." });
   }
 
   if (inviteCode !== undefined && (typeof inviteCode !== "string" || inviteCode.trim().length > 32)) {
     return res.status(400).json({ error: "The referral code is invalid." });
+  }
+
+  if (emailInput && (!EMAIL_PATTERN.test(emailInput) || emailInput.length > 254)) {
+    return res.status(400).json({ error: "Enter a valid email address." });
   }
 
   // Optional Telegram binding: the register pill hands over the OIDC id_token
@@ -791,10 +1218,20 @@ app.post("/api/auth/register", async (req, res) => {
       const phoneTaken = await getUserProfile(normalizedPhone);
       if (phoneTaken) return res.status(409).json({ error: "An account with this phone number already exists. Please log in." });
     }
+    // A duplicate email is reported as such rather than as a duplicate phone:
+    // the user typed the address, so naming it discloses nothing they did not
+    // already supply.
+    if (emailInput) {
+      const emailTaken = await findUserByEmail(emailInput).catch(() => null);
+      if (emailTaken) {
+        return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
+      }
+    }
     const { success, profile } = await registerUserProfile({
       phone: normalizedPhone,
       passwordHash: password, // Store password safely for live demo validation
       username: displayName || undefined, // blank falls back to auto User_XXXX
+      email: emailInput || undefined,
       referredByCode: inviteCode ? inviteCode.trim() : "",
       telegramId: telegramId || undefined
     });
@@ -1077,39 +1514,84 @@ app.post("/api/profile/vip-tasks/verify", async (req, res) => {
 });
 
 // Helper to authenticate with the payment gateway API
+// Gateway auth token cache.
+//
+// Every deposit, withdrawal and status poll used to call /api/register on the
+// provider just to obtain a bearer token, which doubled the outbound round
+// trips and made every user action inherit the token endpoint's latency. The
+// token is now fetched once and reused until it is near expiry. A single-flight
+// promise collapses N concurrent misses into one refresh, so a burst of users
+// cannot stampede the provider's auth endpoint.
+const GATEWAY_TOKEN_REFRESH_SKEW_MS = 60_000;
+const GATEWAY_TOKEN_DEFAULT_TTL_MS = 60 * 60 * 1000;
+let gatewayTokenCache: { token: string; expiresAt: number } | null = null;
+let gatewayTokenInFlight: Promise<string> | null = null;
+
 async function getGatewayToken(): Promise<string> {
   const publicKey = process.env.PAYMENT_PUBLIC_KEY;
   if (!publicKey) {
     throw new Error(`environment configuration is missing (PAYMENT_PUBLIC_KEY). Env loaded path: "${appliedEnvPath || "None"}". Checked paths: [${searchPaths.slice(0, 10).join(", ")}]. Loaded env keys: ${Object.keys(process.env).filter(k => k.includes("PAYMENT") || k.includes("PORT") || k.includes("APP")).join(", ")}`);
   }
 
-  const response = await fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/register`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": publicKey
+  if (gatewayTokenCache && gatewayTokenCache.expiresAt > Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
+    return gatewayTokenCache.token;
+  }
+
+  // Single-flight: concurrent callers share one refresh instead of each
+  // starting their own.
+  if (gatewayTokenInFlight) return gatewayTokenInFlight;
+
+  gatewayTokenInFlight = (async () => {
+    const response = await fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": publicKey
+      }
+    });
+
+    const rawText = await response.text();
+    if (!response.ok) {
+      // Drop the cache so a stale token cannot outlive a provider-side revocation.
+      gatewayTokenCache = null;
+      throw new Error(` API token auth failure (${response.status}): ${rawText}`);
     }
-  });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(` API token auth failure (${response.status}): ${text}`);
-  }
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (e) {
+      // raw string body
+    }
 
-  const rawText = await response.text();
-  let token = rawText.trim();
+    let token = rawText.trim();
+    if (parsed) {
+      token = parsed.token || parsed.access_token || parsed.data?.token || parsed.data || token;
+    }
+
+    if (typeof token === "string" && token.startsWith('"') && token.endsWith('"')) {
+      token = token.slice(1, -1);
+    }
+
+    if (!token || typeof token !== "string") {
+      throw new Error("API token auth failure: provider returned an empty token.");
+    }
+
+    // The gateway does not document a token TTL. Honour expires_in when it is
+    // ever sent, otherwise assume one hour and refresh with skew.
+    let ttlMs = GATEWAY_TOKEN_DEFAULT_TTL_MS;
+    const expiresIn = Number(parsed?.expires_in ?? parsed?.expiresIn);
+    if (Number.isFinite(expiresIn) && expiresIn > 0) ttlMs = expiresIn * 1000;
+
+    gatewayTokenCache = { token, expiresAt: Date.now() + ttlMs };
+    return token;
+  })();
+
   try {
-    const json = JSON.parse(rawText);
-    token = json.token || json.access_token || json.data?.token || json.data || token;
-  } catch (e) {
-    // raw string
+    return await gatewayTokenInFlight;
+  } finally {
+    gatewayTokenInFlight = null;
   }
-
-  if (typeof token === "string" && token.startsWith('"') && token.endsWith('"')) {
-    token = token.slice(1, -1);
-  }
-
-  return token;
 }
 
 // 1. GATEWAY DEPOSIT / COLLECTION
@@ -1144,22 +1626,48 @@ app.post("/api/payment/deposit", async (req, res) => {
       : createTransactionId("DEP");
     const webhookUrl = process.env.PAYMENT_WEBHOOK_URL || `${req.protocol}://${req.get("host")}/api/payment/webhook`;
 
-    const depositRes = await fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/deposit`, {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "secret_key": zKey,
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        amount: depAmt,
-        phone: depositPhone,
+    // Persist the pending transaction BEFORE contacting the provider. If the
+    // call times out, errors, or the process dies mid-flight, there is still a
+    // local record for the webhook to settle. The previous order (provider
+    // first, then save) meant a crash left the user with no local trace of a
+    // collection that may have succeeded upstream.
+    await saveTransaction(trans_id, phone, depAmt, type, depositPhone, operator, itemId);
+
+    let depositRes: Response;
+    try {
+      depositRes = await withProviderSlot(operator, () => fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/deposit`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "secret_key": zKey,
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: depAmt,
+          phone: depositPhone,
+          trans_id,
+          callback_url: webhookUrl,
+          webhook_url: webhookUrl
+        })
+      }));
+    } catch (error: any) {
+      if (error instanceof ProviderBusyError) {
+        // Nothing was sent upstream, so the reservation must be released
+        // rather than left pending for a webhook that will never arrive.
+        await completeFailedTransaction(trans_id).catch(() => undefined);
+        return providerBusyResponse(res);
+      }
+      // Unknown outcome: the provider may have accepted the collection. Keep
+      // the record pending so the webhook can settle it.
+      logError(" deposit collection error:", error);
+      return res.status(202).json({
+        success: true,
         trans_id,
-        callback_url: webhookUrl,
-        webhook_url: webhookUrl
-      })
-    });
+        status: "PENDING",
+        message: "Deposit submitted. Awaiting payment-provider confirmation."
+      });
+    }
 
     const bodyText = await depositRes.text();
     let depResult: any = {};
@@ -1170,13 +1678,14 @@ app.post("/api/payment/deposit", async (req, res) => {
     }
 
     if (!depositRes.ok) {
+      // The provider explicitly declined, so release the pending row and refund
+      // any reservation instead of leaving it hanging.
+      await completeFailedTransaction(trans_id).catch(() => undefined);
       return res.status(400).json({ 
         error: depResult.message || depResult.error || `Gateway returned error code: ${depositRes.status}` 
       });
     }
 
-    // Save pending transaction record in Firestore
-    await saveTransaction(trans_id, phone, depAmt, type, depositPhone, operator, itemId);
     await createNotification(
       phone,
       "Deposit Initiated",
@@ -1297,7 +1806,7 @@ app.post("/api/payment/status", async (req, res) => {
     const token = await getGatewayToken();
     const zKey = process.env.PAYMENT_SECRET_KEY;
 
-    const queryRes = await fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/transaction`, {
+    const queryRes = await withProviderSlot(tx.operator || "default", () => fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/transaction`, {
       method: "POST",
       headers: {
         "Accept": "application/json",
@@ -1309,7 +1818,7 @@ app.post("/api/payment/status", async (req, res) => {
         type: tx.type === "withdrawal" ? "withdraw" : "deposit",
         trans_id
       })
-    });
+    }));
 
     const bodyText = await queryRes.text();
     let zuluTx: any = {};
@@ -1466,7 +1975,11 @@ app.post("/api/payment/withdraw", async (req, res) => {
 
     let withdrawRes: Response;
     try {
-      withdrawRes = await fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/withdraw`, {
+      // Keyed by operator + account, not operator alone. Two users cashing out
+      // to different numbers are independent payouts, so they should not queue
+      // behind each other; two requests from the SAME account must serialise, or
+      // a double tap could produce two payouts against one balance.
+      withdrawRes = await withProviderSlot(`${operator}:${phone}`, () => fetchWithTimeout(`${PAYMENT_GATEWAY_URL}/api/withdraw`, {
         method: "POST",
         headers: {
           "Accept": "application/json",
@@ -1483,8 +1996,14 @@ app.post("/api/payment/withdraw", async (req, res) => {
           callback_url: webhookUrl,
           webhook_url: webhookUrl
         })
-      });
+      }));
     } catch (error: any) {
+      // The provider never accepted the payout when the gate is saturated, so
+      // the reserved points must go back to the user's balance.
+      if (error instanceof ProviderBusyError) {
+        await completeFailedTransaction(trans_id).catch(() => undefined);
+        return providerBusyResponse(res);
+      }
       // A timeout can mean the provider accepted the payout. Keep the local
       // record pending so a later webhook cannot pay against a refunded user.
       logError("Withdrawal request outcome is unknown:", error);
@@ -1728,6 +2247,25 @@ app.get("/api/admin/chat/conversations", async (req, res) => {
     res.json(data);
   } catch (error: any) {
     logError("Get admin conversations error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Provider gate saturation + local pending backlog. Lets an operator see a
+// queue forming before it turns into user-visible failures.
+app.get("/api/admin/queue-stats", async (_req, res) => {
+  try {
+    const gates = getProviderQueueStats();
+    const pendingWithdrawals = await countPendingWithdrawals();
+    const pendingDeposits = await countPendingDeposits();
+    res.json({
+      success: true,
+      provider: gates,
+      backlog: { pendingWithdrawals, pendingDeposits },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    logError("Queue stats error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2920,7 +3458,6 @@ async function startServer() {
     });
   }
 
-  
   const listenPort = isNaN(Number(PORT)) ? PORT : Number(PORT);
   if (typeof listenPort === "number") {
     app.listen(listenPort, "0.0.0.0", () => {
