@@ -193,7 +193,7 @@ function AuthField({
       </span>
       <input
         {...props}
-        className={`w-full pl-10 pr-10 py-3 sm:pl-12 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[10px] text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[13.5px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
+        className={`w-full pl-10 pr-10 py-3 sm:pl-12 sm:py-3.5 bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] rounded-[10px] text-[var(--theme-text-muted)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-[14px] sm:text-[13.5px] font-sans font-medium outline-none transition-colors focus:border-[var(--theme-primary)] select-text ${className ?? ""}`}
       />
     </div>
   );
@@ -240,8 +240,8 @@ function CountrySelect({
         className="h-9 flex items-center gap-2 pl-1.5 pr-1.5 rounded-[8px] text-[var(--theme-text)] cursor-pointer hover:bg-[var(--theme-primary)]/10 transition-colors"
       >
         <img src={value.flag} alt="" className="w-6 h-4 rounded-[2px] object-cover" draggable={false} />
-        <span className="text-[16px] font-sans font-semibold tabular-nums">{value.dialCode}</span>
-        <ChevronDown className={`w-4 h-4 opacity-50 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="text-[13.5px] font-sans font-normal tabular-nums">{value.dialCode}</span>
+        <ChevronDown className={`w-4 h-4 -ml-2 opacity-50 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open ? (
         <div
@@ -303,7 +303,7 @@ function PhoneInput({
         <CountrySelect value={country} onChange={onCountryChange} />
         <input
           {...props}
-          className="phone-input w-full pl-[124px] pr-3 sm:pr-4 py-3 sm:py-3.5 text-[var(--theme-text)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-base sm:text-[15px] font-sans font-medium select-text"
+          className="phone-input w-full -ml-4 pl-[124px] pr-3 sm:pr-4 py-3 sm:py-3.5 text-[var(--theme-text-muted)] placeholder:text-[var(--theme-text-muted)] placeholder:font-normal placeholder:text-[14px] sm:placeholder:text-[13.5px] text-[13.5px] sm:text-[13.5px] font-sans font-normal select-text"
         />
       </div>
 
@@ -490,6 +490,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -675,6 +676,14 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const handleSubmit = async (e: React.FormEvent, mode: "login" | "register") => {
     e.preventDefault();
+
+    // The register button is disabled until the Terms are accepted, but a
+    // stray Enter keypress can still implicitly submit the form, so the guard
+    // lives here too rather than only on the button.
+    if (mode === "register" && !agreedToTerms) {
+      toast.error("Please agree to the Terms of Service to continue.");
+      return;
+    }
 
     if (!phone || !password) {
       toast.error("Please enter both phone and password.");
@@ -1062,7 +1071,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                       </>
                     ) : (
                       <>
-                        Login <ArrowRight className="w-4 h-4" />
+                        Login
                       </>
                     )}
                   </PrimaryButton>
@@ -1070,7 +1079,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
               </form>
 
-              <div className="border-t border-[var(--theme-card-border)] mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className=" mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
                 New here?{" "}
                 <button
                   type="button"
@@ -1096,15 +1105,13 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
                 Let's get started
               </h1>
-              <p className="mt-3 mb-1 text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                Fill in your details...
-              </p>
+              
 
               {regBonus > 0 && (
-                <div className="relative overflow-hidden rounded-xl sm:rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
+                <div className="relative mt-4 overflow-hidden rounded-xl sm:rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
                   <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
                     <Gift className="w-9 h-9 shrink-0 text-[var(--theme-primary)]" />
-                    Plus UGX {regBonus.toLocaleString()} Registration bonus upon first login.
+                    UGX {regBonus.toLocaleString()} bonus after registration.
                   </p>
                 </div>
               )}
@@ -1182,6 +1189,28 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   )}
                 </div>
 
+                {/* Terms agreement — required before the register button
+                     becomes active. The Terms of Service link is a placeholder
+                     hashtag until the document is written. */}
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--theme-primary)]"
+                  />
+                  <span className="text-[13px] font-sans text-[var(--theme-text-muted)]">
+                    I agree to the{" "}
+                    <a
+                      href="#"
+                      onClick={(e) => e.preventDefault()}
+                      className="font-semibold text-[var(--theme-text)] underline underline-offset-2 hover:text-[var(--theme-primary)]"
+                    >
+                      Terms of Service.
+                    </a>
+                  </span>
+                </label>
+
                 {/* Optional Telegram binding — pill floats right with the
                     info icon outside it and an Optional subtext below. The
                     verified id_token attaches to the register submit; the
@@ -1193,22 +1222,31 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
 
                 <div className="pt-2">
-                  <PrimaryButton type="submit" disabled={isLoading}>
+                  {/* Disabled until every required field is filled and the
+                       Terms are accepted. */}
+                  <PrimaryButton
+                    type="submit"
+                    disabled={
+                      isLoading ||
+                      phone.length < 9 ||
+                      password.length === 0 ||
+                      username.trim() === "" ||
+                      !agreedToTerms
+                    }
+                  >
                     {isLoading ? (
                       <>
                         <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                         Processing..
                       </>
                     ) : (
-                      <>
-                        Register <ArrowRight className="w-4 h-4" />
-                      </>
+                      "Register"
                     )}
                   </PrimaryButton>
                 </div>
               </form>
 
-              <div className="border-t border-[var(--theme-card-border)] mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="mt-5 sm:mt-6 pt-4 sm:pt-5 text-center text-[13px] sm:text-sm font-sans text-[var(--theme-text-muted)]">
                 Already have an account?{" "}
                 <button
                   type="button"
@@ -1452,7 +1490,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               )}
 
               <div className="flex-1" />
-              <div className="border-t border-[var(--theme-card-border)] mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
+              <div className="mt-8 pt-5 text-center text-sm font-sans text-[var(--theme-text-muted)]">
                 Remembered it?{" "}
                 <button
                   type="button"
@@ -1529,7 +1567,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       <header className="sticky top-0 z-50 border-b border-[var(--theme-card-border)]/60 bg-[var(--theme-bg)]/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="relative max-w-7xl mx-auto px-5 sm:px-8 h-16 md:h-[72px] flex items-center gap-3">
           <BrandLogo siteConfig={activeConfig} className="w-9 h-9 flex items-center justify-center shrink-0" />
-          <span className="hidden sm:inline font-display font-black text-base md:text-lg tracking-tight uppercase">
+          <span className="hidden sm:inline font-black text-base md:text-md  uppercase">
             {brandName}
           </span>
 
