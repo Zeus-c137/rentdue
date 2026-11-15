@@ -22,23 +22,36 @@ interface CapitalChipProps {
   amount: number;
   /** Formatter from useCurrency(), so the tile matches every other surface. */
   formatCurrency: (amountUgx: number) => string;
+  /** Current display currency, so the count-up animates in the shown unit. */
+  currency: "UGX" | "USD";
+  /** UGX per 1 USD, used to convert before counting. */
+  exchangeRate: number;
   onOpen: () => void;
 }
 
-/** Counts from 0 to `value` on mount, then snaps to any later change without
- *  re-running the sweep — a poll that updates the balance every minute should
- *  not replay the entrance. The mount sweep and the live sync share one effect
- *  so the two cannot race: a separate value effect would set the full amount
- *  on the first commit and the sweep's first frame would visibly snap back to 0. */
-function useCountUp(value: number, animate: boolean): number {
-  const [display, setDisplay] = useState(animate ? 0 : value);
+/**
+ * Counts from 0 to `value` on mount, then snaps to any later change without
+ * re-running the sweep — a poll that updates the balance every minute should
+ * not replay the entrance. The mount sweep and the live sync share one effect
+ * so the two cannot race: a separate value effect would set the full amount
+ * on the first commit and the sweep's first frame would visibly snap back to 0.
+ *
+ * `decimals` is how many places the shown unit carries. Rounding to whole
+ * numbers is wrong for USD: it turns $5.41 into $5, and any balance under one
+ * dollar into a hard $0 — which reads as "my money is gone".
+ */
+function useCountUp(value: number, animate: boolean, decimals = 0): number {
+  const factor = Math.pow(10, decimals);
+  const quantise = (n: number) => Math.round(n * factor) / factor;
+
+  const [display, setDisplay] = useState(() => (animate ? 0 : quantise(value)));
   const mounted = useRef(false);
 
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       if (!animate) {
-        setDisplay(value);
+        setDisplay(quantise(value));
         return;
       }
       const duration = 620;
@@ -48,23 +61,43 @@ function useCountUp(value: number, animate: boolean): number {
         const t = Math.min(1, (now - startedAt) / duration);
         // ease-out: fast off the mark, settles gently
         const eased = 1 - Math.pow(1 - t, 3);
-        setDisplay(Math.round(value * eased));
+        setDisplay(quantise(value * eased));
         if (t < 1) frame = requestAnimationFrame(tick);
       };
       frame = requestAnimationFrame(tick);
       return () => cancelAnimationFrame(frame);
     }
-    setDisplay(value);
-  }, [value, animate]);
+    setDisplay(quantise(value));
+  }, [value, animate, factor]);
 
   return display;
 }
 
-export default function CapitalChip({ amount, formatCurrency, onOpen }: CapitalChipProps) {
+export default function CapitalChip({
+  amount,
+  formatCurrency,
+  currency,
+  exchangeRate,
+  onOpen,
+}: CapitalChipProps) {
   const reduce = useReducedMotion();
   const pulse = useShimmerPulse();
   const value = Math.max(0, Number(amount) || 0);
-  const display = useCountUp(value, !reduce);
+
+  // Count in the displayed unit. Counting in UGX and converting at the end
+  // would animate 0 -> 20,000 and then jump to $5.41, which reads as a
+  // glitch rather than a currency switch.
+  const rate = exchangeRate > 0 ? exchangeRate : 1;
+  const target = currency === "USD" ? value / rate : value;
+  // Two decimals for USD so the count-up does not truncate $5.41 to $5.
+  const display = useCountUp(target, !reduce, currency === "USD" ? 2 : 0);
+
+  // `display` is already in the shown unit, so format it directly rather
+  // than handing UGX to a formatter that would convert a second time.
+  const shown =
+    currency === "USD"
+      ? "$" + display.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : formatCurrency(display);
 
   return (
     <motion.button
@@ -86,7 +119,7 @@ export default function CapitalChip({ amount, formatCurrency, onOpen }: CapitalC
             pulse ? "animate-shimmer-slow" : ""
           }`}
         >
-          {formatCurrency(display)}
+          {shown}
         </span>
       </span>
     </motion.button>

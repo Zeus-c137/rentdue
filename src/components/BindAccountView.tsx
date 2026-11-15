@@ -8,6 +8,7 @@ import { ArrowLeft, Phone, Wallet, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { UserProfile } from "../types";
+import CurrencyFlagSelect from "./CurrencyFlagSelect";
 
 interface BindAccountViewProps {
   userProfile: UserProfile;
@@ -277,6 +278,16 @@ export default function BindAccountView({ userProfile, onProfileUpdate, onBack }
               className="w-full pl-9 pr-4 py-2.5 input-frosted bg-[var(--theme-bg)]/60 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] text-[var(--theme-text)] text-xs rounded-[var(--theme-radius)] outline-none font-sans transition-colors select-text"
               placeholder="T..."
             />
+          </div>
+        </div>
+
+        {/* Display currency: the same flag control as the home card, so there is
+            one way to change it rather than two. Uganda is the only market the
+            product settles in locally, so it is the only one that can switch. */}
+        <div className="space-y-1.5 pt-2 border-t border-[var(--theme-card-border)]">
+          <label className="text-[12px] font-sans uppercase text-[var(--theme-text)] opacity-70 font-bold block">Display Currency</label>
+          <div className="flex items-center justify-between gap-3">
+            <CurrencyFlagSelect size="md" />
           </div>
         </div>
 

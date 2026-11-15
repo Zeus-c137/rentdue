@@ -26,29 +26,13 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Gift, Plus, Share2Icon } from "lucide-react";
-import { TransactionRow, UserProfile } from "../types";
-import { fetchJsonWithSignal } from "../utils/abortableFetch";
+import { UserProfile } from "../types";
 import { buildInviteLink } from "../utils/referral";
 import { useClipboard } from "../hooks/useClipboard";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { POLL_INTERVAL_MS } from "../utils/motion";
 import GiftCodeSheet from "./GiftCodeSheet";
-
-/** Every ledger type that credits the withdrawable (Cash Out) balance. */
-const CREDIT_TYPES = new Set([
-  "daily_yield",
-  "referral_signup_bonus",
-  "referral_level_income",
-  "daily_checkin_bonus",
-  "gift_code",
-  "vip_task",
-  "registration_bonus",
-]);
-
-const CREDITED = new Set(["SUCCESSFUL", "COMPLETED"]);
-const DAY_MS = 86_400_000;
-
-type WeekComparison = { thisWeek: number; lastWeek: number };
+import CurrencyFlagSelect from "./CurrencyFlagSelect";
 
 interface HomeBalanceCardProps {
   profile: UserProfile;
@@ -103,48 +87,10 @@ export default function HomeBalanceCard({
   onProfileUpdate,
 }: HomeBalanceCardProps) {
   const { copy } = useClipboard();
-  const [comparison, setComparison] = useState<WeekComparison | "loading">("loading");
   const [showGiftCode, setShowGiftCode] = useState(false);
   const [giftAvailable, setGiftAvailable] = useState(false);
   const withdrawable = Math.max(0, Number(profile.points) || 0);
   const inviteLink = useMemo(() => buildInviteLink(profile.inviteCode), [profile.inviteCode]);
-
-  // Two 7-day windows of credits, so the week reads as a share rather than an
-  // absolute. Re-runs with the profile because a check-in, a claim or a yield
-  // credit all move `points`.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    const phone = profile.phone;
-    if (!phone) {
-      setComparison({ thisWeek: 0, lastWeek: 0 });
-      return () => ctrl.abort();
-    }
-    fetchJsonWithSignal<TransactionRow[]>(`/api/profile/transactions/${phone}`, ctrl.signal)
-      .then((rows) => {
-        if (ctrl.signal.aborted || !Array.isArray(rows)) return;
-        const startOfToday = new Date();
-        startOfToday.setHours(0, 0, 0, 0);
-        const startMs = startOfToday.getTime();
-        // Index 13 is today; 6 is a week ago.
-        const days = new Array<number>(14).fill(0);
-        for (const tx of rows) {
-          const type = String(tx.type || "").toLowerCase();
-          if (!CREDIT_TYPES.has(type)) continue;
-          if (!CREDITED.has(String(tx.status || "").toUpperCase())) continue;
-          const at = new Date(tx.timestamp).getTime();
-          if (!Number.isFinite(at) || at < startMs - 13 * DAY_MS) continue;
-          const idx = 13 - Math.floor((startMs - at) / DAY_MS);
-          if (idx >= 0 && idx < 14) days[idx] += Number(tx.amount) || 0;
-        }
-        const thisWeek = days.slice(7).reduce((a, b) => a + b, 0);
-        const lastWeek = days.slice(0, 7).reduce((a, b) => a + b, 0);
-        if (!ctrl.signal.aborted) setComparison({ thisWeek, lastWeek });
-      })
-      .catch(() => {
-        if (!ctrl.signal.aborted) setComparison({ thisWeek: 0, lastWeek: 0 });
-      });
-    return () => ctrl.abort();
-  }, [profile.phone, profile.points]);
 
   // A live, unredeemed code is worth a pulse on the Gift code action — the same
   // signal ProfileView shows on its own row.
@@ -174,42 +120,6 @@ export default function HomeBalanceCard({
     void copy(inviteLink, "Invite link copied");
   };
 
-  const weekBadge = (() => {
-    if (comparison === "loading") {
-      return <span aria-hidden className="block h-5 w-28 animate-pulse rounded-full bg-[var(--theme-text)]/10" />;
-    }
-    if (comparison.thisWeek <= 0 && comparison.lastWeek <= 0) {
-      return (
-        <span className="text-[12px] font-sans font-bold text-[var(--theme-text-muted)]">
-          No earnings this week
-        </span>
-      );
-    }
-    if (comparison.lastWeek <= 0) {
-      return (
-        <span className="inline-flex items-center rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 font-sans text-[12px] font-black text-[var(--theme-primary)]">
-          New this week
-        </span>
-      );
-    }
-    const pct = ((comparison.thisWeek - comparison.lastWeek) / comparison.lastWeek) * 100;
-    const flat = Math.abs(pct) < 0.5;
-    const up = pct > 0;
-    return (
-      <span
-        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-sans text-[12px] font-black tabular-nums ${
-          flat
-            ? "bg-[var(--theme-text)]/[0.06] text-[var(--theme-text-muted)]"
-            : up
-              ? "bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]"
-              : "bg-rose-500/10 text-rose-500"
-        }`}
-      >
-        {flat ? "=" : up ? "\u2191" : "\u2193"} {Math.abs(pct).toFixed(0)}%
-      </span>
-    );
-  })();
-
   return (
     // Full-bleed against the header card: the scroll container pads its
     // children, so the card pulls itself back out to keep the seam flush.
@@ -220,13 +130,18 @@ export default function HomeBalanceCard({
         <p className="text-[11px] font-display font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
           Withdrawable balance
         </p>
+        {/* Flag + chevron, directly under the label: tapping it switches between
+            UGX and USD. A viewer whose account is already outside Uganda has
+            nothing to switch, so they get a static flag and no chevron. */}
+        <div className="mt-1.5 flex justify-center">
+          <CurrencyFlagSelect />
+        </div>
         <p
           ref={balanceRef}
-          className="mt-1.5 truncate font-display text-[36px] font-black leading-none tracking-tight tabular-nums"
+          className="mt-1 truncate font-display text-[36px] font-black leading-none tracking-tight tabular-nums"
         >
           {formatCurrency(withdrawable)}
         </p>
-        <p className="mt-2.5 flex min-h-[24px] items-center justify-center">{weekBadge}</p>
       </div>
 
       {/* Centred on the card's bottom edge; the card border crosses behind.

@@ -119,7 +119,7 @@ export default function IncomeView({
         origin: { y: 0.6 }
       });
 
-      toast.success(`Claimed UGX ${data.pointsClaimed.toLocaleString()} Shs income from ${data.itemName}!`);
+      toast.success(`Claimed ${formatCurrency(data.pointsClaimed)} income from ${data.itemName}!`);
 
       if (onClaimSuccess) {
         onClaimSuccess(data.pointsClaimed, data.updatedPoints, subId);

@@ -24,7 +24,13 @@ import AlertsView from "./components/AlertsView";
 import AdminView from "./components/AdminView";
 import { BrandLogo } from "./components/BrandLogo";
 import { toast } from "sonner";
-import { useCurrency } from "./currency";
+import {
+  CurrencyProvider,
+  loadCurrencyPreference,
+  saveCurrencyPreference,
+  useCurrency,
+  type CurrencyPreference,
+} from "./currency";
 
 import confetti from "canvas-confetti";
 import {
@@ -100,7 +106,10 @@ function writeBootShell(config: any) {
 }
 
 export default function App() {
-  const { formatCurrency } = useCurrency();
+  // NOTE: do not call useCurrency() here for the header formatter. This
+  // component renders the provider, so at this point the hook would read the
+  // module default (always UGX) and the header would never follow a currency
+  // change. `currencyValue.formatCurrency` below is the live one.
   const [isAdminRoute, setIsAdminRoute] = useState(
     window.location.pathname.startsWith("/admin/access") || window.location.hash.startsWith("#/admin/access")
   );
@@ -187,6 +196,26 @@ export default function App() {
   useEffect(() => {
     if (siteConfig) writeBootShell(siteConfig);
   }, [siteConfig]);
+
+  // Currency is resolved once, here, and shared through context so the ~25
+  // components that format money never have to know which viewer they serve.
+  // The admin-configured USDT rate is the conversion rate; before site config
+  // lands (or when it is not set) the module fallback applies.
+  //
+  // "auto" is the default and follows the account: a Ugandan number sees UGX,
+  // everyone else USD. The toggle on the home card and in account details pins
+  // it to one or the other, and that choice is remembered per device.
+  const [currencyPreference, setCurrencyPreferenceState] = useState<CurrencyPreference>(loadCurrencyPreference);
+  const setCurrencyPreference = useCallback((next: CurrencyPreference) => {
+    setCurrencyPreferenceState(next);
+    saveCurrencyPreference(next);
+  }, []);
+
+  const currencyValue = useCurrency(userProfile?.phone, Number(siteConfig?.usdtRate) || null, {
+    preference: currencyPreference,
+    setPreference: setCurrencyPreference,
+  });
+
   const chatUnread = useChatUnread(userProfile?.phone);
   const [userNotifications, setUserNotifications] = useState<NotificationItem[]>([]);
   // Unread alerts: anything newer than the last time the bell was opened. Kept
@@ -603,7 +632,8 @@ export default function App() {
   const isMainApp = !isAdminRoute && !isRestoringSession && !!userProfile;
 
   return (
-    <ThemeProvider siteConfig={themeSeed}>
+    <CurrencyProvider value={currencyValue}>
+      <ThemeProvider siteConfig={themeSeed}>
       {!isMainApp ? renderContent() : (
       <div className="relative h-[100dvh] w-full bg-[var(--theme-bg)] text-[var(--theme-text)] font-sans selection:bg-blue-600/35 selection:text-white overflow-hidden flex items-center justify-center p-0 md:p-4">
       
@@ -680,7 +710,9 @@ export default function App() {
             material so every tab wears it; Home closes the seam with its balance card. */}
         <AppHeader
           profile={userProfile}
-          formatCurrency={formatCurrency}
+          formatCurrency={currencyValue.formatCurrency}
+          currency={currencyValue.currency}
+          exchangeRate={currencyValue.exchangeRate}
           chatUnread={chatUnread}
           alertsUnread={alertsUnread}
           showHistoryLink={activeTab !== "history"}
@@ -1108,6 +1140,7 @@ export default function App() {
       </div>
     </div>
       )}
-    </ThemeProvider>
+      </ThemeProvider>
+    </CurrencyProvider>
   );
 }
