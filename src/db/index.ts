@@ -26,6 +26,10 @@ export function getDb(): AppDb | null {
     if (!database) throw new Error("DATABASE_URL must include a database name");
     
     // Build connection config object
+    // Pool sizing is environment-driven so a busier host can raise it without a
+    // code change. queueLimit is deliberately finite: an unbounded queue turns
+    // pool saturation into a slow-motion pileup where every request eventually
+    // times out instead of failing fast.
     const config: mysql.PoolOptions = {
       host: urlObj.hostname,
       port: Number(urlObj.port || 3306),
@@ -33,8 +37,9 @@ export function getDb(): AppDb | null {
       password: decodeURIComponent(urlObj.password),
       database,
       waitForConnections: true,
-      connectionLimit: 50,
-      queueLimit: 0,
+      connectionLimit: Number.isFinite(Number(process.env.DB_POOL_MAX)) && Number(process.env.DB_POOL_MAX) > 0 ? Number(process.env.DB_POOL_MAX) : 50,
+      queueLimit: Number.isFinite(Number(process.env.DB_QUEUE_LIMIT)) && Number(process.env.DB_QUEUE_LIMIT) >= 0 ? Number(process.env.DB_QUEUE_LIMIT) : 200,
+      connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS) > 0 ? Number(process.env.DB_CONNECT_TIMEOUT_MS) : 10_000,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
     };
@@ -96,6 +101,21 @@ export async function ensureDatabaseSchema(): Promise<void> {
       INDEX idx_users_referred_by (referred_by_code),
       UNIQUE INDEX uq_users_username (username),
       UNIQUE INDEX uq_users_telegram_id (telegram_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS user_otp (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      contact VARCHAR(254) NOT NULL,
+      contact_type VARCHAR(16) NOT NULL DEFAULT 'email',
+      purpose VARCHAR(32) NOT NULL DEFAULT 'password_reset',
+      code_hash VARCHAR(128) NOT NULL,
+      expires_at VARCHAR(64) NOT NULL,
+      consumed_at VARCHAR(64) NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      max_attempts INT NOT NULL DEFAULT 5,
+      request_ip VARCHAR(64) NULL,
+      created_at VARCHAR(64) NOT NULL,
+      INDEX idx_user_otp_contact_purpose (contact, purpose),
+      INDEX idx_user_otp_expires_at (expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS subscribed_nodes (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -178,12 +198,14 @@ export async function ensureDatabaseSchema(): Promise<void> {
       mode VARCHAR(16) NULL,
       metadata JSON NULL,
       external_reference VARCHAR(160) NULL,
+      provider_reference VARCHAR(160) NULL,
       balance_applied_at VARCHAR(64) NULL,
       timestamp VARCHAR(64) NOT NULL,
       INDEX idx_transactions_user_id (user_id),
       INDEX idx_transactions_status (status),
       INDEX idx_transactions_user_status_type (user_id, status, type),
-      UNIQUE INDEX uq_transactions_external_reference (operator, external_reference)
+      UNIQUE INDEX uq_transactions_external_reference (operator, external_reference),
+      UNIQUE INDEX uq_transactions_provider_reference (type, provider_reference)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS vip_task_claims (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -267,6 +289,45 @@ export async function ensureDatabaseSchema(): Promise<void> {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
   }
 
+  // Withdrawal payout reference. Deposits use external_reference; withdrawals
+  // historically wrote NULL there, which left the payout path with no database
+  // level duplicate guard. provider_reference gives each withdrawal a stable key
+  // (WR-<txId>) so a retried or replayed payout cannot settle twice.
+  try {
+    await connection.query("ALTER TABLE transactions ADD COLUMN provider_reference VARCHAR(160) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  // Backfill the deterministic key for withdrawals that predate the column, so
+  // the unique index below does not have to coexist with NULLs on live rows.
+  //
+  // provider_reference is CONCAT('WR-', id) and id is the primary key, so the
+  // backfill is injective by construction and cannot collide with itself. A
+  // transaction type other than 'withdrawal' could already hold a WR-<id> value
+  // that matches one of these, which would abort the CREATE UNIQUE INDEX below.
+  // Drop just those rows to NULL first so the index can always be created and
+  // boot is never blocked by legacy data.
+  try {
+    await connection.query(`UPDATE transactions t
+      LEFT JOIN (
+        SELECT provider_reference FROM transactions
+        WHERE type <> 'withdrawal' AND provider_reference IS NOT NULL AND provider_reference <> ''
+      ) other ON other.provider_reference = CONCAT('WR-', t.id)
+      SET t.provider_reference = NULL
+      WHERE t.type = 'withdrawal'
+        AND (t.provider_reference IS NULL OR t.provider_reference = '')
+        AND other.provider_reference IS NOT NULL`);
+    await connection.query("UPDATE transactions SET provider_reference = CONCAT('WR-', id) WHERE type = 'withdrawal' AND (provider_reference IS NULL OR provider_reference = '')");
+  } catch (error: any) {
+    // A failure here must not block boot; the index is defence in depth.
+    console.warn("[Database] Could not backfill provider_reference:", error instanceof Error ? error.message : error);
+  }
+  try {
+    await connection.query("CREATE UNIQUE INDEX uq_transactions_provider_reference ON transactions (type, provider_reference)");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
+  }
+
   // Journey stage rewards: one claim per tier, tracked per user.
   try {
     await connection.query("ALTER TABLE users ADD COLUMN claimed_tier_rewards JSON NULL");
@@ -283,6 +344,28 @@ export async function ensureDatabaseSchema(): Promise<void> {
   }
   try {
     await connection.query("CREATE UNIQUE INDEX uq_users_telegram_id ON users (telegram_id)");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
+  }
+
+  // Email as a second login identifier. Nullable: every existing row and
+  // every phone-only signup leaves it NULL, and NULL must never match a lookup.
+  // Stored lowercased by the write path so `=` comparisons are effectively
+  // case-insensitive without relying on a citext collation the host may lack.
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN email VARCHAR(254) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN email_verified_at VARCHAR(64) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  // Uniqueness only bites on non-NULL values, which is exactly the partial
+  // index MySQL cannot express directly.
+  try {
+    await connection.query("CREATE UNIQUE INDEX uq_users_email ON users (email)");
   } catch (error: any) {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1061) throw error;
   }

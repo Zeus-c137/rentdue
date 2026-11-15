@@ -239,14 +239,6 @@ export default function FeaturedBotCard({
           {/* The item's own numbers, so the card is a real offer and not a banner. */}
           <div className="mt-3.5 grid grid-cols-3 gap-2">
             <div className="rounded-2xl px-2 py-2.5 text-center">
-              <p className="truncate font-display text-[15px] font-black leading-none tabular-nums">
-                {formatCurrency(Number(featured.amount || 0))}
-              </p>
-              <p className="mt-1.5 text-[9.5px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text-muted)]">
-                Price
-              </p>
-            </div>
-            <div className="rounded-2xl px-2 py-2.5 text-center">
               <p className="font-display text-[15px] font-black leading-none tabular-nums">
                 {days || "\u2014"}
                 <span className="ml-0.5 text-[10px] font-bold opacity-60">{days ? "d" : ""}</span>
@@ -256,7 +248,16 @@ export default function FeaturedBotCard({
               </p>
             </div>
             <div className="rounded-2xl px-2 py-2.5 text-center">
-              <p className="truncate font-display text-[15px] font-black leading-none tabular-nums">
+              <p className=" font-display text-[15px] font-black leading-none tabular-nums">
+                {formatCurrency(Number(featured.amount || 0))}
+              </p>
+              <p className="mt-1.5 text-[9.5px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text-muted)]">
+                Price
+              </p>
+            </div>
+          
+            <div className="rounded-2xl px-2 py-2.5 text-center">
+              <p className=" font-display text-[15px] font-black leading-none tabular-nums">
                 {formatCurrency(totalReturn)}
               </p>
               <p className="mt-1.5 text-[9.5px] font-sans font-bold uppercase tracking-wider text-[var(--theme-text-muted)]">

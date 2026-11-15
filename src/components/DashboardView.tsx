@@ -226,6 +226,9 @@ const listsReady = items.length > 0;
         return {
           key,
           label: String(i + 1),
+          // The card has no weekday header row, so the tile carries its own.
+          // Pinned to UTC because the grid is built from UTC midnights.
+          weekday: new Date(ms).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }),
           isToday,
           isFuture: ms > todayMs,
           // Next countdown tile: tomorrow once today is claimed. Distinct from greyed futures.
@@ -607,24 +610,36 @@ const listsReady = items.length > 0;
             const dimmed = missed || d.isFuture;
             const inner = (
               <>
+                {/* Coin pinned to the bottom-right corner; the date owns the
+                    top-left. Both are absolutely placed so the tile reads as a
+                    calendar cell rather than a stack of centred parts. */}
                 <img
                   src={dollar3d}
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  className={`w-8 h-8 object-contain ${dimmed ? "grayscale" : ""}`}
+                  className={`absolute bottom-0.5 right-0.5 h-[18px] w-[18px] object-contain ${dimmed ? "grayscale" : ""}`}
                 />
                 {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
-                <span
-                  className={`text-[9px] font-sans font-black uppercase tracking-wide ${
-                    d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
-                  }`}
-                >
-                  {d.label}
+                <span className="flex w-full flex-col items-start px-1 pt-1 leading-none">
+                  <span
+                    className={`text-[8px] font-sans font-black uppercase tracking-wide ${
+                      d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
+                    }`}
+                  >
+                    {d.weekday}
+                  </span>
+                  <span
+                    className={`mt-[3px] font-display text-[12px] font-black leading-none tabular-nums ${
+                      d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)]"
+                    }`}
+                  >
+                    {d.label}
+                  </span>
                 </span>
               </>
             );
-            const cls = `relative rounded-xl w-11 shrink-0 aspect-[4/5] flex flex-col items-center justify-center gap-1 ${
+            const cls = `relative overflow-hidden rounded-xl w-11 shrink-0 aspect-[4/5] ${
               d.claimed
                 ? ""
                 : active
