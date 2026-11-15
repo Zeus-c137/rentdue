@@ -119,7 +119,9 @@ function GiftCountdown({ expiryDate }: { expiryDate: string }) {
 }
 
 export default function AdminView() {
-  const { formatCurrency, currency } = useCurrency();
+  // Admin always works in UGX: every amount edited here is stored and
+  // settled in UGX, so the labels must not follow the display currency.
+  const { formatCurrency, currency } = useCurrency(undefined, undefined, { forceUgx: true });
   const isActivateRoute = window.location.pathname === "/admin/access/activate" || window.location.hash.startsWith("#/admin/access/activate");
   const [seedStatus, setSeedStatus] = useState<"pending" | "success" | "error">("pending");
   const [seedMessage, setSeedMessage] = useState("Activating admin account...");

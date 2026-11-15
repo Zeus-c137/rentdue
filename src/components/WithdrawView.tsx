@@ -77,7 +77,7 @@ export default function WithdrawView({
   onBack,
   onProfileUpdate,
 }: WithdrawViewProps) {
-  const { formatCurrency, currency } = useCurrency();
+  const { formatCurrency, exchangeRate } = useCurrency();
 
   const minimumWithdrawal =
     Number(siteConfig?.minimumWithdrawal) > 0 ? Math.floor(Number(siteConfig.minimumWithdrawal)) : 0;
@@ -285,7 +285,9 @@ export default function WithdrawView({
   );
 
   const inputCls = fieldShell;
-  const usdtAmount = (payout / (siteConfig?.usdtRate || 3700)).toFixed(2);
+  // Crypto is quoted in USDT regardless of the viewer's display currency,
+  // so this uses the shared UGX-per-USD rate rather than any local constant.
+  const usdtAmount = (payout / (Number(siteConfig?.usdtRate) || exchangeRate)).toFixed(2);
 
   /** Digits with thousands separators. */
   const withThousands = (value: string): string => {

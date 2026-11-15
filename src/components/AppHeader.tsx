@@ -22,6 +22,9 @@ import CapitalChip from "./CapitalChip";
 interface AppHeaderProps {
   profile: UserProfile;
   formatCurrency: (amountUgx: number) => string;
+  /** Display currency, so the capital chip counts in the shown unit. */
+  currency: "UGX" | "USD";
+  exchangeRate: number;
   chatUnread: number;
   alertsUnread: number;
   /** The history tab is already showing; a link to it would be a dead tap. */
@@ -65,6 +68,8 @@ function RailButton({
 export default function AppHeader({
   profile,
   formatCurrency,
+  currency,
+  exchangeRate,
   chatUnread,
   alertsUnread,
   showHistoryLink,
@@ -88,6 +93,8 @@ export default function AppHeader({
         <CapitalChip
           amount={profile.rechargeBalance || 0}
           formatCurrency={formatCurrency}
+          currency={currency}
+          exchangeRate={exchangeRate}
           onOpen={onOpenDeposit}
         />
       </div>

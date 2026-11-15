@@ -42,7 +42,7 @@ const firstRenderableImage = (...candidates: unknown[]) => {
 };
 
 export default function TransactionHistoryView({ phone, siteConfig, initialFilter = "all", onBack }: Props) {
-  const { formatCurrency } = useCurrency();
+  const { formatCurrency, exchangeRate } = useCurrency();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [txLoading, setTxLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<string>(initialFilter);
@@ -255,7 +255,7 @@ export default function TransactionHistoryView({ phone, siteConfig, initialFilte
                 </div>
                 <div className="text-right shrink-0 flex flex-col justify-center">
                   <p className={`text-[13px] font-display font-bold tracking-tight leading-none ${isPositive?"text-[var(--theme-primary)]":"text-[var(--theme-text)]"}`}>{isPositive?"+":"-"} {formatCurrency(amount)}</p>
-                  {siteConfig?.usdtRate && (tx.operator==="USDT"||String(tx.usdtAddress||"").startsWith("T")||String(tx.phone||"").startsWith("T")) && <p className="text-[10px] font-sans font-medium text-[var(--theme-primary)] mt-1">≈ ${(amount/ siteConfig.usdtRate).toFixed(2)}</p>}
+                  {siteConfig?.usdtRate && (tx.operator==="USDT"||String(tx.usdtAddress||"").startsWith("T")||String(tx.phone||"").startsWith("T")) && <p className="text-[10px] font-sans font-medium text-[var(--theme-primary)] mt-1">≈ ${(amount / (Number(siteConfig.usdtRate) || exchangeRate)).toFixed(2)}</p>}
                 </div>
               </div>
             );

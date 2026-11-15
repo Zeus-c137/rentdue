@@ -129,7 +129,7 @@ export default function ProfileView({
   onCloseAutoWithdraw
 }: ProfileViewProps) {
 
-  const { formatCurrency, currency } = useCurrency();
+  const { formatCurrency, exchangeRate } = useCurrency();
 
   const [showGiftCodeSheet, setShowGiftCodeSheet] = useState(false);
   const [giftCodeValue, setGiftCodeValue] = useState("");
@@ -371,9 +371,9 @@ export default function ProfileView({
       <VisaMetricCard
         inviteCode={userProfile.inviteCode}
         leftLabel="Trading capital"
-        leftValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.rechargeBalance || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.rechargeBalance || 0).toLocaleString()}`}
+        leftValue={formatCurrency(userProfile.rechargeBalance || 0)}
         rightLabel="Withdrawable balance"
-        rightValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.points || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.points || 0).toLocaleString()}`}
+        rightValue={formatCurrency(userProfile.points || 0)}
       />
       {/* Money actions. Two equal columns, tight under the balance card, so
           the pair reads as the card's own action row rather than two loose
@@ -723,7 +723,7 @@ export default function ProfileView({
 
                             {((tx.operator === "USDT" || tx.withdrawOperator === "USDT" || (tx.senderPhone || "").startsWith("T")) && siteConfig?.usdtRate) && (
                               <p className="text-[11px] font-sans text-[var(--theme-primary)] font-bold">
-                                ≈ ${((canon === "withdrawal" ? payoutAmount : (tx.amount || 0)) / siteConfig.usdtRate).toFixed(2)} USDT
+                                ≈ ${((canon === "withdrawal" ? payoutAmount : (tx.amount || 0)) / (Number(siteConfig.usdtRate) || exchangeRate)).toFixed(2)} USDT
                               </p>
                             )}
 

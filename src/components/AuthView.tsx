@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { UserProfile, SubscriptionItem } from "../types";
+import { useCurrency } from "../currency";
 import {
   Phone,
   Lock,
@@ -574,6 +575,11 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const activeConfig = localSiteConfig || siteConfig;
 
+  // Pre-login there is no account to read a country from, so the browser's
+  // own region decides. The moment a user signs in, App.tsx resolves it from
+  // their phone number instead and this value stops mattering.
+  const { formatCurrency } = useCurrency(null, Number(activeConfig?.usdtRate) || null);
+
   // Scroll spy for the desktop nav. Picks the section whose top edge has most
   // recently crossed the sticky-header line, so the active pill follows the
   // reading position instead of flickering between neighbours.
@@ -1111,7 +1117,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 <div className="relative mt-4 overflow-hidden rounded-xl sm:rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
                   <p className="flex items-center gap-1.5 text-xs font-sans text-[var(--theme-text-muted)]">
                     <Gift className="w-9 h-9 shrink-0 text-[var(--theme-primary)]" />
-                    UGX {regBonus.toLocaleString()} bonus after registration.
+                    {formatCurrency(regBonus)} bonus after registration.
                   </p>
                 </div>
               )}
@@ -1184,7 +1190,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                   />
                   {inviteBonus > 0 && (
                     <p className="mt-1.5 text-xs font-sans text-[var(--theme-primary)] font-semibold">
-                      Invite bonus: UGX {inviteBonus.toLocaleString()}
+                      Invite bonus: {formatCurrency(inviteBonus)}
                     </p>
                   )}
                 </div>
@@ -1831,7 +1837,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                           Price
                         </dt>
                         <dd className="mt-1.5 font-display font-black text-md tracking-tight">
-                          UGX {Number(featuredProduct.amount).toLocaleString()}
+                          {formatCurrency(Number(featuredProduct.amount))}
                         </dd>
                       </div>
                       <div>
@@ -1896,7 +1902,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
                 <div className="mt-8 flex flex-wrap gap-2.5">
                   <span className="rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-2 text-[12px] font-sans font-bold text-[var(--theme-text)]">
-                    From UGX {fromAmount.toLocaleString()}
+                    From {formatCurrency(fromAmount)}
                   </span>
                   <span className="rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-2 text-[12px] font-sans font-bold text-[var(--theme-text)]">
                     Up to {maxDuration} days
