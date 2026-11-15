@@ -402,13 +402,13 @@ export default function ProfileView({
           More
         </p>
         <div className="grid grid-cols-4 gap-x-1 gap-y-5 px-1">
-          <ProfileAction label="History" onClick={() => onNavigate("history")}>
-            <History className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          <ProfileAction label="Transactions" onClick={() => onNavigate("history")}>
+            <Calendar className="h-[22px] w-[22px]" strokeWidth={2.5} />
           </ProfileAction>
           <ProfileAction label="Invite" onClick={() => onNavigate("referral")}>
             <Share2Icon className="h-[22px] w-[22px]" strokeWidth={2.5} />
           </ProfileAction>
-          <ProfileAction label="Milestones" onClick={() => onNavigate("vip")}>
+          <ProfileAction label="Daily tasks" onClick={() => onNavigate("vip")}>
             <Trophy className="h-[22px] w-[22px]" strokeWidth={2.5} />
           </ProfileAction>
           <ProfileAction label="Collection" onClick={() => onNavigate("collection")}>
@@ -446,7 +446,7 @@ export default function ProfileView({
           {/* Conditional extras join the same grid rather than crowding a header. */}
           {!isInstalled ? (
             <ProfileAction
-              label="Install"
+              label="Install app"
               onClick={async () => {
                 if (canInstall) {
                   const accepted = await install();
