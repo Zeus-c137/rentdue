@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Coins, Copy, Info, Share2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, Coins, Copy, Info, Share2, Users, X } from "lucide-react";
 import { useCurrency } from "@/src/currency";
 import {
   getLevelMetrics,
@@ -18,7 +18,6 @@ import { useReducedMotion } from "@/src/hooks/useReducedMotion";
 import type { ReferralStat, SiteConfig, UserProfile } from "@/src/types";
 import { toast } from "sonner";
 import inviteUserArt from "@/src/assets/3d/3dicons-boy-iso-premium.png";
-import inviteLinkArt from "@/src/assets/3d/3dicons-link-iso-premium.png";
 
 type Props = {
   userProfile: UserProfile;
@@ -27,7 +26,7 @@ type Props = {
   initialView?: View;
 };
 
-type View = "overview" | "code" | "team";
+type View = "overview" | "team";
 
 function ErrorBanner({ msg }: { msg: string }) {
   if (!msg) return null;
@@ -42,12 +41,15 @@ type OverviewProps = {
   metrics: ReturnType<typeof getLevelMetrics>;
   isLoading: boolean;
   brandName: string;
+  inviteLink: string;
+  copiedLink: boolean;
+  onCopyLink: () => void;
+  onShare: () => void;
   onViewTeam: () => void;
-  onInvite: () => void;
   onHowItWorks: () => void;
 };
 
-function OverviewView({ metrics, isLoading, brandName, onViewTeam, onInvite, onHowItWorks }: OverviewProps) {
+function OverviewView({ metrics, isLoading, brandName, inviteLink, copiedLink, onCopyLink, onShare, onViewTeam, onHowItWorks }: OverviewProps) {
   const { formatCurrency } = useCurrency();
   const directInvites = metrics.find((metric) => metric.level === 1)?.count || 0;
   const totalEarned = metrics.reduce((sum, metric) => sum + metric.earned, 0);
@@ -61,15 +63,42 @@ function OverviewView({ metrics, isLoading, brandName, onViewTeam, onInvite, onH
         </p>
      
         <p className="pt-1 text-[16px] font-sans leading-relaxed">
-          Let’s invite your friends to <span className="font-bold">{brandName}</span>
+          Let's invite your friends to <span className="font-bold">{brandName}</span>
         </p>
-        <div className="flex justify-end pt-1">
+
+        {/* The link and its two actions in one row: copy is an icon, share is
+            the filled primary action. This replaces the old link page, which
+            held nothing else. */}
+        <div className="flex items-center gap-2 rounded-[14px] border border-white/10 bg-[var(--theme-card-bg)]/40 py-1.5 pl-3.5 pr-1.5 backdrop-blur-[20px] backdrop-saturate-[180%]">
+          <p className="min-w-0 flex-1 select-all truncate text-[13px] font-sans leading-relaxed">
+            {inviteLink || "N/A"}
+          </p>
+          <button
+            type="button"
+            onClick={onCopyLink}
+            disabled={!inviteLink}
+            aria-label={copiedLink ? "Referral link copied" : "Copy referral link"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--theme-primary)] transition-colors hover:bg-[var(--theme-primary)]/10 disabled:opacity-40"
+          >
+            {copiedLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={onShare}
+            disabled={!inviteLink}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--theme-primary)] transition-colors hover:bg-[var(--theme-primary)]/10 disabled:opacity-40"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+          
+          </button>
+        </div>
+
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={onViewTeam}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--theme-primary)]/40 px-3 py-2 text-[11px] font-sans font-black text-[var(--theme-primary)] transition-colors hover:bg-[var(--theme-primary)]/10"
           >
-           
             My invites
           </button>
         </div>
@@ -93,72 +122,6 @@ function OverviewView({ metrics, isLoading, brandName, onViewTeam, onInvite, onH
       </section>
 
       <div className="space-y-3">
-        <button
-          type="button"
-          onClick={onInvite}
-          className="w-full rounded-full bg-[var(--theme-primary)] px-5 py-3.5 text-[16px] font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.98]"
-        >
-          <span className="inline-flex items-center justify-center gap-2">
-            Invite friends
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={onHowItWorks}
-          className="inline-flex w-full items-center justify-center gap-2 py-2 text-[13px] font-sans font-bold text-[var(--theme-text)] opacity-70 underline decoration-white/20 underline-offset-4 transition-opacity hover:opacity-100"
-        >
-          <Info className="h-4 w-4" aria-hidden="true" />
-          How does it work?
-        </button>
-      </div>
-    </div>
-  );
-}
-
-type CodeViewProps = {
-  inviteLink: string;
-  copiedLink: boolean;
-  onCopyLink: () => void;
-  onShare: () => void;
-  onHowItWorks: () => void;
-};
-
-function CodeView({ inviteLink, copiedLink, onCopyLink, onShare, onHowItWorks }: CodeViewProps) {
-  return (
-    <div className="space-y-6">
-      <section className="flex flex-col items-center pt-2 text-center">
-        <img src={inviteLinkArt} alt="" aria-hidden="true" className="mb-3 h-16 w-16 object-contain" />
-        <h1 className="max-w-[18rem] font-display text-[23px] font-black leading-tight tracking-tight">
-          Here’s your referral link. Share it.
-        </h1>
-        
-      </section>
-
-      <section aria-label="Your referral link" className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/40 px-4 py-4 backdrop-blur-[20px] backdrop-saturate-[180%]">
-        <p className="min-w-0 flex-1 select-all break-all text-[16px]  leading-relaxed">{inviteLink || "N/A"}</p>
-        <button
-          type="button"
-          onClick={onCopyLink}
-          aria-label={copiedLink ? "Referral link copied" : "Copy referral link"}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--theme-primary)] transition-colors hover:bg-[var(--theme-primary)]/10"
-        >
-          {copiedLink ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-        </button>
-      </section>
-
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={onShare}
-          disabled={!inviteLink}
-          className="w-full rounded-full bg-[var(--theme-primary)] px-5 py-3.5 text-[16px] font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.98] disabled:opacity-50"
-        >
-          <span className="inline-flex items-center justify-center gap-2">
-            <Share2 className="h-4 w-4" aria-hidden="true" />
-            Share invite link
-          </span>
-        </button>
         <button
           type="button"
           onClick={onHowItWorks}
@@ -340,15 +303,11 @@ export default function ReferralView({ userProfile, siteConfig, onBack, initialV
       metrics={levelMetrics}
       isLoading={isLoading}
       brandName={brandName}
-      onViewTeam={() => setView("team")}
-      onInvite={() => setView("code")}
-      onHowItWorks={() => setShowHowItWorks(true)}
-    />,
-    code: <CodeView
       inviteLink={inviteLink}
       copiedLink={copiedLink}
       onCopyLink={() => copyLink(inviteLink, "Referral link copied")}
       onShare={() => void shareInvite()}
+      onViewTeam={() => setView("team")}
       onHowItWorks={() => setShowHowItWorks(true)}
     />,
     team: <InviteTeamView stats={stats} isLoading={isLoading} activeLevel={activeLevel} onActiveLevelChange={setActiveLevel as (l: 1 | 2 | 3 | 4) => void} activeLevelStats={activeLevelStats} siteConfig={liveSiteConfig ?? siteConfig} />,

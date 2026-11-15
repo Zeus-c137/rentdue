@@ -898,6 +898,18 @@ export async function updateUserProfile(
     createdAt: new Date().toISOString()
   };
 
+  // Email is editable from the account screen, but an address only counts
+  // once it has been verified. Changing it clears the flag, so a verified
+  // badge can never sit on an address the user has not proved they own.
+  // Saving the same address back keeps whatever flag it already had.
+  if (updates.email !== undefined) {
+    const requested = updates.email === null ? null : String(updates.email).trim().toLowerCase();
+    if (requested !== ((existing as any).email || null)) {
+      (updates as any).emailVerifiedAt = null;
+    }
+    (updates as any).email = requested;
+  }
+
   const updated: UserProfile = { ...existing, ...updates };
   if (updates.username !== undefined && updates.username !== existing.username) {
     throw new Error("Your username is permanent because it is also your invite code.");

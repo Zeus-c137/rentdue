@@ -1290,13 +1290,11 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </>
               ) : resetStep === "code" ? (
                 <>
-                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
-                    Enter your
-                    <br />
-                    code.
+                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[30px] sm:text-[32px] leading-[1.08] tracking-tight">
+                    Enter OTP code.
                   </h1>
-                  <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
-                    If that email matches a verified account, a 6-digit code is on its way. It expires in 15 minutes.
+                  <p className="mt-2 sm:mt-3 text-xs sm:text-[10px] font-sans text-[var(--theme-text-muted)]">
+                    A 6-digit code is on its way. Check your spam folder if you don't see the email.
                   </p>
 
                   <div className="mt-5 flex items-center gap-2 rounded-xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] px-4 py-3">
@@ -1396,10 +1394,8 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                 </>
               ) : (
                 <>
-                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
-                    Reset your
-                    <br />
-                    password.
+                  <h1 className="font-display font-black text-[30px] min-[380px]:text-[30px] sm:text-[32px] leading-[1.08] tracking-tight">
+                    Reset your password.
                   </h1>
                   <p className="mt-2 sm:mt-3 text-sm sm:text-[15px] font-sans text-[var(--theme-text-muted)] leading-relaxed">
                     Enter the email on your account and we'll send you a reset code.

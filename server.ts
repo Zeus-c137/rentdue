@@ -1300,17 +1300,41 @@ app.post("/api/auth/profile", async (req, res) => {
     return res.status(400).json({ error: "Missing updated profile parameters." });
   }
 
+  // Email is optional and editable here. A blank string clears it; anything
+  // else has to be a real address. Whatever is saved is stored UNVERIFIED —
+  // only the verify-email endpoints move an address to verified, and changing
+  // the address clears the flag again (see updateUserProfile).
+  let emailUpdate: string | null | undefined;
+  if (req.body?.email !== undefined) {
+    const raw = String(req.body.email || "").trim().toLowerCase();
+    if (!raw) {
+      emailUpdate = null;
+    } else if (!EMAIL_PATTERN.test(raw) || raw.length > 254) {
+      return res.status(400).json({ error: "Enter a valid email address." });
+    } else {
+      emailUpdate = raw;
+    }
+  }
+
   try {
-    const profile = await updateUserProfile(
-      phone.trim(),
-      username.trim(),
+    const profile = await updateUserProfile(phone.trim(), {
+      username: username.trim(),
       operator,
-      customPhone.trim(),
-      newPassword,
-      usdtAddress
-    );
+      usdtAddress,
+      ...(newPassword ? { password: newPassword } : {}),
+      ...(emailUpdate !== undefined ? { email: emailUpdate } : {})
+    } as any);
     res.json({ success: true, profile: publicProfile(profile) });
   } catch (error: any) {
+    // A duplicate address is the user's error, not a server fault. Reword it
+    // so the unique-index name never leaks.
+    const detail = String(error?.message || "");
+    if (error?.name === "DuplicateEntryError" || Number(error?.statusCode) === 409) {
+      if (detail.includes("uq_users_email")) {
+        return res.status(409).json({ error: "That email is already on another account." });
+      }
+      return res.status(409).json({ error: "Those details are already in use." });
+    }
     logError("Profile Edit Error:", error);
     res.status(400).json({ error: error.message });
   }

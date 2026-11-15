@@ -66,6 +66,54 @@ interface ProfileViewProps {
   onCloseAutoWithdraw?: () => void;
 }
 
+/**
+ * A profile action: black pill, theme-green glyph, label underneath.
+ *
+ * Same shape as the dashboard home money actions. The label sits outside the
+ * pill (a second line), so the whole tap target is the wrapper rather than the
+ * pill — that keeps the pill a clean circle while the label stays legible
+ * against the card.
+ */
+function ProfileAction({
+  label,
+  onClick,
+  href,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  children: React.ReactNode;
+}) {
+  const className =
+    "group flex cursor-pointer flex-col items-center gap-1 border-0 bg-transparent p-0 transition-transform active:scale-[0.94]";
+  const body = (
+    <>
+      <span className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-black text-[var(--theme-primary)] shadow-[0_10px_24px_rgba(0,0,0,0.35)] sm:h-[52px] sm:w-[52px]">
+        {children}
+      </span>
+      <span className="text-center font-sans text-[11px] font-bold leading-none tracking-tight whitespace-nowrap text-[var(--theme-text)] sm:text-[11.5px]">
+        {label}
+      </span>
+    </>
+  );
+
+  // Community links are anchors, everything else is a button. Sharing one body
+  // keeps the pill and the label identical for both.
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" title={label} aria-label={label} className={className}>
+        {body}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} title={label} aria-label={label} className={className}>
+      {body}
+    </button>
+  );
+}
+
 export default function ProfileView({
   userProfile,
   siteConfig,
@@ -327,171 +375,111 @@ export default function ProfileView({
         rightLabel="Withdrawable balance"
         rightValue={`${currency === 'USD' ? '$' : 'UGX'} ${currency === 'USD' ? ((userProfile.points || 0) / 3700).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (userProfile.points || 0).toLocaleString()}`}
       />
-      <div className="flex items-center justify-center gap-2 bg-transparent border-0 p-0">
-        <button onClick={onNavigateToDeposit} className="shrink-0 inline-flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[12px] font-sans font-black transition-all active:scale-95 cursor-pointer">
-          <Plus className="w-3.5 h-3.5" strokeWidth={3} /> Deposit
+      {/* Money actions. Two equal columns, tight under the balance card, so
+          the pair reads as the card's own action row rather than two loose
+          pills floating on the page. */}
+      <div className="flex gap-2.5">
+        <button
+          onClick={onNavigateToDeposit}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-[10px] bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-[13px] font-sans font-extrabold transition-all active:scale-[0.98] cursor-pointer shadow-[0_4px_0_0_var(--theme-primary-shadow)] active:shadow-none active:translate-y-[2px]"
+        >
+          <Plus className="w-4 h-4" strokeWidth={3} /> Deposit
         </button>
-        <button onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))} className="shrink-0 inline-flex items-center justify-center gap-1 px-4 py-2.5 rounded-full border border-[var(--theme-primary)]/50 bg-transparent text-[var(--theme-primary)] text-[12px] font-sans font-black transition-colors hover:bg-[var(--theme-primary)]/10 cursor-pointer">
-          <ArrowUpRight className="w-3.5 h-3.5" /> Withdraw
+        <button
+          onClick={() => (onNavigateToWithdraw ? onNavigateToWithdraw() : setShowWithdrawSheet(true))}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 rounded-[10px] border border-[var(--theme-primary)]/40 bg-transparent text-[var(--theme-primary)] text-[13px] font-sans font-extrabold transition-colors hover:bg-[var(--theme-primary)]/10 cursor-pointer"
+        >
+          <ArrowUpRight className="w-4 h-4" strokeWidth={3} /> Withdraw
         </button>
       </div>
 
-        {/* More Actions — flat-icon vertical list */}
-        <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[24px] p-2">
-          <div className="flex items-center justify-between pl-3 pr-1 pt-2 pb-1">
-            <h4 className="font-display font-black text-xs uppercase tracking-wider text-[var(--theme-text)] opacity-70">More Actions</h4>
-            <div className="flex items-center gap-2">
-              {!isInstalled ? (
-                <button
-                  onClick={async () => {
-                    if (canInstall) {
-                      const accepted = await install();
-                      if (!accepted) toast.info("Installation was cancelled.");
-                      return;
-                    }
-                    // No deferred prompt available. iOS has no install API at all, so
-                    // saying "use the browser menu" is the only honest answer there;
-                    // elsewhere the event usually just has not fired yet.
-                    if (platform === "Safari iOS") {
-                      toast.info("Tap Share, then Add to Home Screen.", { duration: 6000 });
-                    } else {
-                      toast.info("Use your browser's Install app / Add to Home screen option.");
-                    }
-                  }}
-                  aria-label="Install app"
-                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full  text-[var(--theme-primary)] text-[11px] font-sans font-black uppercase tracking-wide hover:bg-[var(--theme-primary)]/20 cursor-pointer active:scale-95 transition-all"
-                >
-                  <Download className="w-3.5 h-3.5" /> Install App
-                </button>
-              ) : null}
-              {siteConfig?.telegramLink && (
-                <a
-                  href={siteConfig.telegramLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open Telegram community"
-                  title="Telegram"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--theme-primary)]"
-                >
-                  <img src="/telegram.svg" alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
-                </a>
-              )}
-              {siteConfig?.whatsappLink && (
-                <a
-                  href={siteConfig.whatsappLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open WhatsApp community"
-                  title="WhatsApp"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--theme-primary)]"
-                >
-                  <img src="/whatsapp.svg" alt="" aria-hidden="true" className="h-5 w-5 object-contain" />
-                </a>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col">
-            <button onClick={() => onNavigate("history")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-sky-500 shrink-0">
-                <History className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Transaction history</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Transactions & activity</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => (onNavigate("referral"))} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-emerald-500 shrink-0">
-                <Share2Icon className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Invite Friends</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Level tables & earnings</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => onNavigate("vip")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-amber-500 shrink-0">
-                <Trophy className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Milestones</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Journey stages & rewards</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => onNavigate("collection")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-fuchsia-500 shrink-0">
-                <Award className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">My Collection</span>
-Finished bots you own
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => onNavigate("streaks")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-orange-500 shrink-0">
-                <CalendarCheck className="w-5 h-5" />
-                {!checkedInToday && (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--theme-primary)] opacity-60"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--theme-primary)] border-2 border-[var(--theme-bg)]"></span>
-                  </span>
-                )}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Check-in</span>
-                <span className="block text-[13px] font-sans font-medium leading-none mt-1.5 text-[var(--theme-primary)]">
-                  {checkedInToday ? `Day ${currentStreak} claimed` : `Day ${calTodayStreak} ready • UGX ${compactUgx(calTodayAmount)}`}
+      {/* Everything else as one labelled grid. No card around it: the label and
+          the spacing do the grouping, which keeps the page reading as
+          balance -> money actions -> the rest, instead of nesting a card inside
+          the page. */}
+      <div>
+        <p className="mt-6 mb-3 px-1 text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text)] opacity-45">
+          More
+        </p>
+        <div className="grid grid-cols-4 gap-x-1 gap-y-5 px-1">
+          <ProfileAction label="History" onClick={() => onNavigate("history")}>
+            <History className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
+          <ProfileAction label="Invite" onClick={() => onNavigate("referral")}>
+            <Share2Icon className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
+          <ProfileAction label="Milestones" onClick={() => onNavigate("vip")}>
+            <Trophy className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
+          <ProfileAction label="Collection" onClick={() => onNavigate("collection")}>
+            <Award className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
+          <ProfileAction label="Check-in" onClick={() => onNavigate("streaks")}>
+            <span className="relative flex items-center justify-center">
+              <CalendarCheck className="h-[22px] w-[22px]" strokeWidth={2.5} />
+              {!checkedInToday && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--theme-primary)] opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-black bg-[var(--theme-primary)]" />
                 </span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => setShowGiftCodeSheet(true)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-pink-500 shrink-0">
-                <Gift className="w-5 h-5" />
-                {giftAvailable && (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--theme-primary)] opacity-60"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--theme-primary)] border-2 border-[var(--theme-bg)]"></span>
-                  </span>
-                )}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Gift Code</span>
-                <span className={`block text-[13px] font-sans font-medium leading-none mt-1.5 ${giftAvailable ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60"}`}>
-                  {giftAvailable ? "Gift codes available in community channels" : "Redeem a voucher code"}
+              )}
+            </span>
+          </ProfileAction>
+          <ProfileAction label="Gift code" onClick={() => setShowGiftCodeSheet(true)}>
+            <span className="relative flex items-center justify-center">
+              <Gift className="h-[22px] w-[22px]" strokeWidth={2.5} />
+              {giftAvailable && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--theme-primary)] opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-black bg-[var(--theme-primary)]" />
                 </span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-           
-            <button onClick={() => onNavigate("account")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-slate-400 shrink-0">
-                <CreditCard className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Wallet Details</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">Payout details</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-            <button onClick={() => onNavigate("guide")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-white/5 active:scale-[0.99] transition-all focus:outline-none cursor-pointer text-left">
-              <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-500/15 text-blue-500 shrink-0">
-                <Info className="w-5 h-5" />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[15px] font-sans font-extrabold text-[var(--theme-text)] leading-none">Guide</span>
-                <span className="block text-[13px] font-sans font-medium text-[var(--theme-text)] opacity-60 leading-none mt-1.5">How Rentdue works</span>
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
-            </button>
-          </div>
-        </div>
+              )}
+            </span>
+          </ProfileAction>
+          <ProfileAction label="Wallet" onClick={() => onNavigate("account")}>
+            <CreditCard className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
+          <ProfileAction label="Guide" onClick={() => onNavigate("guide")}>
+            <Info className="h-[22px] w-[22px]" strokeWidth={2.5} />
+          </ProfileAction>
 
-        {/* Defined Logout Button */}
+          {/* Conditional extras join the same grid rather than crowding a header. */}
+          {!isInstalled ? (
+            <ProfileAction
+              label="Install"
+              onClick={async () => {
+                if (canInstall) {
+                  const accepted = await install();
+                  if (!accepted) toast.info("Installation was cancelled.");
+                  return;
+                }
+                // No deferred prompt available. iOS has no install API at all,
+                // so "use the browser menu" is the only honest answer there;
+                // elsewhere the event usually just has not fired yet.
+                if (platform === "Safari iOS") {
+                  toast.info("Tap Share, then Add to Home Screen.", { duration: 6000 });
+                } else {
+                  toast.info("Use your browser's Install app / Add to Home screen option.");
+                }
+              }}
+            >
+              <Download className="h-[22px] w-[22px]" strokeWidth={2.5} />
+            </ProfileAction>
+          ) : null}
+          {siteConfig?.telegramLink ? (
+            <ProfileAction label="Telegram" href={siteConfig.telegramLink}>
+              <img src="/telegram.svg" alt="" aria-hidden="true" className="h-[22px] w-[22px] object-contain" />
+            </ProfileAction>
+          ) : null}
+          {siteConfig?.whatsappLink ? (
+            <ProfileAction label="WhatsApp" href={siteConfig.whatsappLink}>
+              <img src="/whatsapp.svg" alt="" aria-hidden="true" className="h-[22px] w-[22px] object-contain" />
+            </ProfileAction>
+          ) : null}
+        </div>
+      </div>
+
+                {/* Defined Logout Button */}
         <div className="pt-2 flex items-center justify-between">
           <button
             onClick={onLogout}

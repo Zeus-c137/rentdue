@@ -256,27 +256,47 @@ select:-webkit-autofill {
 input:-webkit-autofill::first-line { font-size: 14px; }
 
 /* Phone field digits box — seamless inside the single field wrapper.
-   The universal input preset above must not repaint this box, or the
-   field looks like two boxes (and its own focus ring shows inside the
-   wrapper's focus ring). Same fill as the wrapper, no border, no radius,
-   no ring. Autofill keeps the wrapper fill via an inset shadow instead of
-   the native gray. */
-.phone-input,
-.phone-input:focus {
+   The universal input preset above must not repaint this box, or the field
+   reads as two shapes: a differently-tinted fill inside the wrapper, and on
+   focus a 3px ring drawn over it.
+
+   The selector deliberately mirrors the universal rule's :not() chain. A bare
+   .phone-input (0,1,0) loses to input:not(...)… (0,1,1) even with !important,
+   and .phone-input:focus (0,2,0) loses to the focus rule (0,5,1) — which is
+   exactly why the fill used to jump on focus. Matching the chain makes this
+   rule win on specificity and on source order. */
+input.phone-input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+input.phone-input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):focus {
   background: transparent !important;
   background-color: transparent !important;
+  background-image: none !important;
   border: none !important;
   border-color: transparent !important;
   box-shadow: none !important;
+  -webkit-box-shadow: none !important;
   border-radius: 0 !important;
   outline: none !important;
 }
-.phone-input:-webkit-autofill,
-.phone-input:-webkit-autofill:hover,
-.phone-input:-webkit-autofill:focus,
-.phone-input:-webkit-autofill:active {
+
+/* Autofill is the one state that has to paint: a transparent box would show
+   the browser's native yellow/blue. It gets the wrapper's exact fill as an
+   inset shadow instead, so an autofilled field is indistinguishable from an
+   empty one apart from its value. */
+input.phone-input:-webkit-autofill,
+input.phone-input:-webkit-autofill:hover,
+input.phone-input:-webkit-autofill:focus,
+input.phone-input:-webkit-autofill:active,
+input.phone-input:autofill,
+input.phone-input:autofill:hover,
+input.phone-input:autofill:focus,
+input.phone-input:autofill:active,
+input.phone-input:-internal-autofill-selected {
+  -webkit-text-fill-color: var(--theme-text-muted) !important;
+  caret-color: var(--theme-text-muted) !important;
+  background-color: transparent !important;
   -webkit-box-shadow: 0 0 0 1000px var(--theme-card-bg) inset !important;
   box-shadow: 0 0 0 1000px var(--theme-card-bg) inset !important;
+  border-color: transparent !important;
 }
 
 

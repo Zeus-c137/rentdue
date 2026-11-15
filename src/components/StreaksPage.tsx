@@ -265,57 +265,58 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
           </div>
         )}
       </AnimatePresence>
-      <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-8 scrollbar-none min-h-0">
-        <div className="flex items-center gap-3">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-8 scrollbar-none min-h-0">
+        {/* Header: back, the month being viewed, and that month's totals. The
+            month name doubles as the nav label, so the chevrons flank it. */}
+        <div className="flex items-start gap-3 pt-1">
           {onBack && (
-            <button type="button" onClick={onBack} aria-label="Back" className="w-9 h-9 rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-all shrink-0">
-              <ArrowLeft className="w-4 h-4" />
+            <button type="button" onClick={onBack} aria-label="Back" className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] text-[var(--theme-text)] transition-transform active:scale-95">
+              <ArrowLeft className="h-4 w-4" />
             </button>
           )}
-           <div className="min-w-0 flex-1 mx-12">
-            <p className="text-[12px] font-black tracking-[0.14em] text-[var(--theme-text)]  leading-none">
-              Your daily streak {isCurrentMonth ? "this month" : monthName}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-sans font-black uppercase tracking-[0.16em] text-[var(--theme-text)] opacity-45">
+              {isCurrentMonth ? "This month" : "Viewing"}
             </p>
-            <div className="flex items-baseline gap-2.5 mt-2">
-              <p className="inline-flex items-center gap-1 text-[13px] font-sans font-black text-[var(--theme-primary)]">
+            <div className="mt-1.5 flex items-center gap-1">
+              <button type="button" onClick={() => step(-1)} disabled={atMin} aria-label="Previous month" className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text)] transition-colors hover:bg-white/10 disabled:opacity-25">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <h1 className="min-w-0 truncate font-display text-[21px] font-black leading-none tracking-tight">
+                {monthName} <span className="opacity-35">{view.y}</span>
+              </h1>
+              <button type="button" onClick={() => step(1)} disabled={atMax} aria-label="Next month" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--theme-text)] transition-colors hover:bg-white/10 disabled:opacity-25">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-2.5 flex items-baseline gap-3">
+              <span className="inline-flex items-center gap-1 text-[13px] font-sans font-black text-[var(--theme-primary)]">
                 <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
                 {monthClaimed} day{monthClaimed === 1 ? "" : "s"}
-              </p>
-              <p ref={accruedRef} className="font-display font-black text-2xl text-[var(--theme-text)] tracking-tight leading-none">
+              </span>
+              <span ref={accruedRef} className="font-display text-[17px] font-black leading-none tracking-tight tabular-nums">
                 {formatCurrency(monthSum)}
-              </p>
+              </span>
             </div>
           </div>
         </div>
 
-        {/*   the viewed month */}
-        <div className="px-1 py-1 mt-3 flex items-end justify-between gap-3">
-
-          {checkedInToday ? (
-            <p className="text-right text-[11px] font-sans font-bold tabular-nums text-[var(--theme-primary)] shrink-0">
-              Come back in<br />{formatClock(nextIn)}
-            </p>
-          ) : (
-            <p className="text-right text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)] shrink-0">
-              {`Day ${todayStreak} reward • ${formatCurrency(todayAmount)}`}
-            </p>
-          )}
-        </div>
-
-        {/* Month nav */}
-        <div className="flex items-center justify-between px-1 gap-2 mt-4 mb-3">
-          <button type="button" onClick={() => step(-1)} disabled={atMin} aria-label="Previous month" className="w-9 h-9 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center cursor-pointer disabled:opacity-30 active:scale-95 transition-all"><ChevronLeft className="w-4 h-4" /></button>
-          <span className="font-display font-black text-sm text-[var(--theme-text)] flex-1 text-center">
-            {monthName} {view.y}
+        {/* Today's reward, or when the next one opens. A hairline separates it
+            from the header instead of boxing it into another card. */}
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <span className="text-[12px] font-sans font-bold text-[var(--theme-text)] opacity-65">
+            {checkedInToday ? "Checked in today" : `Day ${todayStreak} reward`}
           </span>
-          <button type="button" onClick={() => step(1)} disabled={atMax} aria-label="Next month" className="w-9 h-9 rounded-full border border-[var(--theme-card-border)] flex items-center justify-center cursor-pointer disabled:opacity-30 active:scale-95 transition-all"><ChevronRight className="w-4 h-4" /></button>
+          <span className="text-[13px] font-sans font-black tabular-nums text-[var(--theme-primary)]">
+            {checkedInToday ? `Next in ${formatClock(nextIn)}` : formatCurrency(todayAmount)}
+          </span>
         </div>
 
         {/* Home-style day tiles — frosted, bigger coins/dates to match Home */}
-        <div className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-3">
+        <div className="mt-4 rounded-[24px] border border-white/10 bg-[var(--theme-card-bg)]/40 p-3 backdrop-blur-[20px] backdrop-saturate-[180%]">
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <span key={i} className="text-[12px] font-sans font-black opacity-50 py-1">{d}</span>
+              <span key={i} className="pb-1 text-[10px] font-sans font-black uppercase tracking-wide opacity-40">{d}</span>
             ))}
             {cells.map((day, i) => {
               if (day === null) return <span key={`blank-${i}`} />;
@@ -330,20 +331,22 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               const active = isToday && !claimed;
               const inner = (
                 <>
+                  {/* Coin bottom-right, date top-left. The weekday column
+                      header already says which day of the week this is. */}
                   <img
                     src={dollar3d}
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    className={`w-10 h-10 object-contain ${dimmed ? "grayscale" : ""}`}
+                    className={`absolute bottom-1 right-1 h-5 w-5 object-contain ${dimmed ? "grayscale" : ""}`}
                   />
                   {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
-                  <span className={`text-[11px] font-sans font-black uppercase tracking-wide ${claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"}`}>
+                  <span className={`absolute left-1.5 top-1 font-display text-[12px] font-black leading-none tabular-nums ${claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)]"}`}>
                     {day}
                   </span>
                 </>
               );
-              const cls = `relative rounded-xl w-full min-h-[78px] py-2 flex flex-col items-center justify-center gap-1 ${
+              const cls = `relative overflow-hidden rounded-xl w-full min-h-[64px] ${
                 claimed
                   ? ""
                   : active
@@ -407,7 +410,7 @@ export default function StreaksPage({ phone, userProfile, siteConfig, onClaimSuc
               );
             })}
           </div>
-          <div className="flex items-center gap-4 mt-3 text-[12px] font-sans font-medium opacity-70">
+          <div className="mt-3 flex items-center gap-4 border-t border-white/10 pt-3 text-[11px] font-sans font-medium opacity-70">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--theme-primary)] shadow-[0_0_6px_var(--theme-primary)]" />Claimed</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />Missed</span>
           </div>

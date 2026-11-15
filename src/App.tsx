@@ -928,7 +928,6 @@ export default function App() {
                   userProfile={userProfile!}
                   onProfileUpdate={handleProfileChange}
                   onBack={() => setActiveTab("profile")}
-                  onGoHome={() => setActiveTab("dashboard")}
                 />
               </motion.div>
             )}
