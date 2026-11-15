@@ -28,6 +28,62 @@ interface DepositViewProps {
   onBack?: () => void;
 }
 
+/** Shared field shell. One border, one fill, one focus colour. */
+const fieldShell =
+  "w-full rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5 text-[14px] font-semibold text-[var(--theme-text)] outline-none transition-colors placeholder:font-medium placeholder:opacity-35 focus:border-[var(--theme-primary)] disabled:opacity-55";
+
+/** Label + control. Declared at module scope so typing never remounts it. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text)] opacity-45">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+/** Uganda number: flag and dial code inside the box, fixed to +256. */
+function PhoneField({
+  label,
+  value,
+  onChange,
+  readOnly,
+}: {
+  label: string;
+  value: string;
+  onChange: (digits: string) => void;
+  readOnly?: boolean;
+}) {
+  return (
+    <Field label={label}>
+      <div
+        className={`flex w-full items-center rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 transition-colors ${
+          readOnly ? "opacity-70" : "focus-within:border-[var(--theme-primary)]"
+        }`}
+      >
+        <span className="flex shrink-0 items-center gap-1.5 border-r border-[var(--theme-card-border)] py-2.5 pl-2.5 pr-2.5">
+          <img src="/flags/uganda.svg" alt="" aria-hidden="true" className="h-3.5 w-5 rounded-[1px] object-cover" />
+          <span className="text-[13.5px] font-normal tabular-nums text-[var(--theme-text)]">+256</span>
+        </span>
+        <input
+          type="tel"
+          required
+          inputMode="numeric"
+          autoComplete="tel"
+          placeholder="700 000 000"
+          aria-label={label}
+          readOnly={readOnly}
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, "").slice(0, 10))}
+          className="phone-input min-w-0 flex-1 bg-transparent px-3 py-2.5 text-[14px] font-semibold tabular-nums text-[var(--theme-text)] outline-none placeholder:font-medium placeholder:opacity-35"
+        />
+      </div>
+    </Field>
+  );
+}
+
 export default function DepositView({
   userProfile,
   items,
@@ -59,6 +115,10 @@ export default function DepositView({
   const minimumDeposit = Number(config.minimumDeposit) > 0 ? Math.floor(Number(config.minimumDeposit)) : 20_000;
   const maximumDeposit = Number(config.maximumDeposit) > 0 ? Math.floor(Number(config.maximumDeposit)) : 0;
 
+  const footerNote = `Minimum ${formatCurrency(minimumDeposit)}${
+    maximumDeposit > 0 ? ` · maximum ${formatCurrency(maximumDeposit)}` : ""
+  }`;
+
   const getDepositLimitError = (amount: number) => {
     if (!Number.isFinite(amount) || amount <= 0) return "Enter a valid deposit amount.";
     if (amount < minimumDeposit) return `Minimum deposit is ${formatCurrency(minimumDeposit)}.`;
@@ -66,12 +126,16 @@ export default function DepositView({
     return "";
   };
 
+  // Only the limits are worth reacting to; the amounts are seeded once from
+  // them and then belong to the user.
   useEffect(() => {
-    if (depositAmount === 20_000) setDepositAmount(minimumDeposit);
-    if (manualAmount === 20_000) setManualAmount(minimumDeposit);
-    if (usdtAmountUSD === 5.5 && Number(config.usdtRate) > 0) {
-      setUsdtAmountUSD(Number((minimumDeposit / Number(config.usdtRate)).toFixed(2)));
-    }
+    setDepositAmount((current) => (current === 20_000 ? minimumDeposit : current));
+    setManualAmount((current) => (current === 20_000 ? minimumDeposit : current));
+    setUsdtAmountUSD((current) =>
+      current === "5.50" && Number(config.usdtRate) > 0
+        ? (minimumDeposit / Number(config.usdtRate)).toFixed(2)
+        : current
+    );
   }, [minimumDeposit, config.usdtRate]);
 
   const [depositMode, setDepositMode] = useState<"auto" | "manual" | "usdt">(
@@ -80,8 +144,10 @@ export default function DepositView({
 
   const [senderPhone, setSenderPhone] = useState(userProfile.phone || "");
   const [manualAmount, setManualAmount] = useState<number>(20000);
-  const [usdtAmountUSD, setUsdtAmountUSD] = useState<number>(5.5);
+  const [usdtAmountUSD, setUsdtAmountUSD] = useState<string>("5.50");
   const [manualRef, setManualRef] = useState("");
+
+  const usdtValue = Number(usdtAmountUSD) || 0;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -132,7 +198,7 @@ export default function DepositView({
           toast.success("Payment confirmed. Your account has been updated.");
           const finalAmt =
             depositMode === "usdt"
-              ? payType === "gpu" ? selectedGpu?.amount || 0 : usdtAmountUSD * config.usdtRate
+              ? payType === "gpu" ? selectedGpu?.amount || 0 : usdtValue * config.usdtRate
               : depositMode === "manual"
               ? payType === "gpu" ? selectedGpu?.amount || 0 : manualAmount
               : payType === "gpu" ? selectedGpu?.amount || 0 : depositAmount;
@@ -228,7 +294,7 @@ export default function DepositView({
       payType === "gpu"
         ? selectedGpu?.amount || 0
         : depositMode === "usdt"
-        ? usdtAmountUSD * config.usdtRate
+        ? usdtValue * config.usdtRate
         : manualAmount;
     const limitError = getDepositLimitError(finalAmount);
     if (limitError) {
@@ -275,7 +341,7 @@ export default function DepositView({
     depositMode === "usdt"
       ? payType === "gpu"
         ? selectedGpu?.amount || 0
-        : usdtAmountUSD * config.usdtRate
+        : usdtValue * config.usdtRate
       : depositMode === "manual"
       ? payType === "gpu"
         ? selectedGpu?.amount || 0
@@ -283,6 +349,54 @@ export default function DepositView({
       : payType === "gpu"
       ? selectedGpu?.amount || 0
       : depositAmount;
+
+  const inputCls = fieldShell;
+  const moneyInputCls = `${fieldShell} tabular-nums`;
+
+  /** Digits with thousands separators, e.g. 20000 -> "20,000". */
+  const withThousands = (value: string): string => {
+    const digits = value.replace(/[^0-9]/g, "");
+    if (!digits) return "";
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  };
+
+  /** The digits behind a formatted amount. */
+  const digitsOnly = (value: string): string => value.replace(/[^0-9]/g, "");
+
+  /** Uganda number, same shell as the login phone field but fixed to +256. */
+  const PhoneField: React.FC<{
+    label: string;
+    value: string;
+    onChange: (digits: string) => void;
+  }> = ({ label, value, onChange }) => (
+    <Field label={label}>
+      <div className="flex w-full items-center rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 transition-colors focus-within:border-[var(--theme-primary)]">
+        <span className="flex shrink-0 items-center gap-1.5 border-r border-[var(--theme-card-border)] py-2.5 pl-2.5 pr-2.5">
+          <img src="/flags/uganda.svg" alt="" aria-hidden="true" className="h-3.5 w-5 rounded-[1px] object-cover" />
+          <span className="text-[13.5px] font-normal tabular-nums text-[var(--theme-text)]">+256</span>
+        </span>
+        <input
+          type="tel"
+          required
+          inputMode="numeric"
+          autoComplete="tel"
+          placeholder="700 000 000"
+          aria-label={label}
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, "").slice(0, 10))}
+          className="phone-input min-w-0 flex-1 bg-transparent px-3 py-2.5 text-[14px] font-semibold tabular-nums text-[var(--theme-text)] outline-none placeholder:font-medium placeholder:opacity-35"
+        />
+      </div>
+    </Field>
+  );
+
+  /** Form footer copy. One place, so the wording stays identical. */
+  const Footer = () => (
+    <p className="text-[11px] font-medium leading-relaxed opacity-40">
+      Minimum {formatCurrency(minimumDeposit)}
+      {maximumDeposit > 0 ? ` · maximum ${formatCurrency(maximumDeposit)}` : ""}
+    </p>
+  );
 
   const PillBtn: React.FC<{
     active: boolean;
@@ -294,511 +408,335 @@ export default function DepositView({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-2.5 py-3.5 relative text-[11px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-        active ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60 hover:opacity-100"
+      aria-pressed={active}
+      className={`flex flex-1 cursor-pointer flex-col items-center gap-1.5 rounded-[9px] px-1 py-2.5 transition-colors ${
+        active
+          ? "bg-[var(--theme-card-bg)] shadow-[0_1px_3px_rgba(0,0,0,0.18)]"
+          : "hover:bg-[var(--theme-card-bg)]/40"
       }`}
     >
-      {icon ? <span className="shrink-0 flex items-center justify-center gap-1.5">{icon}</span> : null}
-      <span className="flex flex-col items-start leading-none">
-        <span className="text-[11px] leading-none">{label}</span>
-        {sub ? <span className="text-[9px] font-bold normal-case opacity-60 leading-none mt-1">{sub}</span> : null}
+      <span className={`flex h-7 items-center justify-center transition-opacity ${active ? "opacity-100" : "opacity-45"}`}>
+        {icon}
       </span>
-      {active && <span className="absolute bottom-0 left-2 right-2 h-[3px] bg-[var(--theme-primary)] rounded-full" />}
+      <span
+        className={`text-[11px] font-sans leading-none tracking-tight ${
+          active ? "font-extrabold text-[var(--theme-text)]" : "font-semibold text-[var(--theme-text)] opacity-55"
+        }`}
+      >
+        {label}
+      </span>
+      {sub ? (
+        <span className={`text-[9px] font-sans font-semibold leading-none ${active ? "text-[var(--theme-primary)]" : "opacity-35"}`}>
+          {sub}
+        </span>
+      ) : null}
     </button>
   );
 
   return (
-    <div className="bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] text-[var(--theme-text)] space-y-4 select-none p-4 pt-0 min-h-[100dvh]">
-      {/* Top — back + title + product + balance flow with the page */}
-      <div className="pt-4 space-y-4">
-        {/* Top bar — back + title on one level */}
+    <div className="min-h-[100dvh] select-none px-4 pb-8 pt-4 text-[var(--theme-text)]">
+      <div className="space-y-4">
+        {/* Back, then the title with the balance under it. */}
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
             aria-label="Go back"
-            className="w-10 h-10 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/40 active:scale-95 transition-all cursor-pointer shrink-0"
+            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] transition-all hover:border-[var(--theme-primary)]/40 active:scale-95"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="h-4 w-4" />
           </button>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-display font-black tracking-tight text-[26px] leading-none text-[var(--theme-text)] truncate">Add funds</h1>
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-[22px] font-black leading-none tracking-tight">Add funds</h1>
+            <p className="mt-1 text-[11.5px] font-sans font-medium opacity-50">
+              Trading capital {formatCurrency(userProfile.rechargeBalance || 0)}
+            </p>
           </div>
         </div>
 
-        {/* Selected product strip — theme-aware */}
         {payType === "gpu" && selectedGpu && (
-          <div className="flex items-center gap-3 p-3 rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] shadow-sm">
-            <div className="w-12 h-12 rounded-xl overflow-hidden border border-[var(--theme-card-border)] bg-[var(--theme-bg)] shrink-0">
+          <div className="flex items-center gap-2.5 rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-2.5">
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-[8px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]">
               {selectedGpu.imageUrl ? (
-                <img src={selectedGpu.imageUrl} alt={selectedGpu.name} className="w-full h-full object-cover" />
+                <img src={selectedGpu.imageUrl} alt={selectedGpu.name} className="h-full w-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-[var(--theme-primary)] opacity-60">
-                  <Cpu className="w-6 h-6" />
+                <div className="flex h-full w-full items-center justify-center text-[var(--theme-primary)] opacity-60">
+                  <Cpu className="h-4 w-4" />
                 </div>
               )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-sans font-medium opacity-60 leading-none">Paying for</p>
-              <p className="text-[15px] font-sans font-extrabold leading-tight truncate mt-1">{selectedGpu.name}</p>
-              <p className="text-[11px] font-bold text-[var(--theme-primary)] leading-none mt-1">
-                Earns {formatCurrency(selectedGpu.dailyYield)}/day • {selectedGpu.duration} days
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-bold leading-tight">{selectedGpu.name}</p>
+              <p className="mt-0.5 text-[11px] font-medium opacity-45">
+                {formatCurrency(selectedGpu.dailyYield)}/day · {selectedGpu.duration} days
               </p>
             </div>
-            <div className="text-right shrink-0">
-              <p className="text-[12px] font-sans font-medium opacity-60">Price</p>
-              <p className="text-sm font-black text-[var(--theme-primary)]">{formatCurrency(selectedGpu.amount)}</p>
-            </div>
+            <p className="shrink-0 text-[13px] font-bold tabular-nums text-[var(--theme-primary)]">
+              {formatCurrency(selectedGpu.amount)}
+            </p>
           </div>
         )}
-
-        {/* Visa balance card — rechargeable only */}
-        <VisaMetricCard
-          mode="single"
-          leftLabel="Trading capital"
-          leftValue={formatCurrency(userProfile.rechargeBalance || 0)}
-        />
       </div>
 
       {paymentStatus === "IDLE" ? (
-        <div className="rounded-[var(--theme-radius)] overflow-hidden">
-          {/* Method picker — segmented pill */}
-          <div className="p-3 border-b border-[var(--theme-card-border)] space-y-3">
-            <h2 className="text-[15px] font-sans font-extrabold tracking-tight text-[var(--theme-text)]">Choose a payment method</h2>
-            <div className="flex gap-1 border-b border-[var(--theme-card-border)]">
-              {autoEnabled && (
-                <PillBtn
-                  active={depositMode === "auto"}
-                  onClick={() => {
-                    setDepositMode("auto");
-                    setErrorMsg("");
-                  }}
-                  label="Instant"
-                  sub=""
-                  icon={
-                    <span className="flex items-center gap-1.5">
-                      {config.mtnLogoUrl ? <img src={config.mtnLogoUrl} alt="MTN" className="w-10 h-10 rounded-full bg-white object-contain" style={{ padding: 4 }} /> : <span className="w-10 h-10 rounded-full bg-[#FFCC00] text-black text-[11px] flex items-center justify-center font-black">MTN</span>}
-                      {config.airtelLogoUrl ? <img src={config.airtelLogoUrl} alt="Airtel" className="w-10 h-10 rounded-full bg-white object-contain" style={{ padding: 3 }} /> : <span className="w-10 h-10 rounded-full bg-[#FF0000] text-white text-[10px] flex items-center justify-center font-black">Air</span>}
-                    </span>
-                  }
-                />
-              )}
-              {manualEnabled && (
-                <PillBtn
-                  active={depositMode === "manual"}
-                  onClick={() => {
-                    setDepositMode("manual");
-                    setErrorMsg("");
-                  }}
-                  label="Transfer"
-                  sub="Manual • 5-15 min"
-                  icon={
-                    <span className="flex items-center gap-1.5">
-                      {config.mtnLogoUrl ? <img src={config.mtnLogoUrl} alt="MTN" className="w-10 h-10 rounded-full bg-white object-contain" style={{ padding: 4 }} /> : <span className="w-10 h-10 rounded-full bg-[#FFCC00] text-black text-[11px] flex items-center justify-center font-black">MTN</span>}
-                      {config.airtelLogoUrl ? <img src={config.airtelLogoUrl} alt="Airtel" className="w-10 h-10 rounded-full bg-white object-contain" style={{ padding: 3 }} /> : <span className="w-10 h-10 rounded-full bg-[#FF0000] text-white text-[10px] flex items-center justify-center font-black">Air</span>}
-                    </span>
-                  }
-                />
-              )}
+        <div className="mt-4 space-y-4">
+          <div className="flex gap-1 rounded-[12px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/50 p-1">
+            {autoEnabled && (
               <PillBtn
-                active={depositMode === "usdt"}
-                onClick={() => {
-                  setDepositMode("usdt");
-                  setErrorMsg("");
-                }}
-                label="USDT"
-                sub={config.usdtNetwork || "TRC20"}
+                active={depositMode === "auto"}
+                onClick={() => { setDepositMode("auto"); setErrorMsg(""); }}
+                label="Instant"
+                sub=""
                 icon={
-                  config.usdtLogoUrl ? (
-                    <img src={config.usdtLogoUrl} alt="USDT" className="w-10 h-10 rounded-full bg-white object-contain" style={{ padding: 2 }} />
-                  ) : (
-                    <span className="w-10 h-10 rounded-full bg-[#26A17B] text-white text-[15px] flex items-center justify-center font-black">₮</span>
-                  )
+                  <span className="flex items-center gap-1">
+                    {config.mtnLogoUrl ? <img src={config.mtnLogoUrl} alt="MTN" className="h-6 w-6 rounded-full bg-white object-contain" /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FFCC00] text-[8px] font-black text-black">MTN</span>}
+                    {config.airtelLogoUrl ? <img src={config.airtelLogoUrl} alt="Airtel" className="h-6 w-6 rounded-full bg-white object-contain" /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF0000] text-[8px] font-black text-white">Air</span>}
+                  </span>
                 }
               />
-            </div>
+            )}
+            {manualEnabled && (
+              <PillBtn
+                active={depositMode === "manual"}
+                onClick={() => { setDepositMode("manual"); setErrorMsg(""); }}
+                label="Transfer"
+                sub="5-15 min"
+                icon={
+                  <span className="flex items-center gap-1">
+                    {config.mtnLogoUrl ? <img src={config.mtnLogoUrl} alt="MTN" className="h-6 w-6 rounded-full bg-white object-contain" /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FFCC00] text-[8px] font-black text-black">MTN</span>}
+                    {config.airtelLogoUrl ? <img src={config.airtelLogoUrl} alt="Airtel" className="h-6 w-6 rounded-full bg-white object-contain" /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF0000] text-[8px] font-black text-white">Air</span>}
+                  </span>
+                }
+              />
+            )}
+            <PillBtn
+              active={depositMode === "usdt"}
+              onClick={() => { setDepositMode("usdt"); setErrorMsg(""); }}
+              label="USDT"
+              sub={config.usdtNetwork || "TRC20"}
+              icon={
+                config.usdtLogoUrl ? (
+                  <img src={config.usdtLogoUrl} alt="USDT" className="h-6 w-6 rounded-full bg-white object-contain" />
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#26A17B] text-[10px] font-black text-white">₮</span>
+                )
+              }
+            />
           </div>
 
-          {/* Forms */}
-          <div className="p-4 space-y-4">
-            {errorMsg && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-600 text-xs font-bold flex items-center gap-2">
-                <XCircle className="w-4 h-4 shrink-0" />
+          <div className="space-y-4 rounded-[16px] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-4">
+            {errorMsg ? (
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-rose-500">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
                 <span>{errorMsg}</span>
-              </div>
-            )}
+              </p>
+            ) : null}
 
             {depositMode === "auto" && (
-              <form onSubmit={handleStartPayment} className="space-y-5">
-                <div className="space-y-3">
-                  <p className="flex items-start gap-2 text-[13px] font-sans font-medium opacity-60">
-                    <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>Account recharge minimum is {formatCurrency(minimumDeposit)}. The funds reflect in your account instantly.</span>
-                  </p>
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Mobile money number</label>
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] px-2.5 py-1 text-[11px] font-black">+256</span>
-                      <input
-                        type="text"
-                        required
-                        placeholder=""
-                        value={mobileNumber}
-                        onChange={(e) => setMobileNumber(e.target.value)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-[72px] pr-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40 transition-colors"
-                      />
-                      <Smartphone className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40" />
-                    </div>
-                  </div>
+              <form onSubmit={handleStartPayment} className="space-y-4">
+                <PhoneField label="Mobile money number" value={mobileNumber} onChange={setMobileNumber} />
 
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Amount (UGX)</label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black opacity-50">UGX</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        required
-                        disabled={payType === "gpu"}
-                        value={payType === "gpu" ? selectedGpu?.amount || 0 : depositAmount}
-                        onChange={(e) => setDepositAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none transition-colors disabled:opacity-60"
-                      />
-                    </div>
+                <Field label="Amount">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      aria-label="Amount in Ugandan shillings"
+                      disabled={payType === "gpu"}
+                      value={payType === "gpu" ? withThousands(String(selectedGpu?.amount || 0)) : withThousands(String(depositAmount))}
+                      onChange={(e) => setDepositAmount(Number(digitsOnly(e.target.value)) || 0)}
+                      className={`${moneyInputCls} pr-14`}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold opacity-35">UGX</span>
                   </div>
-                </div>
+                </Field>
 
-                <Button
-                  variant="primary"
-                  size="md"
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={payType === "gpu" && !selectedGpu}
-                  className="w-full"
-                >
-                  <span>Deposit</span>
+                <p className="text-[11px] font-medium leading-relaxed opacity-40">{footerNote}</p>
+
+                <Button variant="primary" size="md" type="submit" loading={isSubmitting} disabled={payType === "gpu" && !selectedGpu} className="w-full">
+                  Deposit
                 </Button>
               </form>
             )}
 
             {depositMode === "manual" && (
-              <form onSubmit={handleStartManualPayment} className="space-y-5">
-                {/* Receiver cards */}
-                <div className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {config.mtnReceiverPhone ? (
-                      <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {config.mtnLogoUrl ? (
-                            <img src={config.mtnLogoUrl} alt="MTN" className="w-8 h-8 rounded-full bg-white p-1 object-contain border border-[var(--theme-card-border)] shrink-0" />
-                          ) : (
-                            <span className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">MTN</span>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-600 leading-none">MTN Uganda</p>
-                            <p className="text-sm font-black leading-none mt-1 select-all truncate">{config.mtnReceiverPhone}</p>
-                            <p className="text-[11px] font-bold opacity-60 truncate">{config.mtnReceiverName || "PJNATAL"}</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(config.mtnReceiverPhone);
-                            toast.success("MTN number copied");
-                          }}
-                          className="shrink-0 w-8 h-8 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
+              <form onSubmit={handleStartManualPayment} className="space-y-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {config.mtnReceiverPhone ? (
+                    <div className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] opacity-40">MTN</p>
+                        <p className="mt-0.5 select-all truncate text-[13px] font-bold tabular-nums">{config.mtnReceiverPhone}</p>
                       </div>
-                    ) : (
-                      <div className="rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-dashed border-[var(--theme-card-border)] p-3 text-xs font-bold opacity-50">MTN offline</div>
-                    )}
-                    {config.airtelReceiverPhone ? (
-                      <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-3 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {config.airtelLogoUrl ? (
-                            <img src={config.airtelLogoUrl} alt="Airtel" className="w-8 h-8 rounded-full bg-white p-1 object-contain border border-[var(--theme-card-border)] shrink-0" />
-                          ) : (
-                            <span className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">AT</span>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-black uppercase tracking-wider text-rose-600 leading-none">Airtel Money</p>
-                            <p className="text-sm font-black leading-none mt-1 select-all truncate">{config.airtelReceiverPhone}</p>
-                            <p className="text-[11px] font-bold opacity-60 truncate">{config.airtelReceiverName || "PJNATAL"}</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(config.airtelReceiverPhone);
-                            toast.success("Airtel number copied");
-                          }}
-                          className="shrink-0 w-8 h-8 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="rounded-[var(--theme-radius)] bg-[var(--theme-bg)] border border-dashed border-[var(--theme-card-border)] p-3 text-xs font-bold opacity-50">Airtel offline</div>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/20 px-3 py-2 flex items-center justify-between gap-2 text-xs font-black">
-                    <span className="opacity-70">Exact amount</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-[var(--theme-primary)]">{formatCurrency(finalAmount)}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(String(finalAmount));
-                          toast.success("Amount copied");
-                        }}
-                        className="w-7 h-7 rounded-full bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] flex items-center justify-center cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
+                      <button type="button" aria-label="Copy MTN number" onClick={() => { navigator.clipboard.writeText(config.mtnReceiverPhone); toast.success("Copied"); }} className="shrink-0 cursor-pointer opacity-45 transition-opacity hover:opacity-100">
+                        <Copy className="h-4 w-4" />
                       </button>
-                    </span>
-                  </div>
+                    </div>
+                  ) : null}
+                  {config.airtelReceiverPhone ? (
+                    <div className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] opacity-40">Airtel</p>
+                        <p className="mt-0.5 select-all truncate text-[13px] font-bold tabular-nums">{config.airtelReceiverPhone}</p>
+                      </div>
+                      <button type="button" aria-label="Copy Airtel number" onClick={() => { navigator.clipboard.writeText(config.airtelReceiverPhone); toast.success("Copied"); }} className="shrink-0 cursor-pointer opacity-45 transition-opacity hover:opacity-100">
+                        <Copy className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
-                <div className="space-y-3 pt-1">
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Your sender number</label>
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] px-2.5 py-1 text-[11px] font-black">+256</span>
-                      <input
-                        type="text"
-                        required
-                        placeholder="7XX XXX XXX"
-                        value={senderPhone}
-                        onChange={(e) => setSenderPhone(e.target.value)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-[72px] pr-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Amount sent (UGX)</label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black opacity-50">UGX</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        required
-                        disabled={payType === "gpu"}
-                        value={payType === "gpu" ? selectedGpu?.amount || 0 : manualAmount}
-                        onChange={(e) => setManualAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none disabled:opacity-60"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Transaction ID</label>
+                <Field label="Amount sent">
+                  <div className="relative">
                     <input
                       type="text"
+                      inputMode="numeric"
                       required
-                      placeholder="Paste mobile money TxID"
-                      value={manualRef}
-                      onChange={(e) => setManualRef(e.target.value)}
-                      className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
+                      disabled={payType === "gpu"}
+                      value={payType === "gpu" ? withThousands(String(selectedGpu?.amount || 0)) : withThousands(String(manualAmount))}
+                      onChange={(e) => setManualAmount(Number(digitsOnly(e.target.value)) || 0)}
+                      className={`${moneyInputCls} pr-14`}
                     />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-bold opacity-35">UGX</span>
                   </div>
-                </div>
+                </Field>
 
-                <Button
-                  variant="primary"
-                  size="lg"
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={payType === "gpu" && !selectedGpu}
-                  className="w-full"
-                >
-                  <span>Submit proof • {formatCurrency(finalAmount)}</span>
+                <PhoneField label="Sender number" value={senderPhone} onChange={setSenderPhone} />
+
+                <Field label="Transaction ID">
+                  <input type="text" required placeholder="MP2410..." value={manualRef} onChange={(e) => setManualRef(e.target.value)} className={`${inputCls} font-mono text-[13px]`} />
+                </Field>
+
+                <p className="text-[11px] font-medium leading-relaxed opacity-40">{footerNote}</p>
+
+                <Button variant="primary" size="md" type="submit" loading={isSubmitting} disabled={payType === "gpu" && !selectedGpu} className="w-full">
+                  Submit
                 </Button>
-                <p className="text-center text-xs font-sans font-medium opacity-60">
-                  {formatCurrency(minimumDeposit)} min{maximumDeposit > 0 ? ` • ${formatCurrency(maximumDeposit)} max` : " • no max"}
-                </p>
               </form>
             )}
 
             {depositMode === "usdt" && (
-              <form onSubmit={handleStartManualPayment} className="space-y-5">
-                {/* Step 1 — QR + wallet */}
-                <div className="space-y-3">
-                  <p className="text-[15px] font-sans font-extrabold tracking-tight">Send USDT</p>
-                    <div className="p-5 space-y-4">
-                    {config.usdtQrUrl && (
-                      <div className="flex justify-center">
-                        <div className="w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden bg-white p-2.5 border border-[var(--theme-card-border)] shadow-sm">
-                          <img src={config.usdtQrUrl} alt="USDT QR" className="w-full h-full object-contain" />
-                        </div>
-                      </div>
-                    )}
-                    <div className="text-center space-y-1">
-                      <p className="flex items-start gap-2 text-[13px] font-sans font-medium opacity-60">
-                        <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>Recharge your account by sending an amount above {formatCurrency(minimumDeposit)} to the address below.</span>
-                      </p>
-                      <p className="text-xl font-display font-black text-[var(--theme-primary)] tracking-tight leading-none">{formatCurrency(finalAmount)}</p>
-                      {config.usdtRate ? <p className="text-[11px] font-semibold opacity-60">≈ ${(finalAmount / config.usdtRate).toFixed(2)}</p> : null}
-                    </div>
-                    <div className="rounded-xl bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-3.5 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-[#26A17B] text-white flex items-center justify-center shrink-0 text-sm font-black">₮</div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-sans font-medium opacity-60 leading-none">{config.usdtNetwork || "USDT TRC20"} address</p>
-                        <p className="text-[13px] font-semibold select-all truncate mt-1.5 font-mono">{config.usdtAddress || "Wallet not configured"}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (config.usdtAddress) {
-                            navigator.clipboard.writeText(config.usdtAddress);
-                            toast.success("Wallet copied");
-                          }
-                        }}
-                        className="shrink-0 w-9 h-9 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] flex items-center justify-center hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                    </div>
+              <form onSubmit={handleStartManualPayment} className="space-y-4">
+                {config.usdtQrUrl ? (
+                  <div className="flex justify-center rounded-[10px] border border-[var(--theme-card-border)] bg-white p-2.5">
+                    <img src={config.usdtQrUrl} alt="USDT deposit QR code" className="h-36 w-36 object-contain" />
                   </div>
+                ) : null}
+
+                <div className="flex items-center gap-2 rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 px-3 py-2.5">
+                  {config.usdtLogoUrl ? (
+                    <img src={config.usdtLogoUrl} alt="USDT" className="h-6 w-6 shrink-0 rounded-full bg-white object-contain" />
+                  ) : (
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#26A17B] text-[11px] font-black text-white">₮</span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--theme-text)] opacity-45">USDT address</p>
+                    <p className="mt-0.5 select-all break-all font-mono text-[12px] font-semibold leading-snug">{config.usdtAddress || "Wallet not configured"}</p>
+                  </div>
+                  <button type="button" aria-label="Copy wallet address" disabled={!config.usdtAddress} onClick={() => { if (config.usdtAddress) { navigator.clipboard.writeText(config.usdtAddress); toast.success("Copied"); } }} className="shrink-0 cursor-pointer opacity-45 transition-opacity hover:opacity-100 disabled:opacity-30">
+                    <Copy className="h-4 w-4" />
+                  </button>
                 </div>
 
-                <div className="space-y-3 pt-1">
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Amount sent (USD)</label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-black opacity-50">USD</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        required
-                        disabled={payType === "gpu"}
-                        value={payType === "gpu" ? ((selectedGpu?.amount || 0) / (config.usdtRate || 3700)).toFixed(2) : usdtAmountUSD}
-                        onChange={(e) => setUsdtAmountUSD(Number(e.target.value) || 0)}
-                        className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 pl-12 pr-4 text-[15px] font-black outline-none disabled:opacity-60"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-sans font-medium opacity-60">Transaction Hash</label>
+                <Field label="Amount">
+                  <div className="flex items-center rounded-[10px] border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/60 transition-colors focus-within:border-[var(--theme-primary)]">
+                    <span className="shrink-0 pl-3 text-[11px] font-bold text-[var(--theme-text)] opacity-40">USD</span>
                     <input
                       type="text"
+                      inputMode="decimal"
                       required
-                      placeholder=""
-                      value={manualRef}
-                      onChange={(e) => setManualRef(e.target.value)}
-                      className="w-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] focus:border-[var(--theme-primary)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--theme-primary)_20%,transparent)] rounded-2xl py-4 px-4 text-[15px] font-bold outline-none placeholder:font-medium placeholder:opacity-40"
+                      disabled={payType === "gpu"}
+                      placeholder="0.00"
+                      aria-label="Amount in US dollars"
+                      value={payType === "gpu" ? ((selectedGpu?.amount || 0) / (config.usdtRate || 3700)).toFixed(2) : usdtAmountUSD}
+                      onChange={(e) => {
+                        const next = e.target.value.replace(/[^0-9.]/g, "");
+                        const [whole, ...rest] = next.split(".");
+                        setUsdtAmountUSD(rest.length ? `${whole}.${rest.join("").slice(0, 2)}` : whole);
+                      }}
+                      className="phone-input min-w-0 flex-1 bg-transparent px-2 py-2.5 text-[14px] font-semibold tabular-nums text-[var(--theme-text)] outline-none placeholder:font-medium placeholder:opacity-35"
                     />
+                    <span className="shrink-0 border-l border-[var(--theme-card-border)] py-2.5 pl-2.5 pr-3 text-[11px] font-bold tabular-nums text-[var(--theme-text)] opacity-45">
+                      {formatCurrency(finalAmount)}
+                    </span>
                   </div>
-                </div>
+                </Field>
 
-                <Button
-                  variant="primary"
-                  size="lg"
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={payType === "gpu" && !selectedGpu}
-                  className="w-full"
-                >
-                  <span>Submit USDT proof</span>
+                <Field label="Transaction hash">
+                  <input type="text" required placeholder="0x..." value={manualRef} onChange={(e) => setManualRef(e.target.value)} className={`${inputCls} font-mono text-[13px]`} />
+                </Field>
+
+                <p className="text-[11px] font-medium leading-relaxed opacity-40">
+                  Send exactly ${(finalAmount / (config.usdtRate || 3700)).toFixed(2)} USDT to the address above, then paste the
+                  transaction hash. Deposits are credited after blockchain confirmation.
+                </p>
+
+                <Button variant="primary" size="md" type="submit" loading={isSubmitting} disabled={payType === "gpu" && !selectedGpu} className="w-full">
+                  Submit
                 </Button>
               </form>
             )}
           </div>
         </div>
       ) : paymentStatus === "PENDING" ? (
-        <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-4 shadow-sm">
-          <div className="w-14 h-14 mx-auto rounded-full border-2 border-[var(--theme-primary)]/20  animate-spin" />
-          <div className="space-y-1">
-            <h3 className="font-black text-sm">
-              {depositMode === "manual" || depositMode === "usdt" ? "Verification pending" : "Awaiting PIN confirmation"}
-            </h3>
-            <p className="text-xs font-bold opacity-60 leading-relaxed max-w-xs mx-auto">
-              {depositMode === "manual" || depositMode === "usdt" ? (
-                <>
-                  Reference <span className="text-[var(--theme-primary)]">{currentTransId}</span> is under review. Your balance will update once the payment is confirmed.
-                </>
-              ) : (
-                <>
-                  Payment request sent to <span className="text-[var(--theme-primary)]">{mobileNumber}</span>. Approve <span className="text-[var(--theme-text)]">{formatCurrency(finalAmount)}</span> on your phone.
-                </>
-              )}
-            </p>
-          </div>
-          {(depositMode === "manual" || depositMode === "usdt") && (
-            <button
-              type="button"
-              onClick={() => {
-                setPaymentStatus("IDLE");
-                setErrorMsg("Check History for updates.");
-              }}
-              className="px-4 py-2 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-xs font-black hover:border-[var(--theme-primary)]/30 transition-colors cursor-pointer"
-            >
-              Submit another proof
-            </button>
-          )}
+        <div className="mt-4 rounded-[16px] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-6 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[var(--theme-primary)]/20 border-t-[var(--theme-primary)]" />
+          <p className="mt-4 text-[14px] font-bold">
+            {depositMode === "auto" ? "Waiting for approval" : "Checking your transfer"}
+          </p>
+          <p className="mt-1 text-[12px] font-medium leading-relaxed opacity-50">
+            {depositMode === "auto" ? (
+              <>Prompt sent to {mobileNumber}. Enter your PIN to approve.</>
+            ) : (
+              <>Matching {formatCurrency(finalAmount)} against the receiver number.</>
+            )}
+          </p>
+          {currentTransId ? <p className="mt-3 truncate font-mono text-[11px] font-semibold text-[var(--theme-primary)]">{currentTransId}</p> : null}
         </div>
       ) : paymentStatus === "SUCCESSFUL" ? (
-        <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-5 shadow-sm">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-500">
-            <CheckCircle className="w-10 h-10" />
+        <div className="mt-4 rounded-[16px] border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] p-6 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-500">
+            <CheckCircle className="h-6 w-6" />
           </div>
-          <div className="space-y-1">
-            <h3 className="font-black text-sm uppercase tracking-wide">
-              {payType === "gpu" ? "Product secured!" : "Account credited!"}
-            </h3>
-            <p className="text-xs font-bold opacity-60 max-w-sm mx-auto leading-relaxed">
-              {payType === "gpu" ? (
-                <><span className="text-[var(--theme-text)] opacity-100">{formatCurrency(finalAmount)}</span> payment confirmed. Your product is active.</>
-              ) : (
-                <><span className="text-[var(--theme-text)] opacity-100">{formatCurrency(finalAmount)}</span> has been credited to your account.</>
-              )} {currentTransId ? `Reference: ${currentTransId}` : ""}
-            </p>
-          </div>
-          <div className="rounded-xl bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] p-4 max-w-xs mx-auto text-left space-y-2 text-xs font-bold">
-            <div className="flex justify-between">
-              <span className="opacity-60">Total</span>
-              <span>{formatCurrency(finalAmount)}</span>
+          <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-500">
+            {payType === "gpu" ? "Product active" : "Deposit complete"}
+          </p>
+          <p className="mt-1 font-display text-[26px] font-black leading-none tracking-tight tabular-nums">{formatCurrency(finalAmount)}</p>
+          <p className="mt-2 text-[12px] font-medium opacity-50">
+            {payType === "gpu" ? <>{selectedGpu?.name || "Your product"} is now earning daily.</> : <>Added to your trading capital.</>}
+          </p>
+          <div className="mx-auto mt-4 max-w-[17rem] space-y-1.5 text-left">
+            <div className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="opacity-45">Paid</span>
+              <span className="font-semibold tabular-nums">{formatCurrency(finalAmount)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="opacity-60">Status</span>
-              <span className="text-emerald-600">Approved</span>
+            <div className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="opacity-45">Method</span>
+              <span className="font-semibold">{depositMode === "usdt" ? "USDT" : "Mobile money"}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="opacity-60">Type</span>
-              <span className="text-[var(--theme-primary)] truncate ml-2">{payType === "gpu" && selectedGpu ? selectedGpu.name : "Deposit"}</span>
+            <div className="flex items-center justify-between gap-3 text-[12px]">
+              <span className="shrink-0 opacity-45">Reference</span>
+              <span className="truncate font-mono text-[11px] font-semibold">{currentTransId || "—"}</span>
             </div>
           </div>
-          <button
-            onClick={onBack}
-            className="w-full py-4 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-extrabold text-sm shadow-[0_3px_0_0_var(--theme-primary-shadow)] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-          >
-            Continue
+          <button onClick={onBack} className="mt-5 w-full cursor-pointer rounded-[10px] bg-[var(--theme-primary)] py-3 font-sans text-[14px] font-extrabold text-[var(--theme-on-primary)] transition-all active:scale-[0.99]">
+            Done
           </button>
         </div>
       ) : (
-        <div className="rounded-[var(--theme-radius)] bg-[var(--theme-card-bg)] border border-[var(--theme-card-border)] p-8 text-center space-y-5 shadow-sm">
-          <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto text-rose-500">
-            <XCircle className="w-10 h-10" />
+        <div className="mt-4 rounded-[16px] border border-rose-500/25 bg-[var(--theme-card-bg)] p-6 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/10 text-rose-500">
+            <XCircle className="h-6 w-6" />
           </div>
-          <div className="space-y-1">
-            <h3 className="font-black text-xs uppercase tracking-widest text-rose-500">Payment failed</h3>
-            <p className="text-xs font-bold opacity-60 max-w-sm mx-auto">{errorMsg || "We couldn’t confirm this payment. Please try again."}</p>
-          </div>
-          <div className="flex gap-2 justify-center">
-            <button
-              onClick={() => {
-                setPaymentStatus("IDLE");
-                setErrorMsg("");
-              }}
-              className="px-5 py-2.5 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-xs font-black cursor-pointer"
-            >
+          <p className="mt-4 text-[14px] font-bold">Payment not completed</p>
+          <p className="mt-1 text-[12px] font-medium leading-relaxed opacity-50">{errorMsg || "We could not confirm this payment."}</p>
+          {currentTransId ? <p className="mt-2 font-mono text-[11px] font-semibold text-[var(--theme-primary)]">{currentTransId}</p> : null}
+          <div className="mt-5 flex gap-2">
+            <button onClick={() => { setPaymentStatus("IDLE"); setErrorMsg(""); }} className="flex-1 cursor-pointer rounded-[10px] border border-[var(--theme-card-border)] py-2.5 text-[13px] font-bold transition-colors hover:border-[var(--theme-primary)]/40">
               Try again
             </button>
-            <button
-              onClick={onBack}
-              className="px-5 py-2.5 rounded-full bg-[var(--theme-primary)] text-[var(--theme-on-primary)] text-xs font-black cursor-pointer"
-            >
-              Go back
+            <button onClick={onBack} className="flex-1 cursor-pointer rounded-[10px] bg-[var(--theme-primary)] py-2.5 text-[13px] font-bold text-[var(--theme-on-primary)]">
+              Back
             </button>
           </div>
         </div>
