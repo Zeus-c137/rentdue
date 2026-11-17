@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { NotificationItem, UserProfile } from "../types";
-import { X, ExternalLink, CirclePlus, Wallet, BadgeCheck, CalendarCheck, Trophy, Zap, Link2, Gift, Shield, Megaphone, Bell, TrendingUp, ShoppingBag, type LucideIcon } from "lucide-react";
+import { X, ExternalLink, Plus, Wallet, BadgeCheck, CalendarCheck, Trophy, Zap, Link2, Gift, Shield, Megaphone, Bell, TrendingUp, ShoppingBag, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { useCurrency } from "../currency";
@@ -165,7 +165,7 @@ export default function AlertsView({ profile, onBack, initialNotifications = [],
     let badgeClass = "bg-[var(--theme-primary)]/15 border border-[var(--theme-primary)]/30 text-[var(--theme-primary)]";
     let categoryLabel = alert.category;
     if (category === "deposit") {
-      Icon = CirclePlus;
+      Icon = Plus;
       badgeClass = "bg-[var(--theme-primary)] text-white border border-[var(--theme-primary)]";
     } else if (category === "withdraw") {
       Icon = Wallet;

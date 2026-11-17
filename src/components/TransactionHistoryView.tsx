@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, Loader2, CirclePlus, Wallet, ShoppingBag, TrendingUp, CalendarCheck, BadgeCheck, Gift, Link2, Trophy, SlidersHorizontal, Bell, type LucideIcon } from "lucide-react";
+import { Search, Loader2, Plus, Wallet, ShoppingBag, TrendingUp, CalendarCheck, BadgeCheck, Gift, Link2, Trophy, SlidersHorizontal, Bell, type LucideIcon } from "lucide-react";
 import { useCurrency } from "../currency";
 import { asMetadataRecord, canonicalTypeOf, getTransactionDisplayMeta, isPositiveTransaction, getWithdrawalDisplayAmounts } from "@/src/utils/transactionMeta";
 import { fixGitHubImageUrl } from "@/src/utils/imageUtils";
@@ -12,7 +12,7 @@ interface Props {
 }
 
 const ICON_BY_CANON: Record<string, LucideIcon> = {
-  deposit: CirclePlus,
+  deposit: Plus,
   withdrawal: Wallet,
   product_activation: ShoppingBag,
   daily_yield: TrendingUp,
@@ -254,7 +254,7 @@ export default function TransactionHistoryView({ phone, siteConfig, initialFilte
                   {showFee && <p className="text-[11px] font-sans font-normal text-[var(--theme-text)] opacity-45 mt-0.5">Fee {formatCurrency(fee)} • Payout {formatCurrency(payout)}</p>}
                 </div>
                 <div className="text-right shrink-0 flex flex-col justify-center">
-                  <p className={`text-[13px] font-display font-bold tracking-tight leading-none ${isPositive?"text-[var(--theme-primary)]":"text-[var(--theme-text)]"}`}>{isPositive?"+":"-"} {formatCurrency(amount)}</p>
+                  <p className={`text-[13px] font-display font-bold tracking-tight leading-none ${isPositive?"text-[var(--theme-text)]":"text-[var(--theme-text)]"}`}>{isPositive?"":"-"} {formatCurrency(amount)}</p>
                   {siteConfig?.usdtRate && (tx.operator==="USDT"||String(tx.usdtAddress||"").startsWith("T")||String(tx.phone||"").startsWith("T")) && <p className="text-[10px] font-sans font-medium text-[var(--theme-primary)] mt-1">≈ ${(amount / (Number(siteConfig.usdtRate) || exchangeRate)).toFixed(2)}</p>}
                 </div>
               </div>
