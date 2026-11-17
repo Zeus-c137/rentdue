@@ -43,6 +43,7 @@ import TelegramLoginButton from "./TelegramLoginButton";
 import { useTelegramLogin } from "../hooks/useTelegramLogin";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { TradingViewWidget } from "./TradingViewWidget";
+import botChartArt from "@/src/assets/screenshots/charrt.png";
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
@@ -1111,7 +1112,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
               <h1 className="font-display font-black text-[30px] min-[380px]:text-[34px] sm:text-[38px] leading-[1.08] tracking-tight">
                 Let's get started
               </h1>
-              
+
 
               {regBonus > 0 && (
                 <div className="relative mt-4 overflow-hidden rounded-xl sm:rounded-2xl bg-[var(--theme-primary)]/10 px-3 py-2 tile-shimmer-5s">
@@ -1640,9 +1641,9 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             <div className="min-w-0 order-2 lg:order-1">
               <motion.div {...rise(0.06)} className="max-w-3xl">
                 <h1 className="font-display font-black text-[30px] leading-[1.06] tracking-tight text-balance sm:text-[50px] sm:leading-[1.02] lg:text-[54px] xl:text-[62px]">
-                  Discover trading bots,
+                  Find trading bots,
                   <br />
-                  <span className="text-[var(--theme-primary)]">Put them to work.</span>
+                  <span className="text-[var(--theme-primary)]">Earn more</span>
                 </h1>
 
                 <p className="mt-3.5 max-w-xl text-[15px] font-sans leading-relaxed text-pretty text-[var(--theme-text-muted)] sm:mt-6 sm:text-lg">
@@ -1802,14 +1803,15 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
             {featuredProduct ? (
               <article className="lift-card overflow-hidden rounded-3xl border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]">
                 <div className="flex flex-col sm:flex-row">
-                  <div className="relative sm:w-2/5 aspect-[16/10] sm:aspect-auto sm:min-h-[260px] bg-[var(--theme-card-bg)]">
+                  {/* Robot panel. Its own space, no chart competing with it. */}
+                  <div className="relative aspect-[16/10] overflow-hidden bg-[var(--theme-bg)]/50 sm:aspect-auto sm:min-h-[300px] sm:w-[38%]">
                     {featuredImageOk ? (
                       <FloatingProduct
                         src={featuredImage}
                         alt={featuredProduct.name}
                         still={reduce}
-                        width={720}
-                        className="absolute inset-0 h-full w-full px-10 py-6 [--float-drift:32px]"
+                        width={480}
+                        className="absolute inset-0 h-full w-full px-8 py-8 [--float-drift:26px]"
                         imgClassName="drop-shadow-[0_18px_34px_rgba(0,0,0,0.28)]"
                       />
                     ) : (
@@ -1819,59 +1821,74 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
                     )}
                   </div>
 
-                  <div className="flex-1 p-6 sm:p-9">
-                    <div className="flex flex-wrap items-center gap-2">
+                  {/* Info panel with the chart as a dimmed backdrop. The art
+                      is context, not content: it sits at low opacity behind
+                      the text so the numbers stay readable, and the fade
+                      stops it competing with the copy at either edge. */}
+                  <div className="relative flex-1 overflow-hidden p-6 sm:p-9">
+                    <img
+                      src={botChartArt}
+                      alt=""
+                      aria-hidden="true"
+                      loading="lazy"
+                      decoding="async"
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.16] mix-blend-luminosity"
+                    />
+                    {/* Fade the backdrop out toward the text side so contrast
+                        is even rather than blotchy. */}
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--theme-card-bg)] via-[var(--theme-card-bg)]/90 to-[var(--theme-card-bg)]/45"
+                    />
 
-                      <span className="rounded-full border border-[var(--theme-card-border)] px-3 py-1 text-[11px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-text-muted)]">
+                    <div className="relative">
+                      <span className="inline-flex rounded-full border border-[var(--theme-card-border)] px-2.5 py-1 text-[10px] font-sans font-black uppercase tracking-[0.12em] text-[var(--theme-text-muted)]">
                         Available now
                       </span>
+
+                      <h3 className="mt-3 font-display font-black text-[22px] leading-[1.15] tracking-tight sm:text-[26px]">
+                        {featuredProduct.name}
+                      </h3>
+
+                      <dl className="mt-6 grid grid-cols-2 gap-x-5 gap-y-5 sm:max-w-sm">
+                        <div>
+                          <dt className="text-[10px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+                            Price
+                          </dt>
+                          <dd className="mt-1 font-display font-black text-[17px] leading-none tracking-tight tabular-nums">
+                            {formatCurrency(Number(featuredProduct.amount))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+                            Cycle
+                          </dt>
+                          <dd className="mt-1 flex items-center gap-1.5 font-display font-black text-[17px] leading-none tracking-tight tabular-nums">
+                            <CalendarDays className="h-4 w-4 shrink-0 text-[var(--theme-primary)]" />
+                            {featuredProduct.duration} days
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
+                            Status
+                          </dt>
+                          <dd className="mt-1 flex items-center gap-1.5 font-display font-black text-[17px] leading-none tracking-tight">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--theme-primary)]" />
+                            Available
+                          </dd>
+                        </div>
+                      </dl>
+
+                      <button
+                        type="button"
+                        onClick={() => goTo("register")}
+                        disabled={isLoading}
+                        className="pressable group/bot mt-7 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--theme-primary)] px-6 py-3 font-sans text-[14px] font-bold text-[var(--theme-on-primary)] shadow-[0_4px_0_0_var(--theme-primary-shadow)] cursor-pointer disabled:opacity-60 sm:w-auto"
+                      >
+                        Activate bot
+                        <ArrowUpRight className="h-4 w-4 transition-transform duration-200 group-hover/bot:-translate-y-0.5 group-hover/bot:translate-x-0.5" />
+                      </button>
                     </div>
-
-                    <h3 className="mt-4 font-display font-black text-[26px] leading-tight tracking-tight sm:text-[32px]">
-                      {featuredProduct.name}
-                    </h3>
-
-                    <dl className="mt-7 grid grid-cols-2 gap-x-6 gap-y-6 sm:max-w-md">
-                      <div>
-                        <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                          Price
-                        </dt>
-                        <dd className="mt-1.5 font-display font-black text-md tracking-tight">
-                          {formatCurrency(Number(featuredProduct.amount))}
-                        </dd>
-                      </div>
-                      <div>
-
-                      </div>
-                      <div>
-                        <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                          Cycle
-                        </dt>
-                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-md tracking-tight">
-                          <CalendarDays className="w-4 h-4 text-[var(--theme-primary)]" />
-                          {featuredProduct.duration} days
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[11px] font-sans font-black uppercase tracking-[0.14em] text-[var(--theme-text-muted)]">
-                          Status
-                        </dt>
-                        <dd className="mt-1.5 flex items-center gap-2 font-display font-black text-md tracking-tight">
-                          <CheckCircle2 className="w-4 h-4 text-[var(--theme-primary)]" />
-                          Available
-                        </dd>
-                      </div>
-                    </dl>
-
-                    <button
-                      type="button"
-                      onClick={() => goTo("register")}
-                      disabled={isLoading}
-                      className="pressable group/bot mt-8 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-[var(--theme-primary)] text-[var(--theme-on-primary)] font-sans font-bold text-[14px] shadow-[0_4px_0_0_var(--theme-primary-shadow)] cursor-pointer disabled:opacity-60 sm:w-auto w-full"
-                    >
-                      Activate bot
-                      <ArrowUpRight className="w-4 h-4 transition-transform duration-200 group-hover/bot:translate-x-0.5 group-hover/bot:-translate-y-0.5" />
-                    </button>
                   </div>
                 </div>
               </article>

@@ -471,14 +471,18 @@ app.get("/readyz", (_req, res) => {
 // content. They are registered before the SPA fallback, so they work in
 // both dev (Vite middleware) and production (dist + SPA fallback).
 // Keep the authenticated product catalog out of public SEO pages and sitemap.
-const SEO_PUBLIC_PATHS = ["/welcome", "/faq"];
+// The app is a single page, so there is exactly one indexable URL. Fragments
+// are not separate resources and must not appear in a sitemap.
+const SEO_PUBLIC_PATHS = ["/"];
 
-const SEO_KEYWORDS = "RentDue, virtual machine rentals, daily returns, referral rewards, mobile money withdrawals, USDT withdrawals";
-const SEO_DESCRIPTION = "Rent virtual machines with RentDue and track daily returns. Complete tasks, earn referral rewards, and withdraw eligible earnings via mobile money or USDT.";
+// The landing page at / carries the marketing copy and the FAQ, and its own
+// meta tags. Only the server-side shell needs a fallback description, used
+// when Site Config has not set one yet.
+const SEO_DESCRIPTION = "Rent a trading strategy for a fixed term and earn daily returns. Track earnings, complete tasks, earn referral rewards and withdraw via mobile money or USDT.";
 const SEO_SHARE_IMAGE = "/seo-share-image";
 
 function seoTitle(brand: string): string {
-  return `${brand} | Virtual machine rentals and daily returns`;
+  return `${brand} | Rent a strategy, earn daily returns`;
 }
 
 function getPublicBaseUrl(req: express.Request): string {
@@ -541,7 +545,6 @@ function seoShell(opts: {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeSeoHtml(opts.title)}</title>
 <meta name="description" content="${escapeSeoHtml(opts.description)}" />
-<meta name="keywords" content="${escapeSeoHtml(SEO_KEYWORDS)}" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
 <link rel="canonical" href="${escapeSeoHtml(opts.canonical)}" />
 <meta property="og:type" content="website" />
@@ -558,20 +561,13 @@ ${jsonLdTag}
 <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;color:#0f172a;background:#f8fafc}a{color:#0e7490}header,footer{background:#020617;color:#e2e8f0}header a,footer a{color:#e2e8f0}.wrap{max-width:760px;margin:0 auto;padding:20px 16px}nav{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}nav a[aria-current=page]{font-weight:700;text-decoration:underline}.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin:12px 0}h1{font-size:28px;line-height:1.2}h2{font-size:20px;margin-top:26px}.muted{color:#475569}.cta{display:inline-block;background:#0e7490;color:#fff!important;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700}details.card summary{cursor:pointer;font-weight:600}ul.tick{padding-left:18px}</style>
 </head>
 <body>
-<header><div class="wrap"><nav>${nav("/welcome", "About")}${nav("/faq", "FAQ")}<a href="/">Open app</a></nav></div></header>
+<header><div class="wrap"><nav>${nav("/faq", "FAQ")}<a href="/">Open app</a></nav></div></header>
 <main class="wrap">${opts.body}</main>
-<footer><div class="wrap"><p class="muted" style="color:#94a3b8">${escapeSeoHtml(opts.brand)}: ${escapeSeoHtml(SEO_DESCRIPTION)}</p><nav><a href="/welcome">About</a><a href="/faq">FAQ</a><a href="/">Open app</a></nav></div></footer>
+<footer><div class="wrap"><p class="muted" style="color:#94a3b8">${escapeSeoHtml(opts.brand)}: ${escapeSeoHtml(SEO_DESCRIPTION)}</p><nav><a href="/faq">FAQ</a><a href="/">Open app</a></nav></div></footer>
 </body>
 </html>`;
 }
 
-const SEO_FAQS: Array<{ q: string; a: string }> = [
-  { q: "How does Rentdue work?", a: "Deposit funds into your rechargeable balance, use that balance to rent a product, and each product earns daily income into your withdrawable balance for the length of its cycle." },
-  { q: "How do withdrawals work?", a: "Withdrawals come from the withdrawable balance only, require at least one product, and are paid to MTN, Airtel or USDT. Fees and minimums are shown in the app before you confirm." },
-  { q: "How do referrals earn?", a: "Share your invite link. You earn Level 1–4 commissions when invitees activate products, paid while the invitee keeps an active product." },
-  { q: "What is the daily check-in?", a: "Open the app every day to claim a check-in bonus into your withdrawable balance. Longer streaks unlock bigger rewards." },
-  { q: "Do I need the app installed?", a: "No — the app works in the browser. You can also install it from your phone browser for faster access." },
-];
 
 // Private surfaces must never be indexed.
 app.use((req, res, next) => {
@@ -584,7 +580,9 @@ app.use((req, res, next) => {
 app.get("/robots.txt", (req, res) => {
   const base = getPublicBaseUrl(req);
   res.type("text/plain").send(
-    ["User-agent: *", "Allow: /welcome", "Allow: /faq", "Disallow: /api/", "Disallow: /admin/", "Disallow: /products", "Disallow: /product/", "", `Sitemap: ${base}/sitemap.xml`, ""].join("\n")
+    // Only the app root is indexable: it is the one page, and the FAQ is a
+    // section on it. /faq and /welcome are redirects and are not listed.
+    ["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /admin/", "Disallow: /products", "Disallow: /product/", "", `Sitemap: ${base}/sitemap.xml`, ""].join("\n")
   );
 });
 
@@ -593,7 +591,7 @@ app.get("/sitemap.xml", async (req, res) => {
     const base = getPublicBaseUrl(req);
     const today = new Date().toISOString().split("T")[0];
     // Catalog intentionally excluded — products live behind authentication.
-    const urls = SEO_PUBLIC_PATHS.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly", priority: p === "/welcome" ? "0.9" : "0.7" }));
+    const urls = SEO_PUBLIC_PATHS.map((p) => ({ loc: `${base}${p}`, changefreq: "weekly", priority: "0.7" }));
     res.type("application/xml").send(
       `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${escapeSeoHtml(u.loc)}</loc><lastmod>${today}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join("")}</urlset>`
     );
@@ -640,41 +638,18 @@ app.get("/seo-share-image", async (req, res) => {
   }
 });
 
-app.get("/welcome", async (req, res) => {
-  const base = getPublicBaseUrl(req);
-  const { brand, description, config } = await getSeoData();
-  const signupBonus = Number(config?.registrationBonus ?? 0);
-  const body = `
-<h1>${escapeSeoHtml(brand)} virtual machine rentals</h1>
-<p>${escapeSeoHtml(description)}</p>
-<ul class="tick">
-  <li>Check in daily to collect your login bonus.</li>
-  <li>Complete tasks to unlock new challenges and higher rewards.</li>
-  <li>Earn referral commissions on eligible activity across up to four levels.</li>
-  <li>Withdraw eligible returns through supported mobile money or USDT.</li>
-  <li>Collect shareable artwork when a rental cycle is complete.</li>
-</ul>
-${signupBonus > 0 ? `<p><strong>Sign up to receive a UGX ${escapeSeoHtml(signupBonus.toLocaleString("en-UG"))} welcome bonus. Offer terms apply.</strong></p>` : ""}
-<p><a class="cta" href="/">Open the app</a></p>
-<h2>Virtual rentals and rewards</h2>
-<p>Manage rentals, daily earnings, referrals, milestones, and withdrawals from one account.</p>
-<p><a href="/faq">Read frequently asked questions</a></p>`;
-  res.send(seoShell({
-    brand,
-    title: seoTitle(brand),
-    description,
-    image: `${base}${SEO_SHARE_IMAGE}`,
-    canonical: `${base}/welcome`,
-    activePath: "/welcome",
-    jsonLd: { "@context": "https://schema.org", "@type": "WebSite", name: brand, description, inLanguage: "en", url: `${base}/welcome` },
-    body,
-  }));
+// The /welcome About page was removed: it duplicated what the app itself says,
+// and a bare marketing page above a login wall only ever served crawlers.
+app.get("/welcome", (_req, res) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.redirect(301, "/");
 });
 
-// Former public catalog URLs now redirect here — products live behind auth.
+// Former public catalog URLs — products live behind authentication, so these
+// go straight to the app rather than to a marketing page about them.
 app.get(["/products", "/product/:id"], (_req, res) => {
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
-  res.redirect(301, "/welcome");
+  res.redirect(301, "/");
 });
 
 // Former how-it-works URL redirects to FAQ — the app has no standalone
@@ -684,24 +659,12 @@ app.get("/how-it-works", (_req, res) => {
   res.redirect(301, "/faq");
 });
 
-app.get("/faq", async (req, res) => {
-  const base = getPublicBaseUrl(req);
-  const { brand } = await getSeoData();
-  const body = `<h1>Frequently asked questions</h1>` +
-    SEO_FAQS.map((f) => `<details class="card"><summary>${escapeSeoHtml(f.q)}</summary><p>${escapeSeoHtml(f.a)}</p></details>`).join("") +
-    `<p><a class="cta" href="/">Open the app</a></p>`;
-  res.send(seoShell({
-    brand,
-    title: `${brand} FAQs | Rentals, returns, and rewards`,
-    description: `Learn how RentDue rentals, daily returns, check-ins, referrals, withdrawals, and app access work.`,
-    image: `${base}${SEO_SHARE_IMAGE}`,
-    canonical: `${base}/faq`,
-    activePath: "/faq",
-    jsonLd: { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: SEO_FAQS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
-    body,
-  }));
+// The FAQ lives on the landing page at /#faq, which is where the app itself
+// links to. This used to be a separate server-rendered page with its own copy,
+// but two FAQ lists drift apart the first time one of them is edited.
+app.get("/faq", (_req, res) => {
+  res.redirect(301, "/#faq");
 });
-
 function isValidDailyCreditJobRequest(req: express.Request): boolean {
   const expected = String(process.env.DAILY_CREDIT_JOB_SECRET || "");
   const provided = String(req.query.key || req.headers["x-daily-credit-secret"] || "");
@@ -2866,27 +2829,48 @@ app.delete("/api/admin/announcements/:id", async (req, res) => {
 // Site Config APIs
 app.get("/api/manifest/icon", async (req, res) => {
   res.setHeader("Cache-Control", "no-store, max-age=0");
+  // The manifest declares these icons as PNG at an exact size. Serving a logo
+  // that is not that size makes the browser reject the entry and fall back to
+  // a generic icon — which is why the app icon never appeared. Resizing is
+  // asked of the image host rather than done here, so the declared size and
+  // the bytes on the wire always agree.
+  const requestedSize = String(req.query.size) === "192" ? "192" : "512";
   try {
     const config = await getSiteConfig();
-    let logo = config.logoUrl || "";
-    
-    // If it's a raw SVG string
-    if (logo.trim().toLowerCase().startsWith("<svg")) {
+    let logo = String(config.logoUrl || "").trim();
+
+    // A raw SVG needs no resizing — it scales to whatever the manifest asked
+    // for. Declare it as SVG so the type matches the payload.
+    if (logo.toLowerCase().startsWith("<svg")) {
       if (!logo.includes('xmlns="http://www.w3.org/2000/svg"')) {
         logo = logo.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
       }
       res.setHeader("Content-Type", "image/svg+xml");
       return res.send(logo);
-    } 
-    
-    // If it's a URL, we should redirect to it, or if it's empty, redirect to default png
-    if (!logo) {
-      const requestedSize = String(req.query.size) === "192" ? "192" : "512";
-      return res.redirect(`/icon-${requestedSize}.png`);
     }
 
-    return res.redirect(logo);
-  } catch (err: any) {
+    if (logo) {
+      // Only Cloudinary can be resized by URL. Anything else is served as-is
+      // and the browser will scale it — imperfect, but better than a broken icon.
+      try {
+        const target = new URL(logo, getPublicBaseUrl(req));
+        if (target.hostname === "res.cloudinary.com" && target.pathname.includes("/upload/")) {
+          target.pathname = target.pathname.replace(
+            "/upload/",
+            `/upload/f_png,w_${requestedSize},h_${requestedSize},c_pad,b_rgb:071321/`
+          );
+          res.setHeader("Cache-Control", "public, max-age=300");
+          return res.redirect(302, target.toString());
+        }
+      } catch {
+        // Unparseable URL — fall through to the bundled icon.
+      }
+      return res.redirect(logo);
+    }
+
+    // No logo configured: the bundled icons are already the right size.
+    return res.redirect(`/icon-${requestedSize}.png`);
+  } catch {
     res.redirect("/icon-512.png");
   }
 });
@@ -3469,6 +3453,37 @@ async function startServer() {
             .replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${shareImage}"`)
             .replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${shareImage}"`);
           html = html.replace('<link rel="canonical" href="/" />', `<link rel="canonical" href="${escBase}/" />`);
+          // The favicon is the one brand asset browsers fetch without being
+          // asked, and until now it was pinned to the bundled icon while the
+          // configured logo only reached the manifest — so the tab showed a
+          // different mark from the installed app. Point every icon slot at the
+          // configured logo, falling back to the bundled set when none is set.
+          //
+          // Browsers want a small square PNG for the tab; SVG is honoured by
+          // most but not all, and a non-square glyph scales down poorly. The
+          // manifest endpoint already resizes to an exact square, so reuse it.
+          const logoConfigured = Boolean(String((config as any)?.logoUrl || "").trim());
+          if (logoConfigured) {
+            const iconHref = `${escBase}/api/manifest/icon?size=192`;
+            // Collapse the whole RUN of rel="icon" tags into one. Matching them
+            // individually left two tags behind, and duplicate sizes resolve
+            // arbitrarily — which is what produced an icon that did not match
+            // the brand. The trailing \s* absorbs the newline and indentation so
+            // the run is replaced as a unit.
+            html = html
+              .replace(
+                /(?:[ \t]*<link\b[^>]*\brel="icon"[^>]*>\s*)+/g,
+                `<link rel="icon" type="image/png" sizes="32x32" href="${iconHref}" />\n`
+              )
+              .replace(
+                /[ \t]*<link\b[^>]*\brel="apple-touch-icon"[^>]*>/g,
+                `<link rel="apple-touch-icon" href="${iconHref}" />`
+              );
+          }
+          // Google resolves the publisher logo against the page URL, and a
+          // relative path is silently dropped by several consumers — which is
+          // why the logo never showed in results.
+          html = html.replace(/"url": "__LOGO_URL__"/, `"url": \"${escBase}/icon-512.png\"`);
           if (req.path.startsWith("/admin")) {
             html = html.replace('<meta name="robots" content="index, follow, max-image-preview:large" />', '<meta name="robots" content="noindex, nofollow, noarchive" />');
           }
