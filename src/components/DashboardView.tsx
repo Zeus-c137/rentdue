@@ -588,7 +588,7 @@ const listsReady = items.length > 0;
                     </div>
                   </button>
                   {taskClaimed ? (
-                    <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.06] px-2.5 py-1 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
+                    <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.06] px-2 py-1 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
                       <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
                       {formatCurrency(task.reward)}
                       <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
@@ -599,7 +599,7 @@ const listsReady = items.length > 0;
                       onClick={(event) => { void handleClaimMilestoneTask(task, event); }}
                       disabled={!rewardAvailable || task.reward <= 0 || msClaimBusy !== null}
                       aria-label={rewardAvailable ? `Claim ${task.title} reward of ${formatCurrency(task.reward)}` : `${task.title} reward unavailable`}
-                      className={`flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-sans font-black tabular-nums transition-transform active:scale-95 ${rewardAvailable && task.reward > 0 ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : taskInProgress && task.reward > 0 ? "cursor-not-allowed border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50" : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"}`}
+                      className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-sans font-black tabular-nums transition-transform active:scale-95 ${rewardAvailable && task.reward > 0 ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : taskInProgress && task.reward > 0 ? "cursor-not-allowed border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50" : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"}`}
                     >
                       {!rewardAvailable && <Lock className="h-3 w-3" aria-hidden="true" />}
                       <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain" />

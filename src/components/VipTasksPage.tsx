@@ -571,9 +571,10 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       <div ref={rootRef} className="relative w-full flex-1 flex flex-col min-h-0">
       {claimFxLayer}
       <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
-          <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/5 bg-[var(--theme-card-bg)]/80 px-4 py-2 backdrop-blur-xl">
-            <button type="button" onClick={() => setSelectedStage(null)} aria-label="Back to journey" className="w-9 h-9 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-transform"><ArrowLeft className="w-4 h-4" /></button>
-            <div ref={setBalanceRef} className="text-right">
+          <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-white/5 bg-[var(--theme-card-bg)]/80 px-4 py-2 backdrop-blur-xl">
+            <button type="button" onClick={() => setSelectedStage(null)} aria-label="Back to journey" className="w-9 h-9 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-transform shrink-0"><ArrowLeft className="w-4 h-4" /></button>
+            <h1 className="min-w-0 flex-1 truncate font-display font-black text-[16px] leading-none tracking-tight text-[var(--theme-text)]">{detail.name.toUpperCase()}</h1>
+            <div ref={setBalanceRef} className="shrink-0 text-right">
               <p className="text-[8px] font-sans font-normal tracking-[0.13em] text-[var(--theme-text)] opacity-65">WITHDRAWABLE BALANCE</p>
               <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(displayPoints)}</p>
             </div>
@@ -587,7 +588,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             <div className="absolute inset-0 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] pointer-events-none" />
             <div className="relative px-4 pb-4 pt-2">
               <div className="mt-2">
-                <h1 className="font-display font-black text-[32px] leading-none tracking-tight text-[var(--theme-text)] mt-1">{detail.name.toUpperCase()}</h1>
                 {detail.description ? (
                   <p className="text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug mt-2 max-w-[300px]">{detail.description}</p>
                 ) : (
@@ -612,15 +612,9 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             </div>
           </div>
 
-          <div className="px-2 mt-4">
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="text-[10px] font-sans font-black uppercase tracking-[0.26em] text-[var(--theme-text)] opacity-45">
-                {detail.name} <span className="opacity-60">· Task list</span>
-              </h2>
-              <span className="text-[10px] font-sans font-bold tabular-nums text-[var(--theme-text)] opacity-45">{detail.done}/{detail.total}</span>
-            </div>
+          <div className="px-2 mt-5">
             <div className="flex flex-col gap-3">
-              {visibleTasks.map((task, index) => {
+              {visibleTasks.map((task) => {
                 const met = isTaskMet(task);
                 const p = calcVipProgress(task.progress, task.requiredBonus);
                 const locked = task.stageLocked && !detail.claimedTier;
@@ -642,9 +636,6 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                     }`}
                   >
                     <div className="flex items-start gap-3">
-                      <span className="w-4 shrink-0 pt-1.5 text-right text-[10px] font-sans font-bold tabular-nums text-[var(--theme-text)] opacity-25">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
                         {task.imageUrl ? (
                           <img src={optimizedImageUrl(task.imageUrl, 200)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
@@ -663,7 +654,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                       {/* One affordance per card: the coin + amount chip IS the
                           claim button. No second "Claim" verb underneath. */}
                       {taskApproved ? (
-                        <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.06] px-2.5 py-1.5 text-[11px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
+                        <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.06] px-2 py-1.5 text-[11px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
                           <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
                           {formatCurrency(task.reward)}
                           <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
@@ -674,7 +665,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                           onClick={(event) => void handleTaskAction(task, event)}
                           disabled={claimDisabled}
                           aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
-                          className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-sans font-black tabular-nums transition-transform active:scale-95 ${
+                          className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1.5 text-[11px] font-sans font-black tabular-nums transition-transform active:scale-95 ${
                             !claimDisabled
                               ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
                               : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"
@@ -694,7 +685,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                     {/* Progress and the quiet social action sit on one indented
                         second line. A hairline, not a second box — the negative
                         space does the separating. */}
-                    <div className="pl-7">
+                    <div className="pl-[56px]">
                       {socialTask ? (
                         <div className="flex items-center justify-between gap-3">
                           {task.actionUrl ? (
@@ -759,7 +750,7 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       {claimFxLayer}
       <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-8 scrollbar-none min-h-0">
         <div className="flex items-start justify-between gap-2">
-          <h1 className="min-w-0 flex-1 font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)] sm:text-[30px]">YOUR <span className="text-[var(--theme-primary)]">JOURNEY</span></h1>
+          <h1 className="min-w-0 flex-1 font-display font-black text-[20px] leading-none tracking-tight text-[var(--theme-text)] sm:text-[23px]">YOUR <span className="text-[var(--theme-primary)]">JOURNEY</span></h1>
           <div ref={setBalanceRef} className="shrink-0 text-right">
             <p className="whitespace-nowrap text-[7px] font-sans font-normal tracking-[0.08em] text-[var(--theme-text)] opacity-65">WITHDRAWABLE BALANCE</p>
             <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(displayPoints)}</p>
@@ -774,53 +765,57 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             <p className="text-[11px] font-sans opacity-40 mt-1">Check back soon</p>
           </div>
         ) : (
-          <div className="relative mt-5">
-            <div className="flex flex-col gap-3">
+          <div className="relative mt-6">
+            <div className="flex flex-col gap-4">
               {stages.map((stage, i) => {
                 const isCurrent = i === currentIdx;
                 const barPct = calcVipProgress(stage.done, Math.max(1, stage.total));
                 const muted = stage.locked && !isCurrent;
-                // Rail segment to the next node: teal along the travelled path and
-                // into the current stage so the next target always glows; grey
-                // beyond. Teal draws itself downward on mount.
                 const reached = currentIdx === -1 || i < currentIdx || (currentIdx === 0 && i === 0);
+                const complete = stage.claimedTier || (isCurrent && stage.done === stage.total && stage.total > 0);
                 return (
-                  <div key={stage.name} className="relative flex gap-2">
+                  <div key={stage.name} className="relative flex items-stretch gap-3">
                     {i < stages.length - 1 && (
                       <span
                         aria-hidden
-                        className={`absolute left-[11px] top-3 -bottom-5 w-[2px] origin-top transition-transform duration-700 ease-out ${reached ? "bg-[var(--theme-primary)] shadow-[0_0_8px_var(--theme-primary)]" : "bg-white/10"}`}
-                        style={reached ? { transform: barsIn ? "scaleY(1)" : "scaleY(0)", transitionDelay: `${i * 160}ms` } : undefined}
+                        className={`pointer-events-none absolute left-[11px] top-4 -bottom-6 w-0.5 origin-top transition-transform duration-700 ease-out ${reached ? "bg-[var(--theme-primary)] shadow-[0_0_10px_var(--theme-primary)]" : "bg-white/[0.08]"}`}
+                        style={reached ? { transform: barsIn ? "scaleY(1)" : "scaleY(0)", transitionDelay: `${i * 140}ms` } : undefined}
                       />
                     )}
-                    <span className={`relative z-10 w-6 h-6 rounded-full shrink-0 flex items-center justify-center border ${stage.claimedTier || isCurrent ? "bg-[var(--theme-primary)] border-[var(--theme-primary)]" : "bg-[var(--theme-card-bg)] border-white/15"}`}>
-                      {stage.claimedTier || (isCurrent && stage.done === stage.total && stage.total > 0)
-                        ? <Check className="w-3 h-3 text-black" strokeWidth={3} />
-                        : isCurrent
-                          ? <span className="text-[11px] font-sans font-black text-black">{i + 1}</span>
-                          : <Lock className="w-3 h-3 text-[var(--theme-text)] opacity-50" />}
+                    <span className={`relative z-10 mt-4 flex h-6 w-6 shrink-0 self-start items-center justify-center rounded-full border transition-colors ${complete || isCurrent ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]" : "border-white/15 bg-[var(--theme-card-bg)]"} ${isCurrent && !complete ? "ring-4 ring-[var(--theme-primary)]/15" : ""}`}>
+                      {complete ? (
+                        <Check className="h-3 w-3 text-black" strokeWidth={3} />
+                      ) : isCurrent ? (
+                        <span className="text-[11px] font-sans font-black text-black">{i + 1}</span>
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--theme-text)]/30" />
+                      )}
                     </span>
                     <button
                       type="button"
                       onClick={() => setSelectedStage(stage.name)}
-                      className={`flex-1 min-w-0 text-left rounded-2xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.99] transition-[transform] duration-[160ms] ease-out bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] ${isCurrent ? "border-[var(--theme-primary)]/70 shadow-[0_0_24px_rgba(0,0,0,0.18)]" : "border-white/10"} ${muted ? "opacity-70" : ""}`}
+                      aria-label={`${stage.name}, ${stage.done} of ${stage.total} tasks complete${isCurrent ? ", current level" : ""}${muted ? ", locked" : ""}`}
+                      className={`relative flex-1 min-w-0 self-start flex items-center gap-3 overflow-hidden rounded-2xl border px-3 py-3 text-left cursor-pointer active:scale-[0.99] transition-[transform,border-color,background-color] duration-[180ms] ease-out bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] ${isCurrent ? "border-[var(--theme-primary)]/70 bg-[var(--theme-primary)]/[0.045] shadow-[0_0_24px_rgba(0,0,0,0.18)]" : "border-white/[0.06]"} ${muted ? "opacity-60" : ""}`}
                     >
+                      {isCurrent && <span aria-hidden className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--theme-primary)]" />}
                       {stage.art ? (
-                        <img src={optimizedImageUrl(stage.art, 200)} alt="" loading="lazy" decoding="async" className="w-14 h-[72px] rounded-xl object-cover shrink-0 bg-black/20" />
+                        <img src={optimizedImageUrl(stage.art, 200)} alt="" loading="lazy" decoding="async" className={`h-[68px] w-14 shrink-0 rounded-xl bg-black/20 object-cover ${isCurrent ? "ring-1 ring-[var(--theme-primary)]/50" : ""}`} />
                       ) : (
-                        <span className="w-14 h-[72px] rounded-xl shrink-0 bg-black/20 border border-white/10 flex items-center justify-center"><AchievementGlyph metric={stage.tasks[0]?.metric} socialType={stage.tasks[0]?.socialType} /></span>
+                        <span className={`flex h-[68px] w-14 shrink-0 items-center justify-center rounded-xl border bg-black/20 ${isCurrent ? "border-[var(--theme-primary)]/50" : "border-white/10"}`}><AchievementGlyph metric={stage.tasks[0]?.metric} socialType={stage.tasks[0]?.socialType} /></span>
                       )}
                       <span className="flex-1 min-w-0">
                         <span className="flex items-start justify-between gap-2">
-                          <span className="min-w-0 flex-1 font-display font-black text-[17px] leading-tight tracking-tight text-[var(--theme-text)] break-words">{stage.name.toUpperCase()}</span>
-                          <ChevronRight className="mt-0.5 w-4 h-4 shrink-0 text-[var(--theme-text)] opacity-40" />
+                          <span className="min-w-0 flex-1 break-words font-display font-black text-[16px] leading-tight tracking-tight text-[var(--theme-text)]">{stage.name.toUpperCase()}</span>
+                          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-[var(--theme-text)] opacity-35" />
                         </span>
-                        {stage.description && <span className="mt-1 line-clamp-2 block text-[12px] font-sans leading-snug text-[var(--theme-text)] opacity-60">{stage.description}</span>}
-                        <span className={`mt-2.5 block ${stage.claimedTier || muted ? "opacity-50 saturate-50" : ""}`}>
-                          <CellsProgress pct={barPct} />
-                        </span>
-                        <span className="mt-2 flex items-center gap-2">
-                          <span className="text-[10px] font-sans font-bold tracking-[0.12em] text-[var(--theme-text)] opacity-60">{stage.done}/{stage.total} COMPLETE</span>
+                        {/* Progress and count share one quiet row; the second
+                            text line is gone so each stage can breathe. */}
+                        <span className={`mt-3 block ${stage.claimedTier || muted ? "opacity-50 saturate-50" : ""}`}>
+                          <span className="mb-1.5 flex items-center justify-between tabular-nums">
+                            <span className="text-[9px] font-bold tracking-[0.12em] text-[var(--theme-primary)]/80">{stage.done}/{stage.total} TASKS</span>
+                            <span className="text-[9px] font-bold text-[var(--theme-text)]/45">{Math.round(barPct)}%</span>
+                          </span>
+                          <CellsProgress pct={barPct} cellClass="h-3" />
                         </span>
                       </span>
                     </button>
@@ -831,13 +826,10 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
           </div>
         )}
 
-        {/* Promo banner */}
-        <div className="mt-5 rounded-[24px] overflow-hidden border border-white/10 relative">
-          <div className="absolute inset-0" style={{ background: "linear-gradient(120deg, rgba(0,0,0,0.85) 20%, rgba(0,0,0,0.45) 60%, var(--theme-primary) 160%)" }} />
-          <div className="relative p-5 flex items-end justify-between gap-3 min-h-[130px]">
-            <p className="font-display font-black italic text-[24px] leading-[1.02] text-[var(--theme-primary)]">More<br />Levels.<br />Bigger<br />Rewards.</p>
-            <p className="text-right text-[10px] font-sans font-bold tracking-[0.2em] text-white/75 leading-relaxed">STAY ACTIVE.<br />KEEP GROWING.<br />UNLOCK MORE.</p>
-          </div>
+        {/* End of track — a quiet rule, not a promotional banner. */}
+        <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+          <p className="text-[10px] font-sans font-bold uppercase tracking-[0.2em] text-[var(--theme-text)] opacity-40">More levels ahead</p>
+          <p className="text-[10px] font-sans font-bold tabular-nums tracking-[0.12em] text-[var(--theme-primary)] opacity-75">{stages.length} STAGES</p>
         </div>
       </div>
     </div>
