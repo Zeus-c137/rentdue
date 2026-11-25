@@ -472,7 +472,7 @@ export default function WithdrawView({
                   type="text"
                   inputMode="numeric"
                   required
-                  value={pointsToWithdraw ? withThousands(String(pointsToWithdraw)) : ""}
+                  value={withThousands(String(pointsToWithdraw))}
                   onChange={(e) => setPointsToWithdraw(Number(digitsOnly(e.target.value)) || 0)}
                   className={`${inputCls} pr-14 tabular-nums`}
                 />

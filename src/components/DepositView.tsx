@@ -95,7 +95,7 @@ export default function DepositView({
 }: DepositViewProps) {
   const [payType, setPayType] = useState<"balance" | "gpu">(preselectedItem ? "gpu" : "balance");
   const [selectedGpu, setSelectedGpu] = useState<SubscriptionItem | null>(preselectedItem);
-  const [depositAmount, setDepositAmount] = useState<number>(20000);
+  const [depositAmount, setDepositAmount] = useState<number>(0);
   const { formatCurrency } = useCurrency();
   const [mobileNumber, setMobileNumber] = useState<string>(userProfile.phone || "");
 
@@ -126,25 +126,16 @@ export default function DepositView({
     return "";
   };
 
-  // Only the limits are worth reacting to; the amounts are seeded once from
-  // them and then belong to the user.
-  useEffect(() => {
-    setDepositAmount((current) => (current === 20_000 ? minimumDeposit : current));
-    setManualAmount((current) => (current === 20_000 ? minimumDeposit : current));
-    setUsdtAmountUSD((current) =>
-      current === "5.50" && Number(config.usdtRate) > 0
-        ? (minimumDeposit / Number(config.usdtRate)).toFixed(2)
-        : current
-    );
-  }, [minimumDeposit, config.usdtRate]);
-
+  // Amount fields start at zero. The minimum is guidance in the footer and a
+  // validation rule, never a pre-filled value — a seeded amount reads as an
+  // amount the user already chose.
   const [depositMode, setDepositMode] = useState<"auto" | "manual" | "usdt">(
     autoEnabled ? "auto" : manualEnabled ? "manual" : "usdt"
   );
 
   const [senderPhone, setSenderPhone] = useState(userProfile.phone || "");
-  const [manualAmount, setManualAmount] = useState<number>(20000);
-  const [usdtAmountUSD, setUsdtAmountUSD] = useState<string>("5.50");
+  const [manualAmount, setManualAmount] = useState<number>(0);
+  const [usdtAmountUSD, setUsdtAmountUSD] = useState<string>("0");
   const [manualRef, setManualRef] = useState("");
 
   const usdtValue = Number(usdtAmountUSD) || 0;
@@ -646,7 +637,7 @@ export default function DepositView({
                       inputMode="decimal"
                       required
                       disabled={payType === "gpu"}
-                      placeholder="0.00"
+                      placeholder="0"
                       aria-label="Amount in US dollars"
                       value={payType === "gpu" ? ((selectedGpu?.amount || 0) / (config.usdtRate || 3700)).toFixed(2) : usdtAmountUSD}
                       onChange={(e) => {
