@@ -7,9 +7,8 @@
  * A new user has no bots, so the honest thing to show is the thing they came
  * for — real bots from the catalog, presented well enough to be worth tapping.
  * The shelf is a stack you push with your thumb: drag or flick anywhere on the
- * card and the product information swaps in behind it. There are deliberately no
- * dots and no arrows — the card behaves like a stack of cards, so shoving it is
- * the whole affordance, and the bot underneath is the hint that it moves.
+ * card, or tap the carets at the art's edges, to deal the next bot. The carets
+ * are the visible hint that the card is a shelf, not a single static offer.
  *
  * The shelf leans towards the user rather than showing everything: bots they can
  * afford are dealt first, then the rest by price, so the top card is always
@@ -18,7 +17,7 @@
  */
 
 import React, { useMemo, useRef, useState } from "react";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { SubscriptionItem } from "../types";
 import { useCurrency } from "../currency";
@@ -136,17 +135,6 @@ export default function FeaturedBotCard({
 
   return (
     <section className="relative mt-[48px] overflow-hidden rounded-[26px] border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%]">
-      {/* Shelf light: depth only, no motion. Sits under the art so the product
-          reads as lit from above rather than pasted on. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-40"
-        style={{
-          background:
-            "radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--theme-primary) 20%, transparent), transparent 72%)",
-        }}
-      />
-
       {/* The swipe surface is the whole offer — art, title and numbers — because
           that is where a thumb lands. The drag is elastic and momentum-free: it
           follows the finger for feedback, then the release decides whether to
@@ -187,6 +175,38 @@ export default function FeaturedBotCard({
         </div>
 
         <div className="relative mt-1">
+          {/* Carets make the swipeable shelf legible: the hint is visible, and
+              either one deals a bot without needing a flick. */}
+          {count > 1 && (
+            <>
+              <div className="pointer-events-none absolute inset-y-0 left-1 z-10 flex items-center">
+                <motion.button
+                  type="button"
+                  aria-label="Previous featured bot"
+                  onClick={() => go(-1)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  whileTap={{ scale: 0.9 }}
+                  transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 600, damping: 35 }}
+                  className="pointer-events-auto flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]/85 text-[var(--theme-primary)] shadow-md backdrop-blur-md transition-transform active:scale-90"
+                >
+                  <ChevronLeft className="h-5 w-5" strokeWidth={2.5} aria-hidden="true" />
+                </motion.button>
+              </div>
+              <div className="pointer-events-none absolute inset-y-0 right-1 z-10 flex items-center">
+                <motion.button
+                  type="button"
+                  aria-label="Next featured bot"
+                  onClick={() => go(1)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  whileTap={{ scale: 0.9 }}
+                  transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 600, damping: 35 }}
+                  className="pointer-events-auto flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)]/85 text-[var(--theme-primary)] shadow-md backdrop-blur-md transition-transform active:scale-90"
+                >
+                  <ChevronRight className="h-5 w-5" strokeWidth={2.5} aria-hidden="true" />
+                </motion.button>
+              </div>
+            </>
+          )}
           {/* The next bot, peeking out from under the top card. Only transform
               and opacity move, and it never fades through zero, which would read
               as the shelf blinking rather than dealing. */}
@@ -235,6 +255,11 @@ export default function FeaturedBotCard({
           <p className="text-center text-[12px] font-sans text-[var(--theme-text-muted)]">
             {taglineForItem(featured)}
           </p>
+          {count > 1 && (
+            <p className="mt-1 text-center text-[9px] font-sans font-bold uppercase tracking-[0.16em] text-[var(--theme-text)] opacity-35">
+              Swipe or tap the arrows to browse
+            </p>
+          )}
 
           {/* The item's own numbers, so the card is a real offer and not a banner. */}
           <div className="mt-3.5 grid grid-cols-3 gap-2">

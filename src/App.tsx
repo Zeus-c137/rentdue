@@ -680,10 +680,8 @@ export default function App() {
           exchangeRate={currencyValue.exchangeRate}
           chatUnread={chatUnread}
           alertsUnread={alertsUnread}
-          showHistoryLink={activeTab !== "history"}
           streak={userProfile.checkinStreak || 0}
           onOpenDeposit={() => setActiveTab("deposit")}
-          onOpenHistory={() => setActiveTab("history")}
           onOpenChat={() => setActiveTab("chat")}
           onOpenStreaks={() => setStreakSheetOpen(true)}
           onOpenAlerts={() => {
@@ -718,6 +716,7 @@ export default function App() {
                   onNavigateToStreaks={() => setStreakSheetOpen(true)}
                   onNavigateToDeposit={() => setActiveTab("deposit")}
                   onNavigateToWithdraw={() => setActiveTab("withdraw")}
+                  onNavigateToHistory={() => setActiveTab("history")}
                   onProfileUpdate={handleProfileChange}
                 />
               </motion.div>

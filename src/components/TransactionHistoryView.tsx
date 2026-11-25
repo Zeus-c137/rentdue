@@ -3,6 +3,8 @@ import { Search, Loader2, Plus, Wallet, ShoppingBag, TrendingUp, CalendarCheck, 
 import { useCurrency } from "../currency";
 import { asMetadataRecord, canonicalTypeOf, getTransactionDisplayMeta, isPositiveTransaction, getWithdrawalDisplayAmounts } from "@/src/utils/transactionMeta";
 import { fixGitHubImageUrl } from "@/src/utils/imageUtils";
+import { buildRadialSlices, FILTER_TO_RADIAL_KEYS } from "../utils/radialFlow";
+import RadialFlowChart, { RadialFlowChartSkeleton } from "./RadialFlowChart";
 
 interface Props {
   phone: string;
@@ -10,6 +12,17 @@ interface Props {
   initialFilter?: string;
   onBack?: () => void;
 }
+
+const HISTORY_TABS = [
+  { id: "all", label: "All" },
+  { id: "deposit", label: "Recharge" },
+  { id: "withdraw", label: "Withdraw" },
+  { id: "yield", label: "Income" },
+  { id: "referral", label: "Referral income" },
+  { id: "checkin", label: "Daily check-in" },
+  { id: "voucher", label: "Gift Code" },
+  { id: "vip_task", label: "Milestones" },
+];
 
 const ICON_BY_CANON: Record<string, LucideIcon> = {
   deposit: Plus,
@@ -44,7 +57,7 @@ const firstRenderableImage = (...candidates: unknown[]) => {
 export default function TransactionHistoryView({ phone, siteConfig, initialFilter = "all", onBack }: Props) {
   const { formatCurrency, exchangeRate } = useCurrency();
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [txLoading, setTxLoading] = useState(false);
+  const [txLoading, setTxLoading] = useState(true);
   const [historyFilter, setHistoryFilter] = useState<string>(initialFilter);
   const [search, setSearch] = useState("");
   const [catalog, setCatalog] = useState<any[]>([]);
@@ -159,39 +172,47 @@ export default function TransactionHistoryView({ phone, siteConfig, initialFilte
     };
   };
 
+  const selectedTab = HISTORY_TABS.find((tab) => tab.id === historyFilter);
+  const selectedKeys = FILTER_TO_RADIAL_KEYS[historyFilter] || [];
+  const selectedLabel = selectedTab && selectedTab.id !== "all" ? selectedTab.label : undefined;
+
   return (
-    <div className="w-full flex-1 flex flex-col min-h-0 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border-0 rounded-none p-0">
-      <div className="flex items-center justify-center py-4 shrink-0">
+    <div className="w-full flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-none bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border-0 rounded-none p-0">
+      <div className="flex items-center justify-center py-4">
         <h1 className="text-[13px] font-display font-bold tracking-wide text-[var(--theme-text)]">Transaction History</h1>
         <p className="sr-only">Your ledger — newest first</p>
       </div>
 
-      <div className="shrink-0 space-y-3 px-1 py-2 bg-transparent">
+      <div className="space-y-3 px-1 py-2 bg-transparent">
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text)] opacity-40" />
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search type, product or amount…" className="w-full pl-9 pr-3 py-2.5 rounded-full bg-[var(--theme-card-bg)]/90 backdrop-blur-xl border border-[var(--theme-card-border)] text-xs font-sans font-medium text-[var(--theme-text)] placeholder:text-[var(--theme-text)]/40 outline-none focus:border-[var(--theme-primary)]" />
         </div>
         <div className="flex gap-1 overflow-x-auto scrollbar-none pb-1 -mx-1 px-1 border-b border-[var(--theme-card-border)]">
-          {[
-            { id: "all", label: "All" },
-            { id: "deposit", label: "Recharge" },
-            { id: "withdraw", label: "Withdraw" },
-            { id: "yield", label: "Income" },
-            { id: "referral", label: "Referral income" },
-            { id: "checkin", label: "Daily check-in" },
-            { id: "voucher", label: "Gift Code" },
-            { id: "vip_task", label: "Milestones" },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setHistoryFilter(tab.id)} className={`px-3 py-2 relative text-[11px] tracking-wide shrink-0 transition-colors cursor-pointer ${historyFilter===tab.id ? "font-semibold text-[var(--theme-text)]" : "font-medium text-[var(--theme-text)] opacity-55 hover:opacity-100"}`}>{tab.label}{historyFilter===tab.id && <span className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-[var(--theme-primary)] rounded-full" />}</button>
+          {HISTORY_TABS.map(tab => (
+            <button key={tab.id} onClick={() => setHistoryFilter(tab.id)} className={`px-3 py-2 relative text-[11px] tracking-wide shrink-0 transition-[transform,color] duration-150 active:scale-[0.97] cursor-pointer ${historyFilter===tab.id ? "font-semibold text-[var(--theme-text)]" : "font-medium text-[var(--theme-text)] opacity-55 hover:opacity-100"}`}>{tab.label}{historyFilter===tab.id && <span className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-[var(--theme-primary)] rounded-full" />}</button>
           ))}
         </div>
       </div>
 
-      <div className="flex justify-center py-2 shrink-0">
+      {txLoading ? (
+        <div className="px-1 pt-1"><RadialFlowChartSkeleton /></div>
+      ) : transactions.length > 0 ? (
+        <div className="px-1 pt-1">
+          <RadialFlowChart
+            slices={buildRadialSlices(transactions)}
+            formatCurrency={formatCurrency}
+            selectedKeys={selectedKeys}
+            selectedLabel={selectedLabel}
+          />
+        </div>
+      ) : null}
+
+      <div className="flex justify-center py-2">
         <span className="text-[10px] font-sans font-medium tracking-wide opacity-40">{filtered.length} {filtered.length===1 ? "transaction" : "transactions"}</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain space-y-2 pb-8 scrollbar-none min-h-0">
+      <div className="space-y-2 px-1 pb-8 scrollbar-none">
         {txLoading ? (
           <div className="bg-transparent border border-white/10 rounded-[20px] p-10 flex flex-col items-center gap-2 backdrop-blur-[0px]">
             <Loader2 className="w-5 h-5 animate-spin text-[var(--theme-primary)]" />

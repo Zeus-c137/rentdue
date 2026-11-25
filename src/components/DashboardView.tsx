@@ -24,6 +24,9 @@ import FeaturedBotCard from "./FeaturedBotCard";
 import { registerTarget } from "./fx/targets";
 import { triggerCheckin } from "../features/checkin/CheckinHost";
 import { recordCheckinHistory } from "../features/checkin/history";
+import { useTransactions } from "../hooks/useTransactions";
+import { buildRadialSlices } from "../utils/radialFlow";
+import RadialFlowChart, { RadialFlowChartSkeleton } from "./RadialFlowChart";
 import {
   getRunProgress,
   getRunEndMs,
@@ -45,6 +48,7 @@ interface DashboardViewProps {
   onNavigateToStreaks: () => void;
   onNavigateToDeposit: () => void;
   onNavigateToWithdraw: () => void;
+  onNavigateToHistory: () => void;
   onProfileUpdate: (p: UserProfile) => void;
 }
 
@@ -69,10 +73,12 @@ export default function DashboardView({
   onNavigateToStreaks,
   onNavigateToDeposit,
   onNavigateToWithdraw,
+  onNavigateToHistory,
   onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
   const reduceMotion = useReducedMotion();
+  const { transactions, loading: transactionsLoading } = useTransactions(profile.phone);
   const [checkinBusy, setCheckinBusy] = useState(false);
   const checkinBusyRef = useRef(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
@@ -378,6 +384,17 @@ const listsReady = items.length > 0;
         onProfileUpdate={onProfileUpdate}
       />
 
+      {/* Money flow — the half-circle below the action buttons. */}
+      {transactionsLoading ? (
+        <RadialFlowChartSkeleton />
+      ) : transactions.length > 0 ? (
+        <RadialFlowChart
+          slices={buildRadialSlices(transactions)}
+          formatCurrency={formatCurrency}
+          onOpenHistory={onNavigateToHistory}
+        />
+      ) : null}
+
       {/* First run — a featured bot rather than an empty state, so the slot sells
           instead of apologising for being empty. */}
       {activeNodes.length === 0 && (
@@ -580,10 +597,10 @@ const listsReady = items.length > 0;
                         <span className="absolute inset-0 grid place-items-center bg-black/55 text-[9px] font-sans font-black uppercase tracking-wide text-[var(--theme-primary)]">Claimed</span>
                       )}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-display font-black leading-tight text-[var(--theme-text)]">{task.title}</p>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <p className="break-words text-[13px] font-display font-black leading-tight text-[var(--theme-text)]">{task.title}</p>
                       {task.description ? (
-                        <p className="mt-0.5 line-clamp-2 text-[11px] font-sans leading-snug text-[var(--theme-text-muted)]">{task.description}</p>
+                        <p className="mt-1 block w-full break-words text-[11px] font-sans leading-snug text-[var(--theme-text-muted)]">{task.description}</p>
                       ) : null}
                     </div>
                   </button>

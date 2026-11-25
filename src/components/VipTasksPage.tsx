@@ -643,43 +643,45 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                           <AchievementGlyph metric={task.metric} socialType={task.socialType} className="h-7 w-7" />
                         )}
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-[14px] font-sans font-bold leading-snug text-[var(--theme-text)]">{task.title}</h4>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <h4 className="min-w-0 flex-1 break-words text-[14px] font-sans font-bold leading-snug text-[var(--theme-text)]">{task.title}</h4>
+                          {/* One affordance per card: the coin + amount chip IS the
+                              claim button. No second "Claim" verb underneath. */}
+                          {taskApproved ? (
+                            <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.06] px-2 py-1.5 text-[11px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
+                              <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
+                              {formatCurrency(task.reward)}
+                              <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) => void handleTaskAction(task, event)}
+                              disabled={claimDisabled}
+                              aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
+                              className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1.5 text-[11px] font-sans font-black tabular-nums transition-transform active:scale-95 ${
+                                !claimDisabled
+                                  ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
+                                  : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"
+                              }`}
+                            >
+                              {locked && <Lock className="h-3 w-3" aria-hidden="true" />}
+                              {submittingTasks.has(task.id) ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain" />
+                              )}
+                              {formatCurrency(task.reward)}
+                            </button>
+                          )}
+                        </div>
                         {task.description ? (
-                          <p className="mt-0.5 line-clamp-2 text-[11px] font-sans font-normal leading-snug text-[var(--theme-text)] opacity-50">
+                          <p className="mt-1 block w-full break-words text-[11px] font-sans font-normal leading-snug text-[var(--theme-text)] opacity-50">
                             {task.description}
                           </p>
                         ) : null}
                       </div>
-                      {/* One affordance per card: the coin + amount chip IS the
-                          claim button. No second "Claim" verb underneath. */}
-                      {taskApproved ? (
-                        <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.06] px-2 py-1.5 text-[11px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
-                          <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
-                          {formatCurrency(task.reward)}
-                          <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(event) => void handleTaskAction(task, event)}
-                          disabled={claimDisabled}
-                          aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
-                          className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1.5 text-[11px] font-sans font-black tabular-nums transition-transform active:scale-95 ${
-                            !claimDisabled
-                              ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
-                              : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"
-                          }`}
-                        >
-                          {locked && <Lock className="h-3 w-3" aria-hidden="true" />}
-                          {submittingTasks.has(task.id) ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                          ) : (
-                            <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain" />
-                          )}
-                          {formatCurrency(task.reward)}
-                        </button>
-                      )}
                     </div>
 
                     {/* Progress and the quiet social action sit on one indented
