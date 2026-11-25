@@ -85,7 +85,7 @@ export function CheckinIsland(props: CheckinIslandProps) {
                   ) : (
                     <>
                       <StreakNumber value={props.streak} className='text-sm font-black leading-none tabular-nums' />
-                      <span className='text-sm font-black leading-none'>day streak</span>
+                      <span className='text-sm font-black leading-none'>{props.streak === 1 ? "day" : "days"} streak</span>
                     </>
                   )}
                 </span>

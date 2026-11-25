@@ -27,11 +27,16 @@ interface Cursor {
   m: number;
 }
 
-function compactAmount(amount: number): string {
-  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount % 1_000_000 ? 1 : 0)}m`;
-  if (amount >= 10_000) return `${Math.round(amount / 1_000)}k`;
-  if (amount >= 1_000) return `${(amount / 1_000).toFixed(1)}k`;
-  return String(Math.round(amount));
+function compactAmount(amount: number, currency: "UGX" | "USD", exchangeRate: number): string {
+  const rate = exchangeRate > 0 ? exchangeRate : 3700;
+  const value = Math.abs(currency === "USD" ? amount / rate : amount);
+  const sign = amount < 0 ? "-" : "";
+  const prefix = currency === "USD" ? "$" : "";
+  if (value >= 1_000_000) return `${prefix}${sign}${(value / 1_000_000).toFixed(value % 1_000_000 ? 1 : 0)}m`;
+  if (value >= 10_000) return `${prefix}${sign}${Math.round(value / 1_000)}k`;
+  if (value >= 1_000) return `${prefix}${sign}${(value / 1_000).toFixed(1)}k`;
+  if (currency === "USD") return `${prefix}${sign}${value >= 1 ? value.toFixed(2) : value.toFixed(3)}`;
+  return `${sign}${Math.round(value)}`;
 }
 
 export default function StreakSheet({
@@ -48,7 +53,7 @@ export default function StreakSheet({
   runStartDay = 1,
   phone,
 }: StreakSheetProps) {
-  const { formatCurrency } = useCurrency();
+  const { formatCurrency, currency, exchangeRate } = useCurrency();
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [history, setHistory] = useState<CheckinHistory | null>(null);
@@ -234,7 +239,7 @@ export default function StreakSheet({
                   <Flame className="h-4 w-4 shrink-0 self-center text-[var(--theme-primary)]" fill="currentColor" />
                   <span className="flex items-center gap-1.5 text-sm">
                     <StreakNumber value={streak} className="text-sm font-black leading-none tabular-nums" />
-                    <span className="leading-none">day streak</span>
+                    <span className="leading-none">{streak === 1 ? "day" : "days"} streak</span>
                   </span>
                 </h2>
                 <p className="pl-6 text-[11px] font-bold tabular-nums text-white/55">
@@ -306,7 +311,7 @@ export default function StreakSheet({
                       className={`relative flex aspect-square min-w-0 flex-col items-center justify-center rounded-lg ${tone} ${state.isToday ? "ring-1 ring-[var(--theme-primary)]" : ""} ${state.isBeforeJoin || state.isFuture ? "opacity-30" : ""}`}
                     >
                       <span className="text-[11px] font-bold leading-none tabular-nums">{dayNum}</span>
-                      {state.claimed && state.amount > 0 && <span className="mt-1 max-w-full truncate px-0.5 text-[8px] font-bold leading-none text-[var(--theme-primary)]">{compactAmount(state.amount)}</span>}
+                      {state.claimed && state.amount > 0 && <span className="mt-1 max-w-full truncate px-0.5 text-[8px] font-bold leading-none text-[var(--theme-primary)]">{compactAmount(state.amount, currency, exchangeRate)}</span>}
                       {state.missed && <span className="mt-1 h-1 w-1 rounded-full bg-red-400" aria-hidden="true" />}
                     </div>
                   );

@@ -15,7 +15,7 @@
  * bottom edge that the next block decides what to do with.
  */
 import React from "react";
-import { Bell, CalendarDays, MessagesSquare } from "lucide-react";
+import { Bell, MessagesSquare } from "lucide-react";
 import { UserProfile } from "../types";
 import CapitalChip from "./CapitalChip";
 import { StreakPill } from "../features/checkin/StreakPill";
@@ -28,11 +28,8 @@ interface AppHeaderProps {
   exchangeRate: number;
   chatUnread: number;
   alertsUnread: number;
-  /** The history tab is already showing; a link to it would be a dead tap. */
-  showHistoryLink: boolean;
   streak: number;
   onOpenDeposit: () => void;
-  onOpenHistory: () => void;
   onOpenChat: () => void;
   onOpenAlerts: () => void;
   onOpenStreaks: () => void;
@@ -75,10 +72,8 @@ export default function AppHeader({
   exchangeRate,
   chatUnread,
   alertsUnread,
-  showHistoryLink,
   streak,
   onOpenDeposit,
-  onOpenHistory,
   onOpenChat,
   onOpenAlerts,
   onOpenStreaks,
@@ -106,11 +101,6 @@ export default function AppHeader({
       </div>
 
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
-        {showHistoryLink && (
-          <RailButton label="Transaction history" onClick={onOpenHistory}>
-            <CalendarDays className="w-6 h-6 text-[var(--theme-text)]" />
-          </RailButton>
-        )}
         <RailButton label="Messages" onClick={onOpenChat} badge={chatUnread}>
           <MessagesSquare className="w-6 h-6 text-[var(--theme-text)]" />
         </RailButton>
