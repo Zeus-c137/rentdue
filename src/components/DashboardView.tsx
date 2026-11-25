@@ -6,11 +6,9 @@
  * "why come back tomorrow". No totals without action, no decoration.
  */
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useGatedInterval } from "../hooks/useGatedInterval";
 import { fetchJsonWithSignal } from "../utils/abortableFetch";
 import { UserProfile, SubscribedNode, SubscriptionItem, VipTask, VipTaskboard } from "../types";
-import { Lock, ChevronRight, CalendarDays } from "lucide-react";
-import flameSvg from "@/src/assets/svg/flame.svg";
+import { Lock, ChevronRight, Check } from "lucide-react";
 import { AchievementGlyph, beginMilestoneTaskClaim, clearMilestoneTaskClaim, confirmMilestoneTaskClaim, getMilestoneBoard } from "./VipTasksPage";
 import CellsProgress from "./CellsProgress";
 import { optimizedImageUrl } from "../utils/imageUtils";
@@ -20,24 +18,25 @@ import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { playCheckinSound } from "../utils/checkinSound";
 import { useReducedMotion } from "../hooks/useReducedMotion";
-import { metricMeta } from "../utils/vip";
 import HomeBalanceCard from "./HomeBalanceCard";
 import FloatingProduct from "./FloatingProduct";
 import FeaturedBotCard from "./FeaturedBotCard";
+import { registerTarget } from "./fx/targets";
+import { triggerCheckin } from "../features/checkin/CheckinHost";
+import { recordCheckinHistory } from "../features/checkin/history";
 import {
   getRunProgress,
   getRunEndMs,
   getRunState,
   formatClock,
   getTodayKey,
-  getPlatformDayParts,
   getPlatformYesterdayKey,
-  msUntilPlatformMidnight,
 } from "../utils/runs";
 
 interface DashboardViewProps {
   isHomeActive: boolean;
   profile: UserProfile;
+  welcomeBonusAmount?: number;
   activeNodes: SubscribedNode[];
   items: SubscriptionItem[];
   onNavigateToCatalog: () => void;
@@ -61,6 +60,7 @@ interface FlightCoin {
 export default function DashboardView({
   isHomeActive,
   profile,
+  welcomeBonusAmount = 0,
   activeNodes,
   items,
   onNavigateToCatalog,
@@ -72,7 +72,7 @@ export default function DashboardView({
   onProfileUpdate,
 }: DashboardViewProps) {
   const { formatCurrency } = useCurrency();
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const reduceMotion = useReducedMotion();
   const [checkinBusy, setCheckinBusy] = useState(false);
   const checkinBusyRef = useRef(false);
   const [checkedInLocal, setCheckedInLocal] = useState(false);
@@ -101,10 +101,12 @@ export default function DashboardView({
     const task = (pool.find((t) => Number(t.progress || 0) < Number(t.requiredBonus || 0)) || pool[0]) as VipTask;
     return { done: false as const, task };
   }, [msBoard]);
-  const msIsMoney = (m?: string) => metricMeta(m).isMoney;
-  const msUnit = (m?: string) => metricMeta(m).unit;
   const rootRef = useRef<HTMLDivElement>(null);
   const balanceRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    registerTarget("balance", balanceRef.current);
+    return () => registerTarget("balance", null);
+  }, []);
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const coinFlightSequence = useRef(0);
@@ -149,16 +151,6 @@ export default function DashboardView({
   };
   const todayKey = getTodayKey();
 
-  // Rent Clock tick — gated to visible tab.
-  useGatedInterval(
-    () => {
-      if (!document.hidden) setNowMs(Date.now());
-    },
-    1000,
-    { enabled: true, visibilityGate: true }
-  );
-
-
   // Check-in economics preview (server is authoritative at claim time).
   useEffect(() => {
     const ctrl = new AbortController();
@@ -189,9 +181,6 @@ export default function DashboardView({
   // dimension-matched skeleton instead of flashing the empty state.
 const listsReady = items.length > 0;
 
-  // Next check-in opens at platform midnight (check-ins settle on platform days).
-  const nextCheckinIn = useMemo(() => msUntilPlatformMidnight(nowMs), [nowMs]);
-
   const checkedInToday = checkedInLocal || profile.lastCheckinDate === todayKey;
   const streak = Math.max(0, Number(profile.checkinStreak) || 0);
 
@@ -205,101 +194,38 @@ const listsReady = items.length > 0;
     return base + (next - 1) * inc;
   }, [checkinEcon, profile.lastCheckinDate, streak]);
 
-  // Full-month streak, same math as the original check-in modal: the server
-  // keeps streaks consecutive, so the live run is exactly `todayStreak` days
-  // ending today (claimed) or yesterday (claimable). Tiles derive from it.
-  const weekTiles = useMemo(() => {
-    // Platform calendar boundaries (Date.UTC is only a sortable day grid here —
-    // the y/m/d itself comes from the platform timezone).
-    const { y: year, m: month, d: day } = getPlatformDayParts();
-    const todayMs = Date.UTC(year, month, day);
-    const todayStreak = checkedInToday ? streak : streak + 1;
-    const runStartMs = todayMs - (Math.max(1, todayStreak) - 1) * 86400000;
-    const tomorrowMs = todayMs + 86400000;
-    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    return {
-      month: new Date(Date.UTC(year, month, 1)).toLocaleString("default", { month: "long" }),
-      days: Array.from({ length: daysInMonth }, (_, i) => {
-        const ms = Date.UTC(year, month, i + 1);
-        const key = new Date(ms).toISOString().split("T")[0];
-        const isToday = ms === todayMs;
-        return {
-          key,
-          label: String(i + 1),
-          // The card has no weekday header row, so the tile carries its own.
-          // Pinned to UTC because the grid is built from UTC midnights.
-          weekday: new Date(ms).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }),
-          isToday,
-          isFuture: ms > todayMs,
-          // Next countdown tile: tomorrow once today is claimed. Distinct from greyed futures.
-          isNext: checkedInToday && ms === tomorrowMs,
-          // Claimed: inside the live run and (past, or today already checked).
-          claimed: ms >= runStartMs && ms <= todayMs && (ms < todayMs || checkedInToday),
-        };
-      }),
-    };
-  }, [checkedInToday, streak, todayKey]);
-  const tilesRef = useRef<HTMLDivElement>(null);
-  const reduceMotion = useReducedMotion();
+  // Auto check-in on mount if not already checked in today
   useEffect(() => {
-    if (!isHomeActive) return;
-    let resetFrame = 0;
-    let scrollFrame = 0;
-    const resetAndScrollFrame = requestAnimationFrame(() => {
-      const tiles = tilesRef.current;
-      const targetTile = tiles?.querySelector<HTMLElement>('[data-next="true"]')
-        || tiles?.querySelector<HTMLElement>('[data-today="true"]');
-      if (!tiles || !targetTile) return;
-
-      // Reset to the month's beginning first, then bring today into focus.
-      // scrollIntoView can skip the motion when today's tile is already barely
-      // visible and can also scroll the page vertically.
-      tiles.scrollLeft = 0;
-      resetFrame = requestAnimationFrame(() => {
-        const tileLeft = targetTile.getBoundingClientRect().left - tiles.getBoundingClientRect().left + tiles.scrollLeft;
-        const destination = Math.max(0, Math.min(tiles.scrollWidth - tiles.clientWidth, tileLeft - (tiles.clientWidth - targetTile.clientWidth) / 2));
-        if (reduceMotion || destination === 0) {
-          tiles.scrollLeft = destination;
-          return;
-        }
-
-        const startedAt = performance.now();
-        const duration = 520;
-        const animateScroll = (now: number) => {
-          const progress = Math.min(1, (now - startedAt) / duration);
-          const eased = 1 - Math.pow(1 - progress, 4);
-          tiles.scrollLeft = destination * eased;
-          if (progress < 1) scrollFrame = requestAnimationFrame(animateScroll);
-        };
-        scrollFrame = requestAnimationFrame(animateScroll);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(resetAndScrollFrame);
-      cancelAnimationFrame(resetFrame);
-      cancelAnimationFrame(scrollFrame);
-    };
-  }, [isHomeActive, reduceMotion]);
-
-  const handleCheckin = async (source: "tile" | "button", event?: React.MouseEvent<HTMLElement>) => {
+    if (!isHomeActive || checkedInToday || checkinBusyRef.current) return;
+    
+    const timer = setTimeout(() => {
+      if (!checkedInToday && !checkinBusyRef.current) {
+        handleCheckin("auto");
+      }
+    }, 1500);
+    
+    return () => clearTimeout(timer);
+  }, [isHomeActive, checkedInToday]);
+  const handleCheckin = async (source: "tile" | "button" | "auto", event?: React.MouseEvent<HTMLElement>) => {
     if (checkedInToday || checkinBusyRef.current) return;
     // Capture tile geometry synchronously before the optimistic update re-renders it.
     const tileRect = source === "tile" && event ? event.currentTarget.getBoundingClientRect() : null;
     const previousProfile = profileRef.current;
     const optimisticBonus = Math.max(0, Number(checkinAmount) || 0);
     const optimisticStreak = previousProfile.lastCheckinDate === getPlatformYesterdayKey() ? streak + 1 : 1;
-    const optimisticProfile = {
-      ...previousProfile,
-      points: (Number(previousProfile.points) || 0) + optimisticBonus,
-      lastCheckinDate: todayKey,
-      checkinStreak: optimisticStreak,
-    };
 
     checkinBusyRef.current = true;
     setCheckinBusy(true);
     setCheckedInLocal(true);
-    profileRef.current = optimisticProfile;
-    onProfileUpdate(optimisticProfile);
+    // The balance is NOT credited optimistically. The server decides the amount,
+    // and the count-up that plays with the coin flight needs a pre-credit value
+    // to start from — writing the reward early is what made the number jump
+    // before the coins arrived. Arm the hold so the mirror stands down until
+    // the count takes over.
+    const pointsBefore = Number(previousProfile.points) || 0;
+    window.dispatchEvent(new CustomEvent("checkin:balance-priming", { detail: { from: pointsBefore } }));
+    profileRef.current = { ...previousProfile, lastCheckinDate: todayKey, checkinStreak: optimisticStreak };
+    onProfileUpdate(profileRef.current);
 
     // Coin travel is immediate feedback; it never delays the balance.
     const flightIds = source === "tile" ? launchCoinFlight(tileRect, balanceRef.current) : [];
@@ -314,31 +240,40 @@ const listsReady = items.length > 0;
       if (!res.ok) throw new Error(data.error || "Check-in failed.");
       const bonus = Math.max(0, Number(data.amount ?? data.bonus ?? optimisticBonus) || 0);
       const nextStreak = Number(data.streak ?? optimisticStreak);
-      const latest = profileRef.current;
+      // Points were never credited optimistically, so the confirmed value is
+      // simply the current one plus what the server says it paid.
+      const latestPoints = Number(profileRef.current.points) || 0;
       const confirmedProfile = {
-        ...latest,
-        points: (Number(latest.points) || 0) + bonus - optimisticBonus,
+        ...profileRef.current,
+        points: latestPoints + bonus,
         lastCheckinDate: todayKey,
         checkinStreak: nextStreak,
       };
+      // Arm again in the same tick as the write, so no render can slip the
+      // mirror in between and pre-empt the count-up.
+      window.dispatchEvent(new CustomEvent("checkin:balance-priming", { detail: { from: latestPoints } }));
       profileRef.current = confirmedProfile;
       onProfileUpdate(confirmedProfile);
-      toast.success(`Daily ${nextStreak} check-in complete 🔥`, {
-        description: bonus > 0
-          ? `${formatCurrency(bonus)} credited to your balance. See you tomorrow.`
-          : "Streak kept alive. See you tomorrow.",
-        duration: 6000,
+      recordCheckinHistory(profile.phone, todayKey, bonus);
+
+      // Trigger animated check-in celebration
+      triggerCheckin({
+        streak: nextStreak,
+        previousStreak: previousProfile.checkinStreak,
+        wasBroken: previousProfile.lastCheckinDate !== getPlatformYesterdayKey(),
+        prize: bonus,
+        previousBalance: pointsBefore,
+        newBalance: Number(confirmedProfile.points) || 0,
       });
     } catch (err: any) {
-      const latest = profileRef.current;
       const rollbackProfile = {
-        ...latest,
-        points: Math.max(0, (Number(latest.points) || 0) - optimisticBonus),
+        ...profileRef.current,
         lastCheckinDate: previousProfile.lastCheckinDate,
         checkinStreak: previousProfile.checkinStreak,
       };
       profileRef.current = rollbackProfile;
       onProfileUpdate(rollbackProfile);
+      window.dispatchEvent(new CustomEvent("checkin:balance-priming", { detail: { from: null } }));
       setCheckedInLocal(false);
       removeCoinFlight(flightIds);
       toast.error(err.message || "Check-in failed.");
@@ -410,7 +345,6 @@ const listsReady = items.length > 0;
     }
   };
 
-
   return (
     <div ref={rootRef} className="relative space-y-5 text-[var(--theme-text)]">
       {/* Coin flight: check-in reward travels to the balance */}
@@ -437,6 +371,7 @@ const listsReady = items.length > 0;
       <HomeBalanceCard
         profile={profile}
         formatCurrency={formatCurrency}
+        welcomeBonusAmount={welcomeBonusAmount}
         balanceRef={balanceRef}
         onOpenDeposit={onNavigateToDeposit}
         onOpenWithdraw={onNavigateToWithdraw}
@@ -567,137 +502,7 @@ const listsReady = items.length > 0;
         </section>
       ) : null}
 
-      {/* Daily streak — frosted to match Store/Bots */}
-      <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <h2 className="inline-flex items-center gap-1.5 font-display font-black text-[15px] leading-tight min-w-0">
-            <CalendarDays className="w-5 h-5 text-[var(--theme-primary)] shrink-0" />
-            {weekTiles.month} streak
-          </h2>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={onNavigateToStreaks}
-              aria-label="Open streaks"
-              className="inline-flex items-center gap-1 px-1 py-1 text-[var(--theme-primary)] cursor-pointer active:scale-95 transition-transform"
-            >
-              <img src={flameSvg} alt="" aria-hidden="true" className="h-4 w-auto" />
-              <span className="text-[13px] font-sans font-bold tabular-nums leading-none">
-                {streak} day{streak === 1 ? "" : "s"}
-              </span>
-            </button>
-            <div className="min-h-[20px] text-right">
-              {checkedInToday ? (
-                <span className="font-display font-bold tabular-nums text-[12px] text-[var(--theme-primary)]">
-                  {formatClock(nextCheckinIn)}
-                </span>
-              ) : checkinEcon === null ? (
-                <span aria-hidden className="ml-auto block h-[20px] w-[92px] rounded-full bg-[var(--theme-text)]/10 animate-pulse" />
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--theme-primary)]/10 px-2.5 py-1 text-[12px] font-sans font-bold tabular-nums text-[var(--theme-primary)]">
-                  <img src={dollar3d} alt="" aria-hidden="true" className="h-4 w-4 object-contain" />
-                  {checkinBusy ? "…" : formatCurrency(checkinAmount)}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div ref={tilesRef} className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {weekTiles.days.map((d) => {
-            const isNext = (d as { isNext?: boolean }).isNext === true;
-            const missed = !d.isFuture && !d.isToday && !d.claimed;
-            const active = d.isToday && !d.claimed;
-            const dimmed = missed || d.isFuture;
-            const inner = (
-              <>
-                {/* Coin pinned to the bottom-right corner; the date owns the
-                    top-left. Both are absolutely placed so the tile reads as a
-                    calendar cell rather than a stack of centred parts. */}
-                <img
-                  src={dollar3d}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className={`absolute bottom-0.5 right-0.5 h-[18px] w-[18px] object-contain ${dimmed ? "grayscale" : ""}`}
-                />
-                {missed && <div className="absolute inset-0 rounded-xl bg-black/45 pointer-events-none" />}
-                <span className="flex w-full flex-col items-start px-1 pt-1 leading-none">
-                  <span
-                    className={`text-[8px] font-sans font-black uppercase tracking-wide ${
-                      d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text-muted)]"
-                    }`}
-                  >
-                    {d.weekday}
-                  </span>
-                  <span
-                    className={`mt-[3px] font-display text-[12px] font-black leading-none tabular-nums ${
-                      d.claimed ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)]"
-                    }`}
-                  >
-                    {d.label}
-                  </span>
-                </span>
-              </>
-            );
-            const cls = `relative overflow-hidden rounded-xl w-11 shrink-0 aspect-[4/5] ${
-              d.claimed
-                ? ""
-                : active
-                  ? "border border-[var(--theme-primary)]/70 tile-shimmer streak-tile-pulse"
-                  : isNext
-                    ? "border border-dashed border-[var(--theme-text)]/25 bg-[var(--theme-text)]/[0.03] opacity-40"
-                    : d.isFuture
-                      ? "opacity-40"
-                      : ""
-            }`;
-            return active ? (
-              <button
-                key={d.key}
-                type="button"
-                onClick={(e) => {
-                  void handleCheckin("tile", e);
-                }}
-                disabled={checkinBusy}
-                aria-label="Check in today"
-                data-today="true"
-                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
-              >
-                {inner}
-              </button>
-            ) : d.claimed ? (
-              <button
-                key={d.key}
-                type="button"
-                onClick={() => {
-                  toast.info(`Day ${d.label} • Already checked-in`);
-                }}
-                aria-label={`Claimed day ${d.label}`}
-                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
-              >
-                {inner}
-              </button>
-            ) : isNext ? (
-              <button
-                key={d.key}
-                type="button"
-                onClick={() => {
-                  toast.info(`Day ${d.label} • Come back in ${formatClock(nextCheckinIn)}`);
-                }}
-                aria-label="Next check-in"
-                data-next="true"
-                className={`${cls} cursor-pointer active:scale-95 transition-transform`}
-              >
-                {inner}
-              </button>
-            ) : (
-              <div key={d.key} data-today={d.isToday || undefined} data-next={isNext || undefined} className={cls}>
-                {inner}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
+      {/* Next milestone - title + body live inside one frosted card */}
       {/* Next milestone — title + body live inside one frosted card */}
       {!nextMilestone && msBoard === null && (
         <section aria-hidden="true" className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4 animate-pulse">
@@ -727,22 +532,27 @@ const listsReady = items.length > 0;
         </section>
       )}
       {nextMilestone && (
-        <section className="relative rounded-[24px] bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 p-4">
-          <div className="flex items-start justify-between gap-2">
+        <section className="relative rounded-[20px] border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+          <div className="mb-3 flex items-baseline justify-between gap-2">
             <div className="min-w-0">
               <h2 className="font-display font-black text-[15px] leading-tight">Daily tasks</h2>
-              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Track and complete your daily tasks to upgrade your rank.</p>
+              <p className="text-[11px] font-sans text-[var(--theme-text-muted)]">Your next milestone, one step at a time.</p>
             </div>
             <button
               type="button"
               onClick={() => onNavigateToMilestones()}
-              className="shrink-0 inline-flex items-center gap-1 mt-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer active:scale-95 transition-transform"
+              className="inline-flex shrink-0 items-center gap-0.5 text-[12px] font-sans font-bold text-[var(--theme-primary)] opacity-90 hover:opacity-100 cursor-pointer active:scale-95 transition-transform"
             >
-              View all <ChevronRight className="w-4 h-4" />
+              All <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
           {nextMilestone.done ? (
-            <p className="mt-3 text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. Keep operating — new ones drop soon.</p>
+            <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.02] p-3">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--theme-primary)]/15 text-[var(--theme-primary)]">
+                <Check className="h-4 w-4" />
+              </span>
+              <p className="text-[12px] font-sans text-[var(--theme-text-muted)]">Every milestone claimed. New ones drop soon.</p>
+            </div>
           ) : (() => {
             const task = nextMilestone.task;
             const pct = Math.min(100, (Number(task.progress || 0) / Math.max(1, Number(task.requiredBonus || 0))) * 100);
@@ -751,61 +561,55 @@ const listsReady = items.length > 0;
             const taskLocked = Boolean(task.stageLocked);
             const rewardAvailable = !taskClaimed && !taskLocked && (task.socialType ? task.claimStatus === "verified" : Number(task.progress || 0) >= Number(task.requiredBonus || 0));
             const taskInProgress = !task.socialType && Number(task.progress || 0) > 0 && !rewardAvailable && !taskClaimed;
-            const cntP = Math.max(0, Math.floor(Number(task.progress) || 0));
-            const cntQ = Math.max(0, Math.floor(Number(task.requiredBonus) || 0));
-            const counts = msIsMoney(task.metric)
-              ? `${formatCurrency(task.progress)} / ${formatCurrency(task.requiredBonus)}`
-              : `${cntP.toLocaleString()}/${cntQ.toLocaleString()}${msUnit(task.metric) ? ` ${msUnit(task.metric)}` : ""}`;
             return (
-              <div className="mt-3 w-full rounded-2xl p-3">
-                <button
-                  type="button"
-                  onClick={() => onNavigateToMilestones(task.category)}
-                  aria-label={`View milestone: ${task.title}`}
-                  className="w-full text-left transition-[transform] duration-[160ms] ease-out active:scale-[0.99] cursor-pointer"
-                >
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-white/[0.05] border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
-                    {taskArt ? (
-                      <img src={optimizedImageUrl(taskArt, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                    ) : (
-                      <AchievementGlyph metric={task.metric} socialType={task.socialType} />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-[15px] font-display font-black truncate min-w-0">{task.title}</p>
-                      <span className="shrink-0 font-display font-bold tabular-nums text-[11px] text-[var(--theme-text-muted)]">
-                        {counts}
-                      </span>
+              <div className="w-full rounded-xl bg-white/[0.02] px-3 py-2.5">
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToMilestones(task.category)}
+                    aria-label={`View milestone: ${task.title}`}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left cursor-pointer transition-opacity active:opacity-75"
+                  >
+                    <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-white/[0.06] bg-black/20 flex items-center justify-center">
+                      {taskArt ? (
+                        <img src={optimizedImageUrl(taskArt, 200)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                      ) : (
+                        <AchievementGlyph metric={task.metric} socialType={task.socialType} />
+                      )}
+                      {taskClaimed && (
+                        <span className="absolute inset-0 grid place-items-center bg-black/55 text-[9px] font-sans font-black uppercase tracking-wide text-[var(--theme-primary)]">Claimed</span>
+                      )}
                     </div>
-                    {/* Cells — battery blocks charge left to right; the boundary
-                        cell fills fractionally. Percent rides at the end. */}
-                    <div className="mt-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <CellsProgress pct={pct} />
-                        </div>
-                        <span className="font-display font-bold text-[13px] tabular-nums shrink-0 text-[var(--theme-primary)]">
-                          {Math.round(pct)}%
-                        </span>
-                      </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-display font-black leading-tight text-[var(--theme-text)]">{task.title}</p>
+                      {task.description ? (
+                        <p className="mt-0.5 line-clamp-2 text-[11px] font-sans leading-snug text-[var(--theme-text-muted)]">{task.description}</p>
+                      ) : null}
                     </div>
-                  </div>
-                </div>
-                </button>
-                <div className="mt-2 flex justify-end">
+                  </button>
                   {taskClaimed ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 px-3 py-1.5 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)]">
-                      <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />{formatCurrency(task.reward)}
+                    <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.06] px-2.5 py-1 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
+                      <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
+                      {formatCurrency(task.reward)}
+                      <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
                     </span>
                   ) : (
-                    <button type="button" onClick={(event) => void handleClaimMilestoneTask(task, event)} disabled={!rewardAvailable || task.reward <= 0 || msClaimBusy !== null} aria-label={rewardAvailable ? `Claim ${task.title} reward of ${formatCurrency(task.reward)}` : `${task.title} reward unavailable`}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-sans font-black tabular-nums transition-transform disabled:cursor-not-allowed ${rewardAvailable && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)] tile-shimmer-5s streak-tile-pulse overflow-hidden active:scale-[0.97] disabled:opacity-45" : taskInProgress && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50" : "border-white/10 bg-[var(--theme-card-bg)]/60 text-[var(--theme-text)] opacity-60"}`}>
+                    <button
+                      type="button"
+                      onClick={(event) => { void handleClaimMilestoneTask(task, event); }}
+                      disabled={!rewardAvailable || task.reward <= 0 || msClaimBusy !== null}
+                      aria-label={rewardAvailable ? `Claim ${task.title} reward of ${formatCurrency(task.reward)}` : `${task.title} reward unavailable`}
+                      className={`flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-sans font-black tabular-nums transition-transform active:scale-95 ${rewardAvailable && task.reward > 0 ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]" : taskInProgress && task.reward > 0 ? "cursor-not-allowed border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50" : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"}`}
+                    >
                       {!rewardAvailable && <Lock className="h-3 w-3" aria-hidden="true" />}
-                      <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />{msClaimBusy === task.id ? "CLAIMING…" : formatCurrency(task.reward)}
+                      <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain" />
+                      {formatCurrency(task.reward)}
                     </button>
                   )}
+                </div>
+                <div className="mt-2.5 flex items-center gap-2 pl-[56px]">
+                  <div className="min-w-0 flex-1"><CellsProgress pct={pct} /></div>
+                  <span className="shrink-0 font-display font-bold text-[11px] tabular-nums text-[var(--theme-primary)]">{Math.round(pct)}%</span>
                 </div>
               </div>
             );

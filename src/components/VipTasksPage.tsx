@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { ArrowLeft, Check, Lock, ChevronRight, Loader2, Info } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { useCurrency } from "../currency";
 import { calcVipProgress, normalizeVipTaskboard, metricMeta, tierRewardFor, tierMetaFor, isTaskMet } from "@/src/utils/vip";
 import CellsProgress from "./CellsProgress";
-import { fetchJsonWithSignal } from "@/src/utils/abortableFetch";
-import { useAbortSignal } from "@/src/hooks/useGatedInterval";
-import { optimizedImageUrl } from "@/src/utils/imageUtils";
-import { playCheckinSound } from "@/src/utils/checkinSound";
-import type { VipTask, VipTaskboard } from "@/src/types";
+import { fetchJsonWithSignal } from "../utils/abortableFetch";
+import { useAbortSignal } from "../hooks/useGatedInterval";
+import { optimizedImageUrl } from "../utils/imageUtils";
+import { playCheckinSound } from "../utils/checkinSound";
+import { registerTarget } from "./fx/targets";
+import { useCountedMoney } from "./fx/useCountedMoney";
+import { useClaimFx } from "../features/milestones/ClaimFx";
+import type { VipTask, VipTaskboard } from "../types";
 import medal3d from "@/src/assets/3d/3dicons-medal-iso-premium.png";
 import dollar3d from "@/src/assets/3d/3dicons-dollar-iso-premium.png";
 import wallet3d from "@/src/assets/3d/3dicons-wallet-iso-premium.png";
@@ -91,6 +93,26 @@ function cacheAndPublishBoard(phone: string, board: VipTaskboard) {
 export function subscribeMilestoneBoard(listener: (board: VipTaskboard) => void): () => void {
   boardListeners.add(listener);
   return () => { boardListeners.delete(listener); };
+}
+
+// Synchronous read of the cached board, so a remount can render last week's
+// data on the first frame instead of flashing a skeleton while an effect runs.
+export function peekMilestoneBoard(phone: string): VipTaskboard | null {
+  if (vipCache && vipCache.phone === phone) return vipCache.board;
+  return null;
+}
+
+// Where the user last was inside the Journey. The page unmounts on every tab
+// switch, so component state alone loses their place.
+const lastStageByPhone = new Map<string, string>();
+
+export function rememberMilestoneStage(phone: string, stage: string | null) {
+  if (stage) lastStageByPhone.set(phone, stage);
+  else lastStageByPhone.delete(phone);
+}
+
+export function peekMilestoneStage(phone: string): string | null {
+  return lastStageByPhone.get(phone) ?? null;
 }
 
 // Shared loader so Home can show the next milestone without a second fetch.
@@ -236,35 +258,41 @@ interface StageGroup {
   art: string;
 }
 
-interface FlightCoin { id: number; startX: number; startY: number; dx: number; dy: number; delay: number; }
 
 export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focusStage }: Props) {
   const { formatCurrency } = useCurrency();
-  const [board, setBoard] = useState<VipTaskboard>({
+  const [board, setBoard] = useState<VipTaskboard>(() => peekMilestoneBoard(phone) || {
     tasks: [], vipLevel: 0, stageOrder: [], tierRewards: {}, tierMeta: {}, claimedTierRewards: [],
     referralRates: { level1: 15, level2: 5, level3: 0, level4: 0 },
     progress: { level1Bonus: 0, level2Bonus: 0, level3Bonus: 0, level4Bonus: 0, accumulatedBonus: 0, totalReferralBonus: 0, operatorPoints: 0 },
   });
-  const [loading, setLoading] = useState(Boolean(focusStage));
-  const [hasLoadedBoard, setHasLoadedBoard] = useState(false);
+  const [loading, setLoading] = useState(() => !peekMilestoneBoard(phone));
+  const [hasLoadedBoard, setHasLoadedBoard] = useState(() => Boolean(peekMilestoneBoard(phone)));
   const [bulkStage, setBulkStage] = useState<string | null>(null);
   const [submittingTasks, setSubmittingTasks] = useState<Set<string>>(() => new Set());
   const [openedTaskLinks, setOpenedTaskLinks] = useState<Set<string>>(() => new Set());
-  const [selectedStage, setSelectedStage] = useState<string | null>(focusStage || null);
+  // Restore where the user was: an explicit deep link wins, otherwise the last
+  // stage they opened on this account.
+  const [selectedStage, setSelectedStage] = useState<string | null>(() => focusStage || peekMilestoneStage(phone));
   const [previousFocusStage, setPreviousFocusStage] = useState(focusStage);
-  const [coins, setCoins] = useState<FlightCoin[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const balanceRef = useRef<HTMLDivElement>(null);
+  // Callback ref: the list and detail headers are different elements, and the
+  // coin flight needs whichever one is on screen.
+  const setBalanceRef = useCallback((el: HTMLDivElement | null) => {
+    registerTarget("vipBalance", el);
+  }, []);
   const userProfileRef = useRef(userProfile);
   userProfileRef.current = userProfile;
   const taskClaimsInFlight = useRef(new Set<string>());
   const stageClaimsInFlight = useRef(new Set<string>());
-  const coinFlightSequence = useRef(0);
+  const { display: displayPoints, countTo: countPoints } = useCountedMoney(Number(userProfile?.points || 0));
+  const { play: playClaimFx, layer: claimFxLayer, flightMs } = useClaimFx();
   // Apply route focus before React commits. An effect here let one frame of the
   // tier list show before switching to the requested tier detail.
   if (focusStage !== previousFocusStage) {
     setPreviousFocusStage(focusStage);
     setSelectedStage(focusStage || null);
+    if (focusStage) rememberMilestoneStage(phone, focusStage);
   }
   // Bar fill-in on mount / stage open — same treatment as Home Active Runs.
   const [barsIn, setBarsIn] = useState(false);
@@ -275,28 +303,46 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   }, [selectedStage]);
   const { renew, abort } = useAbortSignal();
 
-  const load = useCallback(async (force=false) => {
-    if (!force && vipCache && vipCache.phone===phone) { setBoard(vipCache.board); setLoading(false); setHasLoadedBoard(true); return; }
+  // Cache-first and TTL-aware: getMilestoneBoard returns the cached board when
+  // it is fresh and only hits the network when it is missing or stale. `silent`
+  // refreshes without a spinner, so returning to the tab (or the app coming
+  // back to the foreground) never makes the user wait.
+  const load = useCallback(async (opts: { force?: boolean; silent?: boolean } = {}) => {
+    const { force = false, silent = false } = opts;
     if (typeof document !== "undefined" && document.hidden) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const s=renew();
-    try { const n=await getMilestoneBoard(phone, s, true); setBoard(n); setHasLoadedBoard(true); }
-    catch(e:any){ if(s.aborted||e?.name==="AbortError") return; toast.error(e.message||"Journey unavailable"); }
-    finally{ if (!s.aborted) { setLoading(false); setHasLoadedBoard(true); } }
+    try {
+      const n=await getMilestoneBoard(phone, s, force);
+      if (!s.aborted) { setBoard(n); setHasLoadedBoard(true); }
+    }
+    catch(e:any){ if(s.aborted||e?.name==="AbortError") return; if (!silent) toast.error(e.message||"Journey unavailable"); }
+    finally{ if (!s.aborted && !silent) setLoading(false); }
   }, [phone]);
 
-  // Reuse the board already loaded by the header or Home. Entry is navigation,
-  // so it should not force another request; refresh only when returning to a
-  // visible tab.
-  useEffect(()=>{ void load(); const onVis=()=>{ if(!document.hidden) void load(true); }; document.addEventListener("visibilitychange", onVis); return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); }; }, [load]);
+  // Render from the cache on the first frame, then refresh it in the
+  // background. Navigation between tabs remounts this page, so a cache miss
+  // here is what made every visit look like a load.
+  useEffect(()=>{
+    void load();
+    const onVis=()=>{ if(!document.hidden) void load({ silent: true }); };
+    document.addEventListener("visibilitychange", onVis);
+    return()=>{ document.removeEventListener("visibilitychange", onVis); abort(); };
+  }, [load]);
 
+  // A social task pending admin verification is the one case where the board
+  // can change without the user doing anything, so poll — cache-first, so this
+  // only hits the network when the cache has actually gone stale.
   useEffect(() => {
     if (!board.tasks.some((task) => task.claimStatus === "pending")) return;
     const pollId = window.setInterval(() => {
-      if (!document.hidden) void load(true);
+      if (!document.hidden) void load({ silent: true });
     }, 15000);
     return () => window.clearInterval(pollId);
   }, [board.tasks, load]);
+
+  // Remember where the user was so a remount lands them back in the same level.
+  useEffect(() => { rememberMilestoneStage(phone, selectedStage); }, [phone, selectedStage]);
 
   // Stages in admin order (older top, new below). Descriptions, art, and
   // rewards come from admin tier settings only — no hardcoded fallbacks.
@@ -350,37 +396,24 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     onClaimSuccess(next);
   }, [onClaimSuccess]);
 
-  const animateRewardClaim = useCallback((sourceRect: DOMRect | null) => {
+  /**
+   * The claim celebration: a burst where the user tapped, coins arcing to the
+   * withdrawable balance, and the balance counting up to meet them. Call BEFORE
+   * the optimistic balance write — the count-up must own the number, or the
+   * write lands first and the reward looks like it paid twice.
+   */
+  const celebrateClaim = useCallback((sourceRect: DOMRect | null, nextPoints: number) => {
     playCheckinSound();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const root = rootRef.current;
-    const target = balanceRef.current?.getBoundingClientRect();
-    if (reduced || !sourceRect || !root || !target) return [] as number[];
-
-    const rootRect = root.getBoundingClientRect();
-    const startX = sourceRect.left + sourceRect.width / 2 - rootRect.left;
-    const startY = sourceRect.top + sourceRect.height / 2 - rootRect.top;
-    const endX = target.left + target.width / 2 - rootRect.left;
-    const endY = target.top + target.height / 2 - rootRect.top;
-    const flight = ++coinFlightSequence.current;
-    const flightIds = Array.from({ length: 10 }, (_, i) => Date.now() * 100 + flight * 10 + i);
-    const nextCoins = flightIds.map((id, i) => ({
-      id,
-      startX: startX + (Math.random() - 0.5) * 24,
-      startY: startY + (Math.random() - 0.5) * 10,
-      dx: endX - startX + (Math.random() - 0.5) * 30,
-      dy: endY - startY,
-      delay: i * 0.06,
-    }));
-    setCoins((current) => [...(current || []), ...nextCoins]);
-    window.setTimeout(() => {
-      setCoins((current) => {
-        const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
-        return remaining.length > 0 ? remaining : null;
-      });
-    }, 1050);
-    return flightIds;
-  }, []);
+    // Claim the number now (so the optimistic write cannot land underneath) but
+    // hold the visible count until the coins arrive.
+    countPoints(nextPoints, 900, reduced ? 0 : flightMs);
+    if (reduced || !sourceRect) return;
+    playClaimFx({
+      x: sourceRect.left + sourceRect.width / 2,
+      y: sourceRect.top + sourceRect.height / 2,
+    }, 8);
+  }, [countPoints, playClaimFx, flightMs]);
 
   // CLAIM LEVEL REWARD: the single one-time payout for the whole stage.
   const handleClaimStage = async (stage: StageGroup, event?: React.MouseEvent<HTMLElement>) => {
@@ -395,8 +428,9 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     stageClaimsInFlight.current.add(stage.name);
     setBulkStage(stage.name);
     setBoard((current) => ({ ...current, claimedTierRewards: optimisticTiers }));
+    const previousPoints = Number(previousProfile?.points || 0);
+    celebrateClaim(sourceRect, previousPoints + optimisticReward);
     applyPointsDelta(optimisticReward, { claimedTierRewards: optimisticTiers });
-    const flightIds = animateRewardClaim(sourceRect);
 
     try {
       const s = renew();
@@ -407,20 +441,20 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
       });
       const reward = Math.max(0, Number(data.bonus) || 0);
       const claimedTierRewards = data.claimedTierRewards || optimisticTiers;
-      if (reward !== optimisticReward) applyPointsDelta(reward - optimisticReward, { claimedTierRewards });
-      else if (data.claimedTierRewards) applyPointsDelta(0, { claimedTierRewards });
+      if (reward !== optimisticReward) {
+        countPoints(previousPoints + reward);
+        applyPointsDelta(reward - optimisticReward, { claimedTierRewards });
+      } else if (data.claimedTierRewards) {
+        applyPointsDelta(0, { claimedTierRewards });
+      }
       setBoard((current) => ({ ...current, claimedTierRewards }));
       confirmMilestoneTierClaim(phone, stage.name);
-      toast.success(`Stage reward claimed: ${formatCurrency(reward)} added to withdrawable balance`);
-      void load(true);
+      void load({ force: true, silent: true });
     } catch (error: any) {
       clearMilestoneTierClaim(phone, stage.name);
+      countPoints(previousPoints);
       applyPointsDelta(-optimisticReward, { claimedTierRewards: previousProfileTiers });
       setBoard((current) => ({ ...current, claimedTierRewards: previousBoard.claimedTierRewards }));
-      if (flightIds.length) setCoins((current) => {
-        const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
-        return remaining.length > 0 ? remaining : null;
-      });
       if (error?.name !== "AbortError") toast.error(error.message || "Claim failed");
     } finally {
       stageClaimsInFlight.current.delete(stage.name);
@@ -442,15 +476,15 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     if (isRewardClaim && !beginMilestoneTaskClaim(phone, task)) return;
     taskClaimsInFlight.current.add(task.id);
     setSubmittingTasks((current) => new Set(current).add(task.id));
-    let flightIds: number[] = [];
 
     if (isRewardClaim) {
       setBoard((current) => ({
         ...current,
         tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
       }));
+      const previousPoints = Number(userProfileRef.current?.points || 0);
+      celebrateClaim(sourceRect, previousPoints + optimisticReward);
       applyPointsDelta(optimisticReward);
-      flightIds = animateRewardClaim(sourceRect);
     }
 
     const s = renew();
@@ -464,47 +498,42 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
 
       if (result.status === "approved") {
         const reward = Math.max(0, Number(result.reward) || 0);
+        const previousPoints = Number(userProfileRef.current?.points || 0) - (isRewardClaim ? optimisticReward : 0);
         if (!isRewardClaim) {
           setBoard((current) => ({
             ...current,
             tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: true, claimStatus: "approved" } : item),
           }));
+          celebrateClaim(sourceRect, previousPoints + reward);
           applyPointsDelta(reward);
-          flightIds = animateRewardClaim(sourceRect);
         } else if (reward !== optimisticReward) {
+          countPoints(previousPoints + reward);
           applyPointsDelta(reward - optimisticReward);
         }
-        toast.success(`${formatCurrency(reward)} added to your balance.`);
         confirmMilestoneTaskClaim(phone, task.id);
-        void load(true);
+        void load({ force: true, silent: true });
       } else {
-        if (isRewardClaim) clearMilestoneTaskClaim(phone, task.id);
         if (isRewardClaim) {
+          clearMilestoneTaskClaim(phone, task.id);
+          countPoints(Number(userProfileRef.current?.points || 0) - optimisticReward);
           applyPointsDelta(-optimisticReward);
-          if (flightIds.length) setCoins((current) => {
-            const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
-            return remaining.length > 0 ? remaining : null;
-          });
         }
         setBoard((current) => ({
           ...current,
           tasks: current.tasks.map((item) => item.id === task.id ? { ...item, claimed: false, claimStatus: result.status } : item),
         }));
-        toast.success(result.status === "pending" ? "Task is being verified." : "Task verified. Tap its reward to claim.");
-        void load(true);
+        toast.info(result.status === "pending" ? "Task is being verified." : "Task verified. Tap its reward to claim.");
+        void load({ force: true, silent: true });
       }
     } catch (error: any) {
       if (isRewardClaim) {
         clearMilestoneTaskClaim(phone, task.id);
+        countPoints(Number(userProfileRef.current?.points || 0) - optimisticReward);
         applyPointsDelta(-optimisticReward);
         setBoard((current) => ({
           ...current,
           tasks: current.tasks.map((item) => item.id === task.id ? task : item),
         }));
-        if (flightIds.length) setCoins((current) => {
-          const remaining = current?.filter((coin) => !flightIds.includes(coin.id)) || [];
-          return remaining.length > 0 ? remaining : null;
-        });
       }
       if (error?.name !== "AbortError") toast.error(error.message || "Could not complete this task.");
     } finally {
@@ -540,17 +569,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
     const visibleTasks = detail.tasks;
     return (
       <div ref={rootRef} className="relative w-full flex-1 flex flex-col min-h-0">
-        <AnimatePresence>
-          {coins && <div className="absolute inset-0 z-30 pointer-events-none overflow-visible" aria-hidden="true">
-            {coins.map((coin) => <motion.img key={coin.id} src={dollar3d} alt="" initial={{ x: 0, y: 0, scale: 0.7, opacity: 1 }} animate={{ x: coin.dx, y: coin.dy, scale: 0.25, opacity: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.6, delay: coin.delay, ease: "easeOut" }} className="absolute w-9 h-9 object-contain" style={{ left: coin.startX - 18, top: coin.startY - 18 }} />)}
-          </div>}
-        </AnimatePresence>
-        <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
+      {claimFxLayer}
+      <div className="flex-1 overflow-y-auto overscroll-contain pb-8 scrollbar-none min-h-0">
           <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/5 bg-[var(--theme-card-bg)]/80 px-4 py-2 backdrop-blur-xl">
             <button type="button" onClick={() => setSelectedStage(null)} aria-label="Back to journey" className="w-9 h-9 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 flex items-center justify-center text-[var(--theme-text)] cursor-pointer active:scale-95 transition-transform"><ArrowLeft className="w-4 h-4" /></button>
-            <div ref={balanceRef} className="text-right">
+            <div ref={setBalanceRef} className="text-right">
               <p className="text-[8px] font-sans font-normal tracking-[0.13em] text-[var(--theme-text)] opacity-65">WITHDRAWABLE BALANCE</p>
-              <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(Number(userProfile?.points || 0))}</p>
+              <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(displayPoints)}</p>
             </div>
           </div>
           {/* Hero — frosted continuation, borderless so it blends into the page
@@ -587,10 +612,15 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
             </div>
           </div>
 
-          <div className="px-4 mt-3">
-            <h2 className="mb-2 text-[12px] font-sans font-black tracking-[0.22em] text-[var(--theme-text)] opacity-70">{detail.name} task list.</h2>
-            <div className="flex flex-col gap-2.5">
-              {visibleTasks.map((task) => {
+          <div className="px-2 mt-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-[10px] font-sans font-black uppercase tracking-[0.26em] text-[var(--theme-text)] opacity-45">
+                {detail.name} <span className="opacity-60">· Task list</span>
+              </h2>
+              <span className="text-[10px] font-sans font-bold tabular-nums text-[var(--theme-text)] opacity-45">{detail.done}/{detail.total}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {visibleTasks.map((task, index) => {
                 const met = isTaskMet(task);
                 const p = calcVipProgress(task.progress, task.requiredBonus);
                 const locked = task.stageLocked && !detail.claimedTier;
@@ -601,82 +631,119 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                 const actionLinkKey = `${task.id}:${task.actionUrl || ""}`;
                 const actionLinkOpened = openedTaskLinks.has(actionLinkKey);
                 const rewardAvailable = taskVerified || (!socialTask && met && !taskApproved);
-                const taskInProgress = !socialTask && Number(task.progress || 0) > 0 && !rewardAvailable && !taskApproved;
+                const claimDisabled = locked || !rewardAvailable || task.reward <= 0 || submittingTasks.has(task.id);
                 return (
-                  <div key={task.id} className="rounded-2xl border border-white/10 bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] p-3.5 flex items-center gap-3">
-                    <span className="w-12 h-12 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
-                      {task.imageUrl ? (
-                        <img src={optimizedImageUrl(task.imageUrl, 200)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                      ) : (
-                        <AchievementGlyph metric={task.metric} socialType={task.socialType} />
-                      )}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <h4 className="text-[14px] font-sans font-bold leading-tight text-[var(--theme-text)] truncate min-w-0 flex-1">{task.title}</h4>
-                        <span className="flex items-center gap-1.5 shrink-0">
-                          {taskApproved ? <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/60 px-2 py-1 text-[10px] font-sans font-black tabular-nums text-[var(--theme-text)]">
-                            {locked && <Lock className="w-3 h-3 opacity-55" aria-hidden="true" />}
-                            <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />{formatCurrency(task.reward)}
-                          </span> : <button
-                            type="button"
-                            onClick={(event) => void handleTaskAction(task, event)}
-                            disabled={locked || !rewardAvailable || task.reward <= 0 || submittingTasks.has(task.id)}
-                            aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-sans font-black tabular-nums transition-transform disabled:cursor-not-allowed ${rewardAvailable && !locked && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)] tile-shimmer-5s streak-tile-pulse overflow-hidden cursor-pointer active:scale-[0.97] disabled:opacity-45" : taskInProgress && task.reward > 0 ? "border-[var(--theme-primary)] bg-[var(--theme-primary)]/70 text-[var(--theme-on-primary)] opacity-50 saturate-50 cursor-not-allowed" : "border-white/10 bg-[var(--theme-card-bg)]/60 text-[var(--theme-text)] cursor-not-allowed disabled:opacity-45"}`}
-                          >
-                            {locked && <Lock className="w-3 h-3 opacity-70" aria-hidden="true" />}
-                            <img src={dollar3d} alt="" className="h-4 w-4 object-contain" />
-                            {submittingTasks.has(task.id) ? "CLAIMING…" : formatCurrency(task.reward)}
-                          </button>}
-                        </span>
+                  <article
+                    key={task.id}
+                    className={`relative flex flex-col gap-2.5 overflow-hidden rounded-[18px] border px-3 py-3 transition-colors ${
+                      rewardAvailable
+                        ? "border-[var(--theme-primary)]/25 bg-[var(--theme-primary)]/[0.045]"
+                        : "border-white/[0.06] bg-white/[0.02]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="w-4 shrink-0 pt-1.5 text-right text-[10px] font-sans font-bold tabular-nums text-[var(--theme-text)] opacity-25">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
+                        {task.imageUrl ? (
+                          <img src={optimizedImageUrl(task.imageUrl, 200)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        ) : (
+                          <AchievementGlyph metric={task.metric} socialType={task.socialType} className="h-7 w-7" />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-[14px] font-sans font-bold leading-snug text-[var(--theme-text)]">{task.title}</h4>
+                        {task.description ? (
+                          <p className="mt-0.5 line-clamp-2 text-[11px] font-sans font-normal leading-snug text-[var(--theme-text)] opacity-50">
+                            {task.description}
+                          </p>
+                        ) : null}
                       </div>
-                      {task.description && <p className="text-[12px] font-sans text-[var(--theme-text)] opacity-55 leading-snug mt-0.5">{task.description}</p>}
+                      {/* One affordance per card: the coin + amount chip IS the
+                          claim button. No second "Claim" verb underneath. */}
+                      {taskApproved ? (
+                        <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.06] px-2.5 py-1.5 text-[11px] font-sans font-black tabular-nums text-[var(--theme-text)] opacity-45">
+                          <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain grayscale" />
+                          {formatCurrency(task.reward)}
+                          <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(event) => void handleTaskAction(task, event)}
+                          disabled={claimDisabled}
+                          aria-label={`Claim ${task.title} for ${formatCurrency(task.reward)}`}
+                          className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-sans font-black tabular-nums transition-transform active:scale-95 ${
+                            !claimDisabled
+                              ? "cursor-pointer border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--theme-on-primary)]"
+                              : "cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-[var(--theme-text)] opacity-45"
+                          }`}
+                        >
+                          {locked && <Lock className="h-3 w-3" aria-hidden="true" />}
+                          {submittingTasks.has(task.id) ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <img src={dollar3d} alt="" className="h-3.5 w-3.5 object-contain" />
+                          )}
+                          {formatCurrency(task.reward)}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Progress and the quiet social action sit on one indented
+                        second line. A hairline, not a second box — the negative
+                        space does the separating. */}
+                    <div className="pl-7">
                       {socialTask ? (
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-3">
-                            {task.actionUrl ? (
-                              <a
-                                href={task.actionUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => setOpenedTaskLinks((current) => new Set(current).add(actionLinkKey))}
-                                aria-label={`${socialActionLabel(task.socialType)}: ${task.title}`}
-                                className="cursor-pointer text-[11px] font-sans font-bold text-[var(--theme-primary)] underline underline-offset-4 decoration-[var(--theme-primary)]/60 transition-opacity duration-150 hover:opacity-75 active:opacity-55"
-                              >
-                                {socialActionLabel(task.socialType)}
-                              </a>
-                            ) : (
-                              <span className="text-[11px] font-sans font-bold text-[var(--theme-primary)]/55 underline underline-offset-4">
-                                {socialActionLabel(task.socialType)}
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex items-center justify-between gap-3">
+                          {task.actionUrl ? (
+                            <a
+                              href={task.actionUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setOpenedTaskLinks((current) => new Set(current).add(actionLinkKey))}
+                              aria-label={`${socialActionLabel(task.socialType)}: ${task.title}`}
+                              className="cursor-pointer text-[11px] font-sans font-bold text-[var(--theme-primary)] underline underline-offset-4 decoration-[var(--theme-primary)]/40 transition-opacity hover:opacity-75 active:opacity-55"
+                            >
+                              {socialActionLabel(task.socialType)}
+                            </a>
+                          ) : (
+                            <span className="text-[11px] font-sans font-bold text-[var(--theme-primary)]/50 underline underline-offset-4">
+                              {socialActionLabel(task.socialType)}
+                            </span>
+                          )}
                           {taskPending ? (
-                            <span role="status" className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-sans font-black tracking-[0.08em] animate-shimmer">
+                            <span role="status" className="inline-flex items-center gap-1.5 text-[10px] font-sans font-black tracking-[0.1em] text-[var(--theme-text)] opacity-60">
                               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> VERIFYING
                             </span>
-                          ) : taskApproved ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">CLAIMED</span>
-                            : taskVerified ? <span className="shrink-0 text-[10px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">VERIFIED - TAP REWARD</span>
-                            : <button type="button" onClick={(event) => void handleTaskAction(task, event)} disabled={locked || task.reward <= 0 || submittingTasks.has(task.id) || !actionLinkOpened} title={task.actionUrl ? `Open the link and ${socialActionLabel(task.socialType).toLowerCase()} before verifying.` : "This task needs a social link before it can be verified."} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-[var(--theme-card-bg)]/55 px-3 py-1.5 text-[10px] font-sans font-black text-[var(--theme-text)] cursor-pointer active:scale-[0.97] transition-transform disabled:cursor-not-allowed disabled:opacity-45" aria-label={`Verify ${task.title}. Open and ${socialActionLabel(task.socialType).toLowerCase()} the social link first.`}>
-                                <Info className="h-3 w-3 opacity-65" aria-hidden="true" />
-                                {submittingTasks.has(task.id) ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> VERIFYING</> : "VERIFY"}
-                              </button>}
+                          ) : taskVerified ? (
+                            <span className="text-[10px] font-sans font-black tracking-[0.1em] text-[var(--theme-primary)]">TAP AMOUNT TO CLAIM</span>
+                          ) : taskApproved ? null : (
+                            <button
+                              type="button"
+                              onClick={(event) => void handleTaskAction(task, event)}
+                              disabled={locked || task.reward <= 0 || submittingTasks.has(task.id) || !actionLinkOpened}
+                              title={task.actionUrl ? `Open the link and ${socialActionLabel(task.socialType).toLowerCase()} before verifying.` : "This task needs a social link before it can be verified."}
+                              className="inline-flex cursor-pointer items-center gap-1.5 text-[10px] font-sans font-black tracking-[0.1em] text-[var(--theme-text)] opacity-70 transition-opacity active:opacity-40 disabled:cursor-not-allowed disabled:opacity-30"
+                              aria-label={`Verify ${task.title}. Open and ${socialActionLabel(task.socialType).toLowerCase()} the social link first.`}
+                            >
+                              <Info className="h-3 w-3" aria-hidden="true" />
+                              {submittingTasks.has(task.id) ? "VERIFYING" : "VERIFY"}
+                            </button>
+                          )}
                         </div>
                       ) : (
-                        <div className="mt-2 space-y-1.5">
-                          <div className="flex items-center justify-end gap-2">
+                        <div className={`space-y-2 ${taskApproved || locked ? "opacity-45 saturate-50" : ""}`}>
+                          <div className="flex items-center justify-between">
                             <span className="text-[10px] font-sans font-normal tabular-nums leading-none text-[var(--theme-primary)]">{fmtRange(task)}</span>
-                            {taskApproved && <span className="text-[9px] font-sans font-black tracking-[0.08em] text-[var(--theme-primary)]">CLAIMED</span>}
+                            <span className="text-[10px] font-sans font-normal tabular-nums leading-none text-[var(--theme-text)] opacity-50">{Math.round(p)}%</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className={`flex-1 min-w-0 ${taskApproved || locked ? "opacity-50 saturate-50" : ""}`}><CellsProgress pct={p} /></div>
-                            <span className="w-9 text-right shrink-0 text-[10px] font-sans font-normal tabular-nums leading-none text-[var(--theme-primary)]">{Math.round(p)}%</span>
-                          </div>
+                          <CellsProgress pct={p} cellClass="h-3" />
                         </div>
                       )}
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -689,17 +756,13 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
   // ---------- Journey list (mockup screen 1) ----------
   return (
     <div ref={rootRef} className="relative w-full flex-1 flex flex-col min-h-0">
-      <AnimatePresence>
-        {coins && <div className="absolute inset-0 z-30 pointer-events-none overflow-visible" aria-hidden="true">
-          {coins.map((coin) => <motion.img key={coin.id} src={dollar3d} alt="" initial={{ x: 0, y: 0, scale: 0.7, opacity: 1 }} animate={{ x: coin.dx, y: coin.dy, scale: 0.25, opacity: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.6, delay: coin.delay, ease: "easeOut" }} className="absolute w-9 h-9 object-contain" style={{ left: coin.startX - 18, top: coin.startY - 18 }} />)}
-        </div>}
-      </AnimatePresence>
+      {claimFxLayer}
       <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-8 scrollbar-none min-h-0">
         <div className="flex items-start justify-between gap-2">
           <h1 className="min-w-0 flex-1 font-display font-black text-[26px] leading-none tracking-tight text-[var(--theme-text)] sm:text-[30px]">YOUR <span className="text-[var(--theme-primary)]">JOURNEY</span></h1>
-          <div ref={balanceRef} className="shrink-0 text-right">
+          <div ref={setBalanceRef} className="shrink-0 text-right">
             <p className="whitespace-nowrap text-[7px] font-sans font-normal tracking-[0.08em] text-[var(--theme-text)] opacity-65">WITHDRAWABLE BALANCE</p>
-            <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(Number(userProfile?.points || 0))}</p>
+            <p className="mt-0.5 font-display font-black text-[16px] leading-none text-[var(--theme-primary)]">{formatCurrency(displayPoints)}</p>
           </div>
         </div>
         <p className="mt-2 text-[13px] font-sans text-[var(--theme-text)] opacity-65 leading-snug max-w-[300px]">Complete achievements, unlock new stages, and level up your Operator status.</p>
@@ -748,15 +811,15 @@ export default function VipTasksPage({ phone, userProfile, onClaimSuccess, focus
                         <span className="w-14 h-[72px] rounded-xl shrink-0 bg-black/20 border border-white/10 flex items-center justify-center"><AchievementGlyph metric={stage.tasks[0]?.metric} socialType={stage.tasks[0]?.socialType} /></span>
                       )}
                       <span className="flex-1 min-w-0">
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="font-display font-black text-[17px] tracking-tight text-[var(--theme-text)]">{stage.name.toUpperCase()}</span>
-                          <ChevronRight className="w-4 h-4 text-[var(--theme-text)] opacity-40 shrink-0" />
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 flex-1 font-display font-black text-[17px] leading-tight tracking-tight text-[var(--theme-text)] break-words">{stage.name.toUpperCase()}</span>
+                          <ChevronRight className="mt-0.5 w-4 h-4 shrink-0 text-[var(--theme-text)] opacity-40" />
                         </span>
-                        {stage.description && <span className="block text-[12px] font-sans text-[var(--theme-text)] opacity-60 mt-0.5 truncate">{stage.description}</span>}
-                        <span className={`mt-2 block ${stage.claimedTier || muted ? "opacity-50 saturate-50" : ""}`}>
+                        {stage.description && <span className="mt-1 line-clamp-2 block text-[12px] font-sans leading-snug text-[var(--theme-text)] opacity-60">{stage.description}</span>}
+                        <span className={`mt-2.5 block ${stage.claimedTier || muted ? "opacity-50 saturate-50" : ""}`}>
                           <CellsProgress pct={barPct} />
                         </span>
-                        <span className="mt-1.5 flex items-center justify-between gap-2">
+                        <span className="mt-2 flex items-center gap-2">
                           <span className="text-[10px] font-sans font-bold tracking-[0.12em] text-[var(--theme-text)] opacity-60">{stage.done}/{stage.total} COMPLETE</span>
                         </span>
                       </span>

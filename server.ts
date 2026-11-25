@@ -22,6 +22,7 @@ import {
   getUserCollectibles,
   claimCollectible,
   getUserTransactions,
+  getCheckinHistory,
   claimDailyReward,
   requestCashout,
   createNotification,
@@ -693,6 +694,9 @@ app.get("/api/jobs/daily-credit", async (req, res) => {
 });
 
 const PHONE_PATTERN = /^\d{9,10}$/;
+// Countries the register form offers. Anything else is ignored and the account
+// falls back to the phone-shape currency rule.
+const REGISTRATION_COUNTRIES = new Set(["UG", "RW", "TZ", "KE", "ZA", "NG"]);
 const MAX_PASSWORD_LENGTH = 128;
 // Pragmatic email shape check, not RFC 5322. Deliberately strict on the domain
 // dot so a typo like "user@gmail" is caught before it is stored and becomes
@@ -1122,6 +1126,9 @@ app.post("/api/auth/register", async (req, res) => {
   const { phone, password, confirmPassword, inviteCode } = req.body;
   const normalizedPhone = normalizePhone(phone);
   const displayName = typeof req.body?.username === "string" ? req.body.username.trim().slice(0, 64) : "";
+  // Registration country: the selector on the form. Stored because the phone is
+  // kept as local digits, which cannot be traced back to a country later.
+  const countryCode = typeof req.body?.countryCode === "string" ? req.body.countryCode.trim().toUpperCase() : "";
   // Optional at registration. Stored as-is, and it is the address a password
   // reset code is delivered to.
   const emailInput = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
@@ -1196,7 +1203,8 @@ app.post("/api/auth/register", async (req, res) => {
       username: displayName || undefined, // blank falls back to auto User_XXXX
       email: emailInput || undefined,
       referredByCode: inviteCode ? inviteCode.trim() : "",
-      telegramId: telegramId || undefined
+      telegramId: telegramId || undefined,
+      countryCode: REGISTRATION_COUNTRIES.has(countryCode) ? countryCode : null
     });
     res.json({ success, profile: publicProfile(profile) });
   } catch (error: any) {
@@ -3267,6 +3275,23 @@ app.post("/api/user/checkin", async (req, res) => {
     res.json(result);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+// Lightweight check-in history for the streak calendar (cheap: only
+// daily_checkin_bonus rows, day keys + amounts).
+app.get('/api/profile/checkin-history/:phone', async (req, res) => {
+  try {
+    const phone = normalizePhone(req.params.phone);
+    const authenticatedPhone = await getAuthenticatedUserPhone(req);
+    if (!authenticatedPhone || authenticatedPhone !== phone) {
+      return res.status(401).json({ error: 'Please sign in again to view your check-in history.' });
+    }
+    const history = await getCheckinHistory(phone);
+    res.json(history);
+  } catch (error: any) {
+    logError('Fetch check-in history exception:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

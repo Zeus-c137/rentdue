@@ -15,7 +15,6 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { useShimmerPulse } from "../hooks/useShimmerPulse";
 
 interface CapitalChipProps {
   /** Recharge balance in UGX. */
@@ -81,7 +80,7 @@ export default function CapitalChip({
   onOpen,
 }: CapitalChipProps) {
   const reduce = useReducedMotion();
-  const pulse = useShimmerPulse();
+
   const value = Math.max(0, Number(amount) || 0);
 
   // Count in the displayed unit. Counting in UGX and converting at the end
@@ -111,13 +110,11 @@ export default function CapitalChip({
       className="flex items-center gap-2 min-w-0 w-full bg-transparent border-0 p-0 text-left cursor-pointer active:scale-[0.96] transition-transform duration-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary)]"
     >
       <span className="min-w-0 leading-none">
-        <span className="block font-sans font-bold text-[11px] text-[var(--theme-primary)] truncate max-w-full">
+        <span className="block font-sans font-bold text-[11px] text-white truncate max-w-full">
           Trading capital
         </span>
         <span
-          className={`mt-2.5 block font-display font-black text-[15px] sm:text-[17px] tracking-tight truncate max-w-full tabular-nums ${
-            pulse ? "animate-shimmer-slow" : ""
-          }`}
+          className="mt-2.5 block font-display font-black text-[15px] sm:text-[17px] tracking-tight text-white truncate max-w-full tabular-nums"
         >
           {shown}
         </span>

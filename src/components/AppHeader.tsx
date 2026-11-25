@@ -18,6 +18,7 @@ import React from "react";
 import { Bell, CalendarDays, MessagesSquare } from "lucide-react";
 import { UserProfile } from "../types";
 import CapitalChip from "./CapitalChip";
+import { StreakPill } from "../features/checkin/StreakPill";
 
 interface AppHeaderProps {
   profile: UserProfile;
@@ -29,10 +30,12 @@ interface AppHeaderProps {
   alertsUnread: number;
   /** The history tab is already showing; a link to it would be a dead tap. */
   showHistoryLink: boolean;
+  streak: number;
   onOpenDeposit: () => void;
   onOpenHistory: () => void;
   onOpenChat: () => void;
   onOpenAlerts: () => void;
+  onOpenStreaks: () => void;
 }
 
 /** Icon rail button — same geometry as the original ribbon icons. */
@@ -73,10 +76,12 @@ export default function AppHeader({
   chatUnread,
   alertsUnread,
   showHistoryLink,
+  streak,
   onOpenDeposit,
   onOpenHistory,
   onOpenChat,
   onOpenAlerts,
+  onOpenStreaks,
 }: AppHeaderProps) {
   return (
     <header
@@ -89,7 +94,7 @@ export default function AppHeader({
         style={{ background: "radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--theme-primary) 16%, transparent), transparent 70%)" }}
       />
 
-      <div className="relative flex min-w-0 flex-1 items-center">
+      <div className="relative flex min-w-0 flex-1 items-center gap-2">
         <CapitalChip
           amount={profile.rechargeBalance || 0}
           formatCurrency={formatCurrency}
@@ -97,6 +102,7 @@ export default function AppHeader({
           exchangeRate={exchangeRate}
           onOpen={onOpenDeposit}
         />
+        <StreakPill streak={streak} onClick={onOpenStreaks} />
       </div>
 
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">

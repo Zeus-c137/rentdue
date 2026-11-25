@@ -19,7 +19,6 @@ import GuideView from "./components/GuideView";
 import ChatView from "./components/ChatView";
 import TransactionHistoryView from "./components/TransactionHistoryView";
 import VipTasksPage from "./components/VipTasksPage";
-import StreaksPage from "./components/StreaksPage";
 import AlertsView from "./components/AlertsView";
 import AdminView from "./components/AdminView";
 import { BrandLogo } from "./components/BrandLogo";
@@ -32,7 +31,6 @@ import {
   type CurrencyPreference,
 } from "./currency";
 
-import confetti from "canvas-confetti";
 import {
   Zap,
   MessagesSquare,
@@ -40,20 +38,20 @@ import {
   X,
   Store,
   Trophy,
-  ArrowRight,
   Bell,
   Home,
   Compass
 } from "lucide-react";
 
-
 import AppHeader from "./components/AppHeader";
+import { CheckinHost } from "./features/checkin/CheckinHost";
+import StreakSheet from "./features/checkin/StreakSheet";
 import { getTodayKey } from "./utils/runs";
 import { motion, AnimatePresence } from "motion/react";
 
 import { ThemeProvider } from "./context/ThemeContext";
 import { useChatUnread } from "./hooks/useChatUnread";
-import { useGatedInterval, useGatedTimeout, useAbortSignal } from "./hooks/useGatedInterval";
+import { useGatedInterval, useAbortSignal } from "./hooks/useGatedInterval";
 import { fetchJsonSafe } from "./utils/abortableFetch";
 
 // Last-known shell (theme preset + logo) cached on every successful site-config
@@ -103,6 +101,54 @@ function writeBootShell(config: any) {
   } catch {
     // caching must never break the app
   }
+}
+
+/** One dock item. Icon cross-fades to its filled form; label and bar carry state. */
+function NavItem({
+  label,
+  active,
+  onClick,
+  icon,
+  activeIcon,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  activeIcon: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`flex flex-col items-center gap-1 rounded-xl px-1 py-1.5 transition-colors active:scale-[0.96] ${active ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60 hover:opacity-90"}`}
+    >
+      <span className="grid h-[22px] w-[22px] place-items-center">
+        <span className="col-start-1 row-start-1">{icon}</span>
+        <span className={`col-start-1 row-start-1 transition-opacity duration-200 ${active ? "opacity-100" : "opacity-0"}`}>
+          {activeIcon}
+        </span>
+      </span>
+      <span className="font-sans text-[10px] font-semibold leading-none">{label}</span>
+      <NavDot active={active} />
+    </button>
+  );
+}
+
+/** Active indicator — a short bar, sized to read as a state not a badge. */
+function NavDot({ active }: { active: boolean }) {
+  return (
+    <span className="flex h-1 w-4 items-center justify-center">
+      {active && (
+        <motion.span
+          layoutId="nav-active-dot"
+          transition={{ type: "spring", stiffness: 550, damping: 38 }}
+          className="h-1 w-4 rounded-full bg-[var(--theme-primary)]"
+        />
+      )}
+    </span>
+  );
 }
 
 export default function App() {
@@ -177,11 +223,12 @@ export default function App() {
       cancelled = true;
     };
   }, [isAdminRoute]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip">("dashboard");
   const [historyFilterRequest, setHistoryFilterRequest] = useState<string | null>(null);
   const [journeyStage, setJourneyStage] = useState<string | null>(null);
   const [referralView, setReferralView] = useState<"overview" | "team">("overview");
-  const [streaksReturn, setStreaksReturn] = useState<"dashboard" | "profile">("dashboard");
+
+  const [streakSheetOpen, setStreakSheetOpen] = useState(false);
   const [collectionReturn, setCollectionReturn] = useState<"dashboard" | "income" | "profile">("profile");
   const [siteConfig, setSiteConfig] = useState<any>(null);
   // Synchronous boot seed: theme + logo from the last successful load so the
@@ -214,6 +261,7 @@ export default function App() {
   const currencyValue = useCurrency(userProfile?.phone, Number(siteConfig?.usdtRate) || null, {
     preference: currencyPreference,
     setPreference: setCurrencyPreference,
+    countryCode: userProfile?.countryCode ?? null,
   });
 
   const chatUnread = useChatUnread(userProfile?.phone);
@@ -224,22 +272,13 @@ export default function App() {
     const lastViewed = Number(localStorage.getItem("lastViewedAlertsTime") || 0);
     return userNotifications.filter((n) => new Date(n.timestamp).getTime() > lastViewed).length;
   }, [userNotifications]);
-  const [showWelcomeBonus, setShowWelcomeBonus] = useState(false);
   const [welcomeBonusAmount, setWelcomeBonusAmount] = useState(0);
-  const [welcomeBonusPending, setWelcomeBonusPending] = useState(false);
-  useGatedTimeout(() => {
-    if (!welcomeBonusPending || document.hidden) return;
-    setShowWelcomeBonus(true);
-    setWelcomeBonusPending(false);
-  }, 2000, [welcomeBonusPending]);
 
   // Registration bonus handoff: shown once, and only when the register flow
   // left a fresh bonus in sessionStorage for this phone.
   useEffect(() => {
     if (!userProfile?.phone) {
-      setShowWelcomeBonus(false);
       setWelcomeBonusAmount(0);
-      setWelcomeBonusPending(false);
       return;
     }
 
@@ -258,29 +297,10 @@ export default function App() {
     if (amount <= 0 || !isFreshHandoff) {
       sessionStorage.removeItem(welcomeKey);
       setWelcomeBonusAmount(0);
-      setWelcomeBonusPending(false);
       return;
     }
     setWelcomeBonusAmount(amount);
-    setWelcomeBonusPending(true);
   }, [userProfile?.phone]);
-
-  useEffect(() => {
-    if (showWelcomeBonus) {
-      confetti({
-        particleCount: 75,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-    }
-  }, [showWelcomeBonus]);
-
-  const handleCloseWelcomeBonus = () => {
-    if (userProfile?.phone) {
-      sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
-    }
-    setShowWelcomeBonus(false);
-  };
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -342,7 +362,7 @@ export default function App() {
     }
   }, [siteConfig]);
 
-  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip" | "streaks">("dashboard");
+  const [previousTab, setPreviousTab] = useState<"dashboard" | "catalog" | "income" | "collection" | "history" | "referral" | "chat" | "profile" | "account" | "guide" | "deposit" | "withdraw" | "alerts" | "vip">("dashboard");
   // Home closes the header card with its own balance block; every other tab
   // keeps the header as a finished card.
   const showHomeCard = activeTab === "dashboard" || (activeTab === "alerts" && previousTab === "dashboard");
@@ -638,61 +658,6 @@ export default function App() {
       <div className="relative h-[100dvh] w-full bg-[var(--theme-bg)] text-[var(--theme-text)] font-sans selection:bg-blue-600/35 selection:text-white overflow-hidden flex items-center justify-center p-0 md:p-4">
       
 
-      {/* Registration bonus handoff, shown once after a fresh register. */}
-      <AnimatePresence>
-        {showWelcomeBonus && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-            />
-            <motion.div
-              initial={{ scale: 0.95, y: 8, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, y: 8, opacity: 0 }}
-              transition={{ type: "spring", duration: 0.5, bounce: 0.2 }}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="welcome-modal-title"
-              className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-[var(--theme-radius)] border border-white/10 bg-[var(--theme-card-bg)]/40 text-[var(--theme-text)] shadow-2xl backdrop-blur-[20px] backdrop-saturate-[180%] z-[210] font-[var(--theme-font-family)]"
-            >
-              <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[var(--theme-primary)]/20 to-transparent pointer-events-none" />
-
-              <button
-                type="button"
-                onClick={handleCloseWelcomeBonus}
-                aria-label="Close welcome"
-                className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-[var(--theme-card-border)] bg-[var(--theme-bg)]/90 text-[var(--theme-text)] opacity-70 transition-all hover:opacity-100 active:scale-95 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-
-              <div className="relative flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 pb-6 pt-12 text-center sm:px-8">
-                <BrandLogo
-                  siteConfig={siteConfig}
-                  className="relative z-10 h-16 w-16 shrink-0"
-                />
-                <div className="relative z-10 space-y-2">
-                  <h3 id="welcome-modal-title" className="font-display text-2xl font-black tracking-tight">WELCOME</h3>
-                  <p className="mx-auto max-w-xs text-sm leading-relaxed opacity-75">
-                    A registration bonus of <span className="font-black text-[var(--theme-primary)]">UGX {welcomeBonusAmount.toLocaleString()}</span> has been added to your withdrawable balance.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseWelcomeBonus}
-                  className="relative z-10 mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--theme-primary)] px-5 py-3 text-sm font-sans font-black text-[var(--theme-on-primary)] transition-transform active:scale-[0.97] cursor-pointer"
-                >
-                  Start earning <ArrowRight className="h-4 w-4" strokeWidth={3} />
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Main vertical handset application envelope */}
       <div 
         className="relative w-full max-w-xl md:max-w-3xl h-full md:h-[94vh] md:rounded-[36px] md:border-[8px] md:border-[var(--theme-card-border)] bg-[var(--theme-bg)] flex flex-col overflow-hidden shadow-2xl z-10 font-[var(--theme-font-family)]"
@@ -716,9 +681,11 @@ export default function App() {
           chatUnread={chatUnread}
           alertsUnread={alertsUnread}
           showHistoryLink={activeTab !== "history"}
+          streak={userProfile.checkinStreak || 0}
           onOpenDeposit={() => setActiveTab("deposit")}
           onOpenHistory={() => setActiveTab("history")}
           onOpenChat={() => setActiveTab("chat")}
+          onOpenStreaks={() => setStreakSheetOpen(true)}
           onOpenAlerts={() => {
             localStorage.setItem("lastViewedAlertsTime", Date.now().toString());
             setPreviousTab(activeTab as any);
@@ -742,12 +709,13 @@ export default function App() {
                 <DashboardView
                   isHomeActive={activeTab === "dashboard"}
                   profile={userProfile}
+                  welcomeBonusAmount={welcomeBonusAmount}
                   activeNodes={activeNodes}
                   items={items}
                   onNavigateToCatalog={() => setActiveTab("catalog")}
                   onNavigateToIncome={() => setActiveTab("income")}
                   onNavigateToMilestones={(stage) => { setJourneyStage(stage || null); setActiveTab("vip"); }}
-                  onNavigateToStreaks={() => { setStreaksReturn("dashboard"); setActiveTab("streaks"); }}
+                  onNavigateToStreaks={() => setStreakSheetOpen(true)}
                   onNavigateToDeposit={() => setActiveTab("deposit")}
                   onNavigateToWithdraw={() => setActiveTab("withdraw")}
                   onProfileUpdate={handleProfileChange}
@@ -906,19 +874,6 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === "streaks" && (
-              <motion.div
-                key="streaks"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                className="w-full flex-1 min-h-0 h-full flex flex-col overflow-hidden"
-              >
-                <StreaksPage phone={userProfile.phone} userProfile={userProfile} siteConfig={siteConfig} onClaimSuccess={handleProfileChange} onBack={() => setActiveTab(streaksReturn)} />
-              </motion.div>
-            )}
-
             {(activeTab === "vip" || (activeTab === "alerts" && previousTab === "vip")) && (              <motion.div
                 key="vip"
                 initial={{ opacity: 0 }}
@@ -986,7 +941,8 @@ export default function App() {
                   onCloseAutoWithdraw={() => setAutoOpenWithdraw(false)}
                   onNavigate={(tab, room) => {
                     if (tab === "streaks") {
-                      setStreaksReturn("profile");
+                      setStreakSheetOpen(true);
+                      return;
                     }
                     if (tab === "referral") {
                       setReferralView("overview");
@@ -1049,93 +1005,85 @@ export default function App() {
           )}
         </AnimatePresence>
 
-      {/* Bottom Tab Bar — floating dock with a raised My Bots action */}
-        <div className="w-full px-4 pt-0 pb-[calc(0.375rem+env(safe-area-inset-bottom))] bg-transparent shrink-0 z-40 select-none">
-          <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-2 pt-2 pb-2 grid grid-cols-5 items-end">
-            {/* Home */}
-            <button
+      {/* Bottom Tab Bar — compact dock. Labels drop the uppercase/black treatment
+          (too heavy at 10px) and the active dot becomes a short bar. */}
+        <div className="w-full px-4 pt-0 pb-[calc(0.25rem+env(safe-area-inset-bottom))] bg-transparent shrink-0 z-40 select-none">
+          <nav className="w-full max-w-xl mx-auto bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] border border-white/10 rounded-[22px] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-1.5 py-1 grid grid-cols-5 items-end">
+            <NavItem
+              label="Home"
+              active={activeTab === "dashboard"}
               onClick={() => setActiveTab("dashboard")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "dashboard" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              <span className="grid place-items-center w-6 h-6">
-                <Home className="w-6 h-6 col-start-1 row-start-1" />
-                <Home fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "dashboard" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Home</span>
-              <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "dashboard" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-            </button>
-
-            {/* store */}
-             <button
+              icon={<Home className="h-[22px] w-[22px]" />}
+              activeIcon={<Home fill="currentColor" className="h-[22px] w-[22px]" />}
+            />
+            <NavItem
+              label="Markets"
+              active={activeTab === "catalog"}
               onClick={() => setActiveTab("catalog")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "catalog" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              <span className="grid place-items-center w-6 h-6">
-                <Compass className="w-6 h-6 col-start-1 row-start-1" />
-                <Compass  className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "catalog" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Markets</span>
-              <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "catalog" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-            </button>
+              icon={<Compass className="h-[22px] w-[22px]" />}
+              activeIcon={<Compass fill="currentColor" className="h-[22px] w-[22px]" />}
+            />
 
-      {/* My Bots — raised floating action */}
+            {/* My Bots — raised floating action */}
             <div className="flex flex-col items-center">
               <button
+                type="button"
                 onClick={() => setActiveTab("income")}
                 aria-label="My Bots"
-                className={`-mt-10 mb-1 w-14 h-14 rounded-full bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] grid place-items-center border active:scale-90 transition-all duration-200 ${activeTab === "income" ? "border-[var(--theme-primary)] text-[var(--theme-primary)]" : "border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"}`}
+                aria-current={activeTab === "income" ? "page" : undefined}
+                className={`-mt-7 mb-0.5 h-12 w-12 place-items-center rounded-full bg-[var(--theme-card-bg)]/40 backdrop-blur-[20px] backdrop-saturate-[180%] grid border active:scale-90 transition-all duration-200 ${activeTab === "income" ? "border-[var(--theme-primary)] text-[var(--theme-primary)]" : "border-[var(--theme-card-border)] text-[var(--theme-text)] opacity-70"}`}
               >
                 {siteConfig?.logoUrl?.trim() ? (
-                  <BrandLogo siteConfig={siteConfig} className="w-8 h-8 flex items-center justify-center shrink-0 [&>img]:rounded-lg" />
+                  <BrandLogo siteConfig={siteConfig} className="h-7 w-7 flex items-center justify-center shrink-0 [&>img]:rounded-lg" />
                 ) : (
-                  <Zap fill="currentColor" className="w-7 h-7" />
+                  <Zap fill="currentColor" className="h-6 w-6" />
                 )}
               </button>
-              <span className={`text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-55"}`}>My Bots</span>
-              <span className="w-4 h-1 flex items-center justify-center mt-1">
-                {activeTab === "income" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-                </div>
+              <span className={`text-[10px] font-sans font-semibold leading-none transition-colors ${activeTab === "income" ? "text-[var(--theme-primary)]" : "text-[var(--theme-text)] opacity-60"}`}>My Bots</span>
+              <NavDot active={activeTab === "income"} />
+            </div>
 
-                <button
-                 onClick={() => setActiveTab("vip")}
-                 className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "vip" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-               >
-                 <span className="grid place-items-center w-6 h-6">
-                   <Trophy className="w-6 h-6 col-start-1 row-start-1" />
-                   <Trophy fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "vip" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-                 </span>
-                 <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Tasks</span>
-                 <span className="w-4 h-1 flex items-center justify-center">
-                   {activeTab === "vip" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-                 </span>
-               </button>
-
-          
-          
-
-            {/* Profile */}
-            <button
+            <NavItem
+              label="Tasks"
+              active={activeTab === "vip"}
+              onClick={() => setActiveTab("vip")}
+              icon={<Trophy className="h-[22px] w-[22px]" />}
+              activeIcon={<Trophy fill="currentColor" className="h-[22px] w-[22px]" />}
+            />
+            <NavItem
+              label="Profile"
+              active={activeTab === "profile"}
               onClick={() => setActiveTab("profile")}
-              className={`flex flex-col items-center gap-1 py-2 px-1 rounded-2xl border-0 transition-colors active:scale-[0.97] ${activeTab === "profile" ? "text-[var(--theme-primary)]" : "bg-transparent text-[var(--theme-text)] opacity-55"}`}
-            >
-              <span className="grid place-items-center w-6 h-6">
-                <User className="w-6 h-6 col-start-1 row-start-1" />
-                <User fill="currentColor" className={`w-6 h-6 col-start-1 row-start-1 transition-all duration-200 ${activeTab === "profile" ? "opacity-100 scale-100" : "opacity-0 scale-[0.4]"}`} />
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-sans font-black uppercase tracking-wide leading-none">Profile</span>
-              <span className="w-4 h-1 flex items-center justify-center">
-                {activeTab === "profile" && <motion.span layoutId="nav-active-dot" transition={{ type: "spring", stiffness: 550, damping: 38 }} className="w-1 h-1 rounded-full bg-[var(--theme-primary)]" />}
-              </span>
-            </button>
+              icon={<User className="h-[22px] w-[22px]" />}
+              activeIcon={<User fill="currentColor" className="h-[22px] w-[22px]" />}
+            />
           </nav>
         </div>
-
-
+        <CheckinHost
+          welcomeBonus={welcomeBonusAmount > 0 && userProfile ? {
+            key: `${userProfile.phone}:${welcomeBonusAmount}`,
+            amount: welcomeBonusAmount,
+            balance: Number(userProfile.points) || 0,
+          } : null}
+          onWelcomeConsumed={() => {
+            if (userProfile?.phone) sessionStorage.removeItem(`pending_welcome_bonus_${userProfile.phone}`);
+            setWelcomeBonusAmount(0);
+          }}
+        />
+        <StreakSheet
+          open={streakSheetOpen}
+          onClose={() => setStreakSheetOpen(false)}
+          streak={userProfile?.checkinStreak || 0}
+          checkedInToday={userProfile?.lastCheckinDate === getTodayKey()}
+          baseBonus={siteConfig?.checkinBaseBonus || 0}
+          increment={siteConfig?.checkinIncrement || 0}
+          createdAt={userProfile?.createdAt}
+          phone={userProfile?.phone}
+          lastCheckinDate={userProfile?.lastCheckinDate}
+          claimedDays={null}
+          claimedLedger={null}
+          runStartDay={1}
+        />
 
       </div>
     </div>
