@@ -24,13 +24,14 @@
  * is not comparable across accounts; a share is, so the same number now reads
  * as a percentage.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, Gift, Plus, Share2Icon } from "lucide-react";
 import { UserProfile } from "../types";
 import { buildInviteLink } from "../utils/referral";
 import { useClipboard } from "../hooks/useClipboard";
 import { useGatedInterval } from "../hooks/useGatedInterval";
 import { POLL_INTERVAL_MS } from "../utils/motion";
+import { useCountedMoney } from "./fx/useCountedMoney";
 import GiftCodeSheet from "./GiftCodeSheet";
 import CurrencyFlagSelect from "./CurrencyFlagSelect";
 
@@ -42,6 +43,7 @@ interface HomeBalanceCardProps {
   onOpenDeposit: () => void;
   onOpenWithdraw: () => void;
   onProfileUpdate?: (p: UserProfile) => void;
+  welcomeBonusAmount?: number;
 }
 
 /**
@@ -85,11 +87,16 @@ export default function HomeBalanceCard({
   onOpenDeposit,
   onOpenWithdraw,
   onProfileUpdate,
+  welcomeBonusAmount = 0,
 }: HomeBalanceCardProps) {
   const { copy } = useClipboard();
   const [showGiftCode, setShowGiftCode] = useState(false);
   const [giftAvailable, setGiftAvailable] = useState(false);
   const withdrawable = Math.max(0, Number(profile.points) || 0);
+  // While a registration bonus is pending, the card shows the balance the user
+  // had *before* it, so the welcome count-up has somewhere to come from.
+  const mirrored = welcomeBonusAmount > 0 ? Math.max(0, withdrawable - welcomeBonusAmount) : withdrawable;
+  const { display: displayBalance, countTo, begin, release } = useCountedMoney(mirrored);
   const inviteLink = useMemo(() => buildInviteLink(profile.inviteCode), [profile.inviteCode]);
 
   // A live, unredeemed code is worth a pulse on the Gift code action — the same
@@ -109,6 +116,26 @@ export default function HomeBalanceCard({
   useEffect(() => {
     void fetchGiftAvailability();
   }, [profile.phone]);
+  useEffect(() => {
+    const handleBalanceCount = (event: Event) => {
+      const { to } = (event as CustomEvent<{ from: number; to: number }>).detail || {};
+      if (!Number.isFinite(to)) return;
+      countTo(to);
+    };
+    // Armed before the optimistic profile write lands, so the balance does not
+    // jump early and leave the coin-flight count with nothing to animate.
+    const handleBalancePriming = (event: Event) => {
+      const { from } = (event as CustomEvent<{ from: number | null }>).detail || {};
+      if (from === null || from === undefined) release();
+      else begin(from);
+    };
+    window.addEventListener("checkin:balance-count", handleBalanceCount);
+    window.addEventListener("checkin:balance-priming", handleBalancePriming);
+    return () => {
+      window.removeEventListener("checkin:balance-count", handleBalanceCount);
+      window.removeEventListener("checkin:balance-priming", handleBalancePriming);
+    };
+  }, [countTo, begin, release]);
   useGatedInterval(fetchGiftAvailability, POLL_INTERVAL_MS, {
     enabled: !!profile.phone,
     visibilityGate: true,
@@ -138,9 +165,10 @@ export default function HomeBalanceCard({
         </div>
         <p
           ref={balanceRef}
+          data-checkin-balance
           className="mt-1 truncate font-display text-[36px] font-black leading-none tracking-tight tabular-nums"
         >
-          {formatCurrency(withdrawable)}
+          {formatCurrency(displayBalance)}
         </p>
       </div>
 

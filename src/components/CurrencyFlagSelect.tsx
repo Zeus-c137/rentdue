@@ -20,26 +20,27 @@ export default function CurrencyFlagSelect({
 }: {
   size?: "sm" | "md";
 }) {
-  const { currency, autoCurrency, preference, setPreference, phone } = useCurrency();
+  const { currency, autoCurrency, preference, setPreference, phone, countryCode } = useCurrency();
 
   // A Ugandan account chooses between two currencies, so it gets a chevron and
   // the flag matching whichever one is showing — tap and the pair swaps together.
   //
   // Everyone else is USD-only. They see their own country's flag with no chevron,
   // which reads as "your money, in your currency" rather than a control they
-  // cannot use. Where the country is unknown the US flag stands in, since USD is
-  // what is actually being shown.
-  const country = countryForPhone(phone);
-  const isUgandan = country === "UG";
+  // cannot use. The toggle is gated on the *resolved automatic* currency, not on
+  // a separate country lookup, so the two can never disagree — that gap is what
+  // used to let a foreign account sit on UGX.
+  const country = countryCode ?? countryForPhone(phone);
+  const isUgandan = autoCurrency === "UGX";
   const flag = isUgandan
     ? currency === "USD"
       ? COUNTRY_FLAGS.US
       : COUNTRY_FLAGS.UG
     : country
       ? COUNTRY_FLAGS[country]
-      : COUNTRY_FLAGS.US;
+      : null;
 
-  const canToggle = isUgandan || autoCurrency === "UGX";
+  const canToggle = isUgandan;
   const isPinned = preference !== "auto";
   const shown: "UGX" | "USD" = currency;
 

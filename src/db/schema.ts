@@ -33,6 +33,10 @@ export const users = mysqlTable(
     // to mail arbitrary strangers.
     emailVerifiedAt: varchar("email_verified_at", { length: 64 }),
     username: varchar("username", { length: 64 }).notNull(),
+    // ISO country the account signed up from. The phone is stored as local
+    // digits, so a Rwandan and a Ugandan number are indistinguishable by shape;
+    // this is what lets the currency rule tell them apart.
+    countryCode: varchar("country_code", { length: 8 }),
     password: varchar("password", { length: 255 }).notNull(),
     inviteCode: varchar("invite_code", { length: 64 }).notNull().unique(),
     referredByCode: varchar("referred_by_code", { length: 64 }).default(""),

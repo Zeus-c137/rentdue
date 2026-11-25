@@ -163,6 +163,7 @@ export interface UserProfile {
   emailVerifiedAt?: string | null;
   username: string;
   password?: string;
+  countryCode?: string | null;
   inviteCode: string;
   referredByCode?: string;
   operator?: string;

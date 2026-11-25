@@ -78,6 +78,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       phone VARCHAR(32) NOT NULL PRIMARY KEY,
       telegram_id VARCHAR(32) NULL,
       username VARCHAR(64) NOT NULL,
+      country_code VARCHAR(8) NULL,
       password VARCHAR(255) NOT NULL,
       invite_code VARCHAR(64) NOT NULL UNIQUE,
       referred_by_code VARCHAR(64) DEFAULT '',
@@ -339,6 +340,13 @@ export async function ensureDatabaseSchema(): Promise<void> {
 
   try {
     await connection.query("ALTER TABLE users ADD COLUMN telegram_id VARCHAR(32) NULL");
+  } catch (error: any) {
+    if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
+  }
+  // Registration country. Additive and nullable: every existing row keeps NULL
+  // and falls back to the phone-shape rule below.
+  try {
+    await connection.query("ALTER TABLE users ADD COLUMN country_code VARCHAR(8) NULL");
   } catch (error: any) {
     if (!String(error?.code || "").includes("DUPLICATE") && error?.errno !== 1060) throw error;
   }

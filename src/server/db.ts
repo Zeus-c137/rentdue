@@ -372,6 +372,7 @@ export async function getUserProfile(phone: string): Promise<UserProfile | null>
           email: (u as any).email || null,
           emailVerifiedAt: (u as any).emailVerifiedAt || null,
           username: u.username,
+          countryCode: (u as any).countryCode || null,
           password: u.password,
           inviteCode: u.username,
           referredByCode: u.referredByCode || "",
@@ -449,6 +450,9 @@ export async function registerUserProfile(data: any): Promise<any> {
     // on telegram_id keeps one Telegram account to one user profile.
     telegramId: typeof data.telegramId === "string" && /^\d+$/.test(data.telegramId) ? data.telegramId : null,
     username,
+    // Where the account signed up from. Drives the currency rule, because the
+    // stored phone is local digits and cannot be traced back to a country.
+    countryCode: typeof data.countryCode === "string" ? data.countryCode.toUpperCase() : null,
     password,
     inviteCode: username,
     referredByCode,
@@ -481,6 +485,7 @@ export async function registerUserProfile(data: any): Promise<any> {
       email: newUser.email || null,
       emailVerifiedAt: newUser.emailVerifiedAt || null,
       username: newUser.username,
+      countryCode: newUser.countryCode || null,
       password: newUser.password || "",
       inviteCode: newUser.inviteCode,
       referredByCode: newUser.referredByCode,
@@ -1389,6 +1394,39 @@ export async function claimCollectible(phone: string, subscriptionId: string): P
     );
   }
   return { success: true, collectible };
+}
+
+/**
+ * Lightweight check-in history: returns only platform-day keys and the total
+ * credited amount per day for daily_checkin_bonus ledger rows. Unlike
+ * getUserTransactions (which returns every transaction type, including
+ * deposit/withdrawal metadata) this stays cheap even for users with long
+ * histories, which is exactly what the streak calendar needs.
+ */
+export async function getCheckinHistory(phone: string): Promise<{ days: string[]; ledger: Record<string, number> }> {
+  const days: string[] = [];
+  const ledger: Record<string, number> = {};
+  const drizzleDb = getDb();
+  if (drizzleDb) {
+    try {
+      const rows: any[] = await drizzleDb
+        .select({ timestamp: schema.transactions.timestamp, amount: schema.transactions.amount })
+        .from(schema.transactions)
+        .where(and(
+          eq(schema.transactions.userId, phone),
+          eq(schema.transactions.type, 'daily_checkin_bonus'),
+          inArray(schema.transactions.status, ['SUCCESSFUL', 'COMPLETED', 'successful', 'completed'])
+        ));
+      for (const tx of rows) {
+        const key = getPlatformDateKey(new Date(new Date(tx.timestamp).getTime()));
+        days.push(key);
+        ledger[key] = (ledger[key] || 0) + (Number(tx.amount) || 0);
+      }
+    } catch (err) {
+      console.warn('[Database] getCheckinHistory error:', err);
+    }
+  }
+  return { days, ledger };
 }
 
 export async function getUserTransactions(phone: string): Promise<any[]> {

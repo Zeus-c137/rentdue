@@ -576,10 +576,12 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
 
   const activeConfig = localSiteConfig || siteConfig;
 
-  // Pre-login there is no account to read a country from, so the browser's
-  // own region decides. The moment a user signs in, App.tsx resolves it from
-  // their phone number instead and this value stops mattering.
-  const { formatCurrency } = useCurrency(null, Number(activeConfig?.usdtRate) || null);
+  // Pre-login there is no account, so the country the visitor picked on the form
+  // decides: Uganda shows UGX, everywhere else shows USD — the same rule the
+  // dashboard applies once the account exists.
+  const { formatCurrency } = useCurrency(null, Number(activeConfig?.usdtRate) || null, {
+    countryCode: phoneCountry.code,
+  });
 
   // Scroll spy for the desktop nav. Picks the section whose top edge has most
   // recently crossed the sticky-header line, so the active pill follows the
@@ -715,7 +717,7 @@ export default function AuthView({ onAuthSuccess, siteConfig }: AuthViewProps) {
       // matching confirmPassword, so echo it.
       const payload =
         mode === "register"
-          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined, email: email.trim() || undefined, ...(telegramIdToken ? { id_token: telegramIdToken } : {}) }
+          ? { phone, password, confirmPassword: password, inviteCode: inviteCode.trim().toUpperCase(), username: username.trim() || undefined, email: email.trim() || undefined, countryCode: phoneCountry.code, ...(telegramIdToken ? { id_token: telegramIdToken } : {}) }
           : { phone, password };
 
       const res = await fetch(endpoint, {

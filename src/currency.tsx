@@ -33,6 +33,8 @@ export interface CurrencyContextValue {
   isAuto: boolean;
   /** The account's phone number, for resolving a country flag. */
   phone: string | null;
+  /** ISO country the account signed up from, when known. */
+  countryCode: string | null;
   /** The viewer's choice: "auto", or a pinned currency. */
   preference: CurrencyPreference;
   /** Pins a currency, or "auto" to resume following the rule. Persisted by the caller. */
@@ -110,6 +112,18 @@ export function currencyForPhone(raw: string | null | undefined): Currency {
   // Anything else is ambiguous. Default to UGX rather than converting a real
   // balance on a guess.
   return "UGX";
+}
+
+/**
+ * Currency implied by a registration country. Uganda is the only account that
+ * holds UGX; every other country sees USD.
+ *
+ * This is the authoritative answer when an account has a stored `countryCode`,
+ * because the phone is kept as local digits and cannot be traced back to a
+ * country — a Rwandan "712345678" is shaped exactly like a Ugandan number.
+ */
+export function currencyForCountryCode(code: string | null | undefined): Currency {
+  return String(code || "").trim().toUpperCase() === "UG" ? "UGX" : "USD";
 }
 
 /**
@@ -247,6 +261,7 @@ export function buildCurrencyValue(
   options?: {
     autoCurrency?: Currency;
     phone?: string | null;
+    countryCode?: string | null;
     preference?: CurrencyPreference;
     setPreference?: (preference: CurrencyPreference) => void;
   }
@@ -257,6 +272,7 @@ export function buildCurrencyValue(
     currency,
     autoCurrency: options?.autoCurrency ?? currency,
     phone: options?.phone ?? null,
+    countryCode: options?.countryCode ?? null,
     isAuto: preference === "auto",
     preference,
     setPreference: options?.setPreference ?? (() => {}),
@@ -290,6 +306,8 @@ export function useCurrency(
     forceUgx?: boolean;
     preference?: CurrencyPreference;
     setPreference?: (preference: CurrencyPreference) => void;
+    /** Registration country; authoritative over the phone when present. */
+    countryCode?: string | null;
   }
 ): CurrencyContextValue {
   const inherited = useContext(CurrencyContext);
@@ -298,7 +316,7 @@ export function useCurrency(
   // A nested consumer with no opinion of its own inherits the provider's answer
   // wholesale, including the preference and the setter — otherwise a toggle deep
   // in the tree would read a preference it could not change.
-  if (phone === undefined && options?.preference === undefined && !options?.forceUgx) {
+  if (phone === undefined && options?.preference === undefined && !options?.forceUgx && options?.countryCode === undefined) {
     if (exchangeRate === undefined || exchangeRate === null) return inherited;
     return {
       ...inherited,
@@ -307,6 +325,7 @@ export function useCurrency(
         // Must be carried through: dropping it would leave the flag selector with
         // no account country to resolve a flag from.
         phone: inherited.phone,
+        countryCode: inherited.countryCode,
         preference: inherited.preference,
         setPreference: inherited.setPreference,
       }),
@@ -320,9 +339,11 @@ export function useCurrency(
   // the browser-locale fallback could never run.
   const auto: Currency = options?.forceUgx
     ? "UGX"
-    : phone
-      ? currencyForPhone(phone)
-      : localeCurrency;
+    : options?.countryCode
+      ? currencyForCountryCode(options.countryCode)
+      : phone
+        ? currencyForPhone(phone)
+        : localeCurrency;
 
   // A preference only ever means something on a UGX account, where USD is a real
   // option. Elsewhere there is nothing to choose, so report "auto" rather than
@@ -345,6 +366,7 @@ export function useCurrency(
       buildCurrencyValue(currency, rate, {
         autoCurrency: auto,
         phone: phone ?? null,
+        countryCode: options?.countryCode ?? null,
         preference,
         setPreference: options?.setPreference ?? inherited?.setPreference,
       }),
